@@ -234,16 +234,29 @@ def _docling_process_file(file_path: str) -> dict:
         tables = []
         for tbl in doc.tables:
             try:
-                df     = tbl.export_to_dataframe(doc=doc)
-                md_tbl = tbl.export_to_markdown(doc=doc) if hasattr(tbl, "export_to_markdown") else ""
+                # Docling 2.x: export_to_dataframe() takes no positional doc arg
+                try:
+                    df = tbl.export_to_dataframe()
+                except TypeError:
+                    df = tbl.export_to_dataframe(doc=doc)
+                # Replace NaN/None so JSON serialisation never breaks
+                df = df.fillna("").astype(str)
+                # Build markdown from the dataframe (reliable across API versions)
+                hdrs = list(df.columns)
+                md_rows = (
+                    ["| " + " | ".join(hdrs) + " |",
+                     "| " + " | ".join(["---"] * len(hdrs)) + " |"]
+                    + ["| " + " | ".join(str(row[h]) for h in hdrs) + " |"
+                       for row in df.to_dict(orient="records")]
+                )
                 tables.append({
                     "caption":  "",
-                    "markdown": md_tbl,
+                    "markdown": "\n".join(md_rows),
                     "data":     df.to_dict(orient="records"),
                     "shape":    list(df.shape),
                 })
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Table export skipped: %s", exc)
 
         return {
             "engine":      "Docling",

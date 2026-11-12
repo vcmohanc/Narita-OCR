@@ -7,6 +7,7 @@ import asyncio
 from pathlib import Path
 from typing import Optional
 
+from pydantic import BaseModel
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -110,20 +111,19 @@ async def upload_and_ocr(
                 raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
             await f.write(chunk)
 
+    # Detect client in memory from filename (does NOT persist until user clicks Save)
+    matched_client = db.detect_client(filename=file.filename) if db.is_connected() else None
+
     jobs[job_id] = {
         "job_id":   job_id,
         "filename": file.filename,
         "status":   "queued",
         "engine":   engine,
-        "client":   None,
+        "client":   matched_client,
+        "saved":    False,
         "result":   None,
         "error":    None,
     }
-
-    # Persist queued status to DB (auto-detects client from filename if possible)
-    matched_client = db.save_job_queued(job_id, file.filename, engine)
-    if matched_client:
-        jobs[job_id]["client"] = matched_client
 
     background_tasks.add_task(_run_ocr, job_id, str(dest), engine, file.filename)
     return {"job_id": job_id, "status": "queued", "client": matched_client}
@@ -178,6 +178,61 @@ async def job_result(job_id: str):
     if result is None:
         raise HTTPException(status_code=404, detail="Result not available")
     return result
+
+
+class SaveJobRequest(BaseModel):
+    filename: Optional[str] = None
+    engine:   Optional[str] = None
+    result:   Optional[dict] = None
+
+
+@app.post("/api/ocr/save/{job_id}")
+async def save_ocr_job(job_id: str, payload: Optional[SaveJobRequest] = None):
+    """Persist an extracted OCR result to MySQL when Save is clicked, matching client by filename."""
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    job = jobs.get(job_id)
+    if job is not None:
+        if job.get("status") != "done":
+            raise HTTPException(status_code=409, detail="OCR extraction is not finished yet")
+        result = job.get("result") or (payload.result if payload else None)
+        filename = (payload.filename if payload and payload.filename else None) or job.get("filename") or ""
+        engine = (payload.engine if payload and payload.engine else None) or job.get("engine") or "all"
+    else:
+        if payload is None or not payload.result:
+            raise HTTPException(status_code=404, detail="Extracted job not found in memory")
+        result = payload.result
+        filename = payload.filename or result.get("filename") or "unknown"
+        engine = payload.engine or result.get("primary_engine") or result.get("engine") or "all"
+
+    if not result:
+        raise HTTPException(status_code=400, detail="No extracted OCR result available to save")
+
+    try:
+        saved_info = db.save_extracted_job(
+            job_id=job_id,
+            filename=filename,
+            engine=engine,
+            result=result,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Failed to save OCR job %s", job_id)
+        raise HTTPException(status_code=500, detail=f"Failed to save to database: {exc}")
+
+    if job is not None:
+        job["saved"] = True
+        if saved_info.get("client"):
+            job["client"] = saved_info["client"]
+
+    return {
+        "status":   "saved",
+        "job_id":   saved_info["job_id"],
+        "filename": saved_info["filename"],
+        "client":   saved_info["client"],
+    }
 
 
 @app.get("/api/health")
@@ -237,6 +292,40 @@ async def db_job_detail(job_id: str):
     return row
 
 
+@app.delete("/api/db/jobs")
+async def delete_jobs_bulk(job_ids: list[str] = None, body: dict = None):
+    """Bulk delete jobs by a list of job_ids passed as JSON body."""
+    from fastapi import Body
+    raise HTTPException(status_code=405, detail="Use POST /api/db/jobs/bulk-delete")
+
+
+@app.post("/api/db/jobs/bulk-delete")
+async def bulk_delete_jobs(payload: dict):
+    """Permanently delete multiple jobs. Body: {\"job_ids\": [\"...\", ...]}"""
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    job_ids = payload.get("job_ids", [])
+    if not job_ids or not isinstance(job_ids, list):
+        raise HTTPException(status_code=400, detail="job_ids must be a non-empty list")
+    deleted = db.delete_jobs_bulk(job_ids)
+    for jid in job_ids:
+        jobs.pop(jid, None)
+    return {"deleted": deleted, "requested": len(job_ids)}
+
+
+@app.delete("/api/db/jobs/{job_id}")
+async def delete_job(job_id: str):
+    """Permanently delete a job and its child rows from the database."""
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    deleted = db.delete_job(job_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Job not found")
+    # Also remove from in-memory registry if present
+    jobs.pop(job_id, None)
+    return {"deleted": True, "job_id": job_id}
+
+
 @app.get("/api/db/stats")
 async def db_statistics():
     """Return aggregate statistics from the MySQL database."""
@@ -252,28 +341,30 @@ OCR_TIMEOUT_S = 300  # 5 minutes
 
 async def _run_ocr(job_id: str, file_path: str, engine: str, filename: str = ""):
     jobs[job_id]["status"] = "processing"
-    db.save_job_processing(job_id)
     try:
         loop = asyncio.get_event_loop()
         result = await asyncio.wait_for(
             loop.run_in_executor(None, _sync_ocr, file_path, engine),
             timeout=OCR_TIMEOUT_S,
         )
-        matched_client = db.save_job_done(job_id, result, filename=filename)
-        if matched_client:
-            jobs[job_id]["client"] = matched_client
+        if isinstance(result, dict):
+            result["job_id"] = job_id
+            if filename:
+                result["filename"] = filename
+            matched_client = db.detect_client_for_result(result, filename=filename) if db.is_connected() else None
+            if matched_client:
+                result["client"] = matched_client
+                jobs[job_id]["client"] = matched_client
         jobs[job_id]["result"] = result
         jobs[job_id]["status"] = "done"
     except asyncio.TimeoutError:
         logger.error("OCR timed out after %ds for job %s", OCR_TIMEOUT_S, job_id)
         jobs[job_id]["status"] = "error"
         jobs[job_id]["error"]  = f"Processing timed out ({OCR_TIMEOUT_S}s)"
-        db.save_job_error(job_id, f"Processing timed out ({OCR_TIMEOUT_S}s)")
     except Exception as exc:
         logger.exception("OCR failed for job %s", job_id)
         jobs[job_id]["status"] = "error"
         jobs[job_id]["error"]  = str(exc)
-        db.save_job_error(job_id, str(exc))
 
 
 def _sync_ocr(file_path: str, engine: str) -> dict:

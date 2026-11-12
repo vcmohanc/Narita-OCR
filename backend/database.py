@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import unicodedata
+import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional
@@ -396,6 +397,148 @@ def save_job_processing(job_id: str):
         logger.error("DB save_job_processing failed: %s", exc)
 
 
+def extract_combined_text(result: dict) -> str:
+    """Collect candidate OCR text blocks from a result dictionary for matching."""
+    text_candidates = [
+        result.get("fused_text"),
+        result.get("full_text"),
+        result.get("text"),
+        result.get("markdown"),
+    ]
+    for eng_key in ("paddle", "docling", "deepseek"):
+        eng = result.get(eng_key)
+        if isinstance(eng, dict):
+            text_candidates.extend([eng.get("markdown"), eng.get("text"), eng.get("full_text")])
+    return "\n".join(t for t in text_candidates if isinstance(t, str) and t)
+
+
+def detect_client_for_result(result: dict, filename: str = "") -> Optional[dict]:
+    """Match an OCR result to a client in ocr_clients using filename first, then extracted text."""
+    combined_text = extract_combined_text(result)
+    return detect_client(filename=filename, text=combined_text)
+
+
+def _insert_engine_and_table_rows(cur, job_id: str, result: dict) -> None:
+    """Insert per-engine outputs and extracted Docling tables for a saved OCR job."""
+    for engine_key in ("paddle", "docling", "deepseek"):
+        eng = result.get(engine_key)
+        if not eng:
+            if result.get("engine", "").lower().startswith(engine_key):
+                eng = result
+            else:
+                continue
+        if not eng:
+            continue
+
+        lines = eng.get("lines", [])
+        conf = (
+            round(sum(l["confidence"] for l in lines) / len(lines), 4)
+            if lines else None
+        )
+        cur.execute(
+            """
+            INSERT INTO ocr_job_engines
+                (job_id, engine, full_text, markdown, line_count, confidence_avg, raw_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                job_id,
+                engine_key,
+                eng.get("full_text") or eng.get("text", ""),
+                eng.get("markdown", ""),
+                eng.get("line_count") or len(lines),
+                conf,
+                json.dumps(eng, ensure_ascii=False, default=str),
+            ),
+        )
+
+    for idx, tbl in enumerate(result.get("tables", [])):
+        shape = tbl.get("shape", [None, None])
+        cur.execute(
+            """
+            INSERT INTO ocr_tables
+                (job_id, tbl_index, caption, markdown, shape_rows, shape_cols, data_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                job_id,
+                idx,
+                tbl.get("caption", ""),
+                tbl.get("markdown", ""),
+                shape[0] if len(shape) > 0 else None,
+                shape[1] if len(shape) > 1 else None,
+                json.dumps(tbl.get("data", []), ensure_ascii=False, default=str),
+            ),
+        )
+
+
+def save_extracted_job(job_id: str, filename: str, engine: str, result: dict) -> dict:
+    """
+    Persist an already-extracted OCR result into ocr_jobs, ocr_job_engines, and ocr_tables.
+    Matches the client according to filename (with extracted text fallback) and inserts
+    a new row each time Save is clicked (generating a new UUID if job_id already exists).
+    """
+    if not is_connected():
+        raise RuntimeError("MySQL database is not connected")
+
+    matched_client = detect_client_for_result(result, filename=filename)
+    client_id = matched_client["id"] if matched_client else None
+
+    result_to_store = dict(result)
+    if matched_client:
+        result_to_store["client"] = matched_client
+    result_to_store["filename"] = filename
+
+    now = datetime.utcnow()
+    save_id = (job_id or "").strip()
+    if not save_id or len(save_id) > 36:
+        save_id = str(uuid.uuid4())
+
+    safe_filename = (filename or "unknown")[:512]
+    req_engine = (engine or result.get("engine") or result.get("primary_engine") or "all")[:64]
+    prim_engine = result.get("primary_engine") or result.get("engine")
+    if isinstance(prim_engine, str):
+        prim_engine = prim_engine[:64]
+
+    with _get_connection() as con:
+        cur = con.cursor()
+        cur.execute("SELECT 1 FROM ocr_jobs WHERE job_id = %s LIMIT 1", (save_id,))
+        if cur.fetchone() is not None:
+            save_id = str(uuid.uuid4())
+        result_to_store["job_id"] = save_id
+
+        cur.execute(
+            """
+            INSERT INTO ocr_jobs
+                (job_id, client_id, filename, status, engine_requested, primary_engine,
+                 fused_text, confidence_avg, processing_time_s, result_json,
+                 created_at, updated_at)
+            VALUES (%s, %s, %s, 'done', %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                save_id,
+                client_id,
+                safe_filename,
+                req_engine,
+                prim_engine,
+                result.get("fused_text") or result.get("full_text") or result.get("text") or result.get("markdown", ""),
+                result.get("confidence_avg"),
+                result.get("processing_time_s"),
+                json.dumps(result_to_store, ensure_ascii=False, default=str),
+                now,
+                now,
+            ),
+        )
+        _insert_engine_and_table_rows(cur, save_id, result_to_store)
+        cur.close()
+
+    return {
+        "job_id": save_id,
+        "filename": safe_filename,
+        "client": matched_client,
+    }
+
+
 def save_job_done(job_id: str, result: dict, filename: str = "") -> Optional[dict]:
     """
     Persist the completed OCR result.
@@ -405,19 +548,7 @@ def save_job_done(job_id: str, result: dict, filename: str = "") -> Optional[dic
     if not is_connected():
         return None
     try:
-        text_candidates = [
-            result.get("fused_text"),
-            result.get("full_text"),
-            result.get("text"),
-            result.get("markdown"),
-        ]
-        for eng_key in ("paddle", "docling", "deepseek"):
-            eng = result.get(eng_key)
-            if isinstance(eng, dict):
-                text_candidates.extend([eng.get("markdown"), eng.get("text"), eng.get("full_text")])
-        combined_text = "\n".join(t for t in text_candidates if isinstance(t, str) and t)
-
-        matched_client = detect_client(filename=filename, text=combined_text)
+        matched_client = detect_client_for_result(result, filename=filename)
         client_id = matched_client["id"] if matched_client else None
         if matched_client and "client" not in result:
             result["client"] = matched_client
@@ -451,61 +582,7 @@ def save_job_done(job_id: str, result: dict, filename: str = "") -> Optional[dic
                 ),
             )
 
-            # --- ocr_job_engines (paddle / docling / deepseek) ---
-            for engine_key in ("paddle", "docling", "deepseek"):
-                eng = result.get(engine_key)
-                if not eng:
-                    # single-engine result stored directly
-                    if result.get("engine", "").lower().startswith(engine_key):
-                        eng = result
-                    else:
-                        continue
-                if not eng:
-                    continue
-
-                lines = eng.get("lines", [])
-                conf  = (
-                    round(sum(l["confidence"] for l in lines) / len(lines), 4)
-                    if lines else None
-                )
-                cur.execute(
-                    """
-                    INSERT INTO ocr_job_engines
-                        (job_id, engine, full_text, markdown, line_count, confidence_avg, raw_json)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        job_id,
-                        engine_key,
-                        eng.get("full_text") or eng.get("text", ""),
-                        eng.get("markdown", ""),
-                        eng.get("line_count") or len(lines),
-                        conf,
-                        json.dumps(eng, ensure_ascii=False, default=str),
-                    ),
-                )
-
-            # --- ocr_tables ---
-            tables = result.get("tables", [])
-            for idx, tbl in enumerate(tables):
-                shape = tbl.get("shape", [None, None])
-                cur.execute(
-                    """
-                    INSERT INTO ocr_tables
-                        (job_id, tbl_index, caption, markdown, shape_rows, shape_cols, data_json)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        job_id,
-                        idx,
-                        tbl.get("caption", ""),
-                        tbl.get("markdown", ""),
-                        shape[0] if len(shape) > 0 else None,
-                        shape[1] if len(shape) > 1 else None,
-                        json.dumps(tbl.get("data", []), ensure_ascii=False, default=str),
-                    ),
-                )
-
+            _insert_engine_and_table_rows(cur, job_id, result)
             cur.close()
         return matched_client
     except Exception as exc:
@@ -758,6 +835,39 @@ def _migrate():
             )
         _seed_clients(cur)
         cur.close()
+
+
+def delete_jobs_bulk(job_ids: list) -> int:
+    """Delete multiple jobs by job_id. Returns count of deleted rows."""
+    if not is_connected() or not job_ids:
+        return 0
+    try:
+        placeholders = ",".join(["%s"] * len(job_ids))
+        with _get_connection() as con:
+            cur = con.cursor()
+            cur.execute(f"DELETE FROM ocr_jobs WHERE job_id IN ({placeholders})", job_ids)
+            affected = cur.rowcount
+            cur.close()
+        return affected
+    except Exception as exc:
+        logger.error("DB delete_jobs_bulk failed: %s", exc)
+        return 0
+
+
+def delete_job(job_id: str) -> bool:
+    """Delete a job and its child rows (cascades to ocr_job_engines + ocr_tables)."""
+    if not is_connected():
+        return False
+    try:
+        with _get_connection() as con:
+            cur = con.cursor()
+            cur.execute("DELETE FROM ocr_jobs WHERE job_id = %s", (job_id,))
+            affected = cur.rowcount
+            cur.close()
+        return affected > 0
+    except Exception as exc:
+        logger.error("DB delete_job failed: %s", exc)
+        return False
 
 
 def cleanup_stale_jobs(older_than_minutes: int = 5) -> int:

@@ -8,6 +8,7 @@ const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
 let selectedFile   = null;
 let selectedEngine = "all";
 let currentResult  = null;
+let currentJobId   = null;
 let gpuAvailable   = false;  // updated from /api/health on load
 
 // Engine selector
@@ -106,6 +107,15 @@ function setProgress(pct, lbl) {
 document.getElementById("processBtn").addEventListener("click", async () => {
   if (!selectedFile) return;
 
+  currentJobId  = null;
+  currentResult = null;
+  const saveBtn = document.getElementById("saveDbBtn");
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Save to DB";
+    saveBtn.classList.remove("saved");
+  }
+
   document.getElementById("resultsCard").classList.add("hidden");
   document.getElementById("progressWrap").classList.remove("hidden");
   document.getElementById("processBtn").disabled = true;
@@ -127,6 +137,7 @@ document.getElementById("processBtn").addEventListener("click", async () => {
       throw new Error(err.detail || "Upload failed");
     }
     const { job_id } = await uploadRes.json();
+    currentJobId = job_id;
     setProgress(20, "File uploaded — running OCR engines…");
 
     const STAGES = [
@@ -233,11 +244,62 @@ function renderResults(res) {
   });
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
   document.getElementById("tab-fused").classList.remove("hidden");
+  if (res.job_id) currentJobId = res.job_id;
+  const saveBtn = document.getElementById("saveDbBtn");
+  if (saveBtn) {
+    saveBtn.disabled = !currentJobId;
+    saveBtn.textContent = "Save to DB";
+    saveBtn.classList.remove("saved");
+  }
   document.getElementById("resultsCard").scrollIntoView({ behavior: "smooth", block: "start" });
-  if (typeof window._onJobDone === "function") window._onJobDone(res);
 }
 
-// Copy / Download buttons
+// Save to DB / Copy / Download buttons
+const saveDbBtn = document.getElementById("saveDbBtn");
+if (saveDbBtn) {
+  saveDbBtn.addEventListener("click", async () => {
+    if (!currentResult || !currentJobId) {
+      showToast("No extracted result to save.", true);
+      return;
+    }
+    saveDbBtn.disabled = true;
+    const prevLabel = saveDbBtn.textContent;
+    saveDbBtn.textContent = "Saving…";
+    try {
+      const filename = (selectedFile && selectedFile.name) || currentResult.filename || "unknown";
+      const r = await fetch(`${API_BASE}/api/ocr/save/${encodeURIComponent(currentJobId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename,
+          engine: selectedEngine,
+          result: currentResult,
+        }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ detail: r.statusText }));
+        throw new Error(err.detail || "Save failed");
+      }
+      const saved = await r.json();
+      if (saved.client) {
+        currentResult.client = saved.client;
+      }
+      saveDbBtn.classList.add("saved");
+      saveDbBtn.textContent = "Saved ✓";
+      const clientTxt = saved.client
+        ? ` → ${saved.client.name_ja} / ${saved.client.name_en}`
+        : "";
+      showToast(`Saved "${saved.filename}" to database${clientTxt}`);
+      if (typeof window._onJobSaved === "function") window._onJobSaved(saved);
+    } catch (err) {
+      saveDbBtn.textContent = prevLabel;
+      showToast("Save failed: " + err.message, true);
+    } finally {
+      saveDbBtn.disabled = false;
+    }
+  });
+}
+
 document.getElementById("copyBtn").addEventListener("click", () => {
   if (!currentResult) { showToast("No results yet."); return; }
   navigator.clipboard.writeText(currentResult.fused_text || "").then(
@@ -333,7 +395,8 @@ function esc(s) {
           ? `${esc(j.client_name_ja)} (${esc(j.client_name_en)})`
           : '—';
         return `
-        <tr>
+        <tr data-job-id="${esc(j.job_id)}">
+          <td style="text-align:center"><input type="checkbox" class="job-chk" data-job-id="${esc(j.job_id)}"></td>
           <td title="${esc(j.filename)}">${esc(j.filename)}</td>
           <td title="${clientLabel}">${clientLabel}</td>
           <td>${esc(j.engine_requested)}</td>
@@ -341,8 +404,47 @@ function esc(s) {
           <td>${j.confidence_avg != null ? (j.confidence_avg * 100).toFixed(1) + '%' : '—'}</td>
           <td>${j.processing_time_s != null ? j.processing_time_s : '—'}</td>
           <td>${j.created_at ? esc(j.created_at.replace('T',' ').slice(0,19)) : '—'}</td>
+          <td><button class="del-job-btn" data-job-id="${esc(j.job_id)}" title="Delete this job">🗑</button></td>
         </tr>`;
       }).join('');
+
+      // Select-all checkbox
+      const selectAll = document.getElementById('selectAllJobs');
+      if (selectAll) {
+        selectAll.checked = false;
+        selectAll.addEventListener('change', () => {
+          bodyEl.querySelectorAll('.job-chk').forEach(chk => { chk.checked = selectAll.checked; });
+          updateBulkBar();
+        });
+      }
+
+      // Per-row checkboxes → update bulk bar
+      bodyEl.querySelectorAll('.job-chk').forEach(chk => {
+        chk.addEventListener('change', updateBulkBar);
+      });
+
+      // Wire single delete buttons
+      bodyEl.querySelectorAll('.del-job-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const jobId = btn.dataset.jobId;
+          if (!confirm('Delete this job record? This cannot be undone.')) return;
+          btn.disabled = true;
+          try {
+            const r = await fetch(`${API_BASE}/api/db/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+            const row = btn.closest('tr');
+            if (row) row.remove();
+            if (!bodyEl.querySelector('tr[data-job-id]')) {
+              bodyEl.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted)">No jobs yet</td></tr>';
+            }
+            updateBulkBar();
+            showToast('Job deleted.');
+          } catch (e) {
+            btn.disabled = false;
+            showToast('Delete failed: ' + e.message, true);
+          }
+        });
+      });
     } catch (e) {
       bodyEl.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#cb2431">Error: ${esc(e.message)}</td></tr>`;
     }
@@ -354,10 +456,76 @@ function esc(s) {
   if (refreshBtn) refreshBtn.addEventListener('click', () => { loadClients(); loadHistory(); });
   if (clientFilter) clientFilter.addEventListener('change', loadHistory);
 
-  // Auto-refresh history when a job completes
-  const origHandler = window._onJobDone;
-  window._onJobDone = function(result) {
-    if (origHandler) origHandler(result);
-    setTimeout(() => { loadClients(); loadHistory(); }, 400);
+  // Bulk-delete bar helpers
+  const bulkBar = document.getElementById('bulkBar');
+  const bulkCount = document.getElementById('bulkCount');
+  const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+  const bulkCancelBtn = document.getElementById('bulkCancelBtn');
+
+  function getCheckedIds() {
+    return Array.from(bodyEl.querySelectorAll('.job-chk:checked')).map(c => c.dataset.jobId);
+  }
+
+  function updateBulkBar() {
+    const ids = getCheckedIds();
+    if (!bulkBar) return;
+    if (ids.length > 0) {
+      bulkBar.classList.remove('hidden');
+      if (bulkCount) bulkCount.textContent = ids.length + ' selected';
+    } else {
+      bulkBar.classList.add('hidden');
+    }
+    const allChks = bodyEl.querySelectorAll('.job-chk');
+    const selectAll = document.getElementById('selectAllJobs');
+    if (selectAll && allChks.length > 0) {
+      selectAll.checked = ids.length === allChks.length;
+      selectAll.indeterminate = ids.length > 0 && ids.length < allChks.length;
+    }
+  }
+
+  if (bulkCancelBtn) {
+    bulkCancelBtn.addEventListener('click', () => {
+      bodyEl.querySelectorAll('.job-chk').forEach(c => { c.checked = false; });
+      const selectAll = document.getElementById('selectAllJobs');
+      if (selectAll) { selectAll.checked = false; selectAll.indeterminate = false; }
+      updateBulkBar();
+    });
+  }
+
+  if (bulkDeleteBtn) {
+    bulkDeleteBtn.addEventListener('click', async () => {
+      const ids = getCheckedIds();
+      if (!ids.length) return;
+      if (!confirm(`Delete ${ids.length} job(s)? This cannot be undone.`)) return;
+      bulkDeleteBtn.disabled = true;
+      try {
+        const r = await fetch(`${API_BASE}/api/db/jobs/bulk-delete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_ids: ids }),
+        });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+        const { deleted } = await r.json();
+        ids.forEach(id => {
+          const row = bodyEl.querySelector(`tr[data-job-id="${id}"]`);
+          if (row) row.remove();
+        });
+        if (!bodyEl.querySelector('tr[data-job-id]')) {
+          bodyEl.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted)">No jobs yet</td></tr>';
+        }
+        updateBulkBar();
+        showToast(`${deleted} job(s) deleted.`);
+      } catch (e) {
+        showToast('Bulk delete failed: ' + e.message, true);
+      }
+      bulkDeleteBtn.disabled = false;
+    });
+  }
+
+  // Auto-refresh history when a job is saved to MySQL
+  const origSavedHandler = window._onJobSaved;
+  window._onJobSaved = function(saved) {
+    if (origSavedHandler) origSavedHandler(saved);
+    setTimeout(() => { loadClients(); loadHistory(); }, 250);
   };
 })();

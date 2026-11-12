@@ -87,6 +87,7 @@
         <span class="results-title">Results</span>
         <div class="results-meta" id="resultsMeta"></div>
         <div class="results-actions">
+          <button class="btn-sm btn-save" id="saveDbBtn" disabled>Save to DB</button>
           <button class="btn-sm" id="copyBtn">Copy text</button>
           <button class="btn-sm" id="downloadBtn">Copy JSON</button>
         </div>
@@ -156,16 +157,22 @@
           <button class="btn-sm" id="refreshHistoryBtn">↻ Refresh</button>
         </div>
       </div>
+      <div id="bulkBar" class="bulk-bar hidden">
+        <span id="bulkCount">0 selected</span>
+        <button id="bulkDeleteBtn" class="btn-sm" style="color:#dc2626;border-color:#dc2626">🗑 Delete Selected</button>
+        <button id="bulkCancelBtn" class="btn-sm">Cancel</button>
+      </div>
       <div id="historyTable" style="overflow-x:auto;margin-top:12px">
         <table class="hist-table">
           <thead>
             <tr>
+              <th style="width:32px"><input type="checkbox" id="selectAllJobs" title="Select all"></th>
               <th>File</th><th>Client</th><th>Engine</th><th>Status</th>
-              <th>Confidence</th><th>Time (s)</th><th>Created</th>
+              <th>Confidence</th><th>Time (s)</th><th>Created</th><th></th>
             </tr>
           </thead>
           <tbody id="historyBody">
-            <tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+            <tr><td colspan="9" style="text-align:center;color:var(--muted)">Loading…</td></tr>
           </tbody>
         </table>
       </div>
