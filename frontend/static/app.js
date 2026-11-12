@@ -51,11 +51,12 @@ function pickFile(file) {
 
   const ext   = file.name.split(".").pop().toLowerCase();
   const isImg = /^(jpg|jpeg|png|bmp|gif|webp|tif|tiff)$/.test(ext);
+  const extLabel = ext === "xlsx" || ext === "xls" || ext === "xlsm" ? "EXCEL" : ext.toUpperCase();
 
   document.getElementById("previewArea").classList.remove("hidden");
-  document.getElementById("fileExt").textContent   = ext.toUpperCase();
+  document.getElementById("fileExt").textContent   = extLabel;
   document.getElementById("fileName").textContent  = file.name;
-  document.getElementById("previewMeta").textContent = fmtBytes(file.size) + " · " + (file.type || ext.toUpperCase());
+  document.getElementById("previewMeta").textContent = fmtBytes(file.size) + " · " + (file.type || extLabel);
 
   if (isImg) {
     document.getElementById("previewImg").src = URL.createObjectURL(file);

@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 1. PaddleOCR engine
 # ---------------------------------------------------------------------------
-_paddle_ocr = None
+_paddle_ocr       = None
+_paddle_structure = None
 
 
 def _get_paddle(lang: str = "japan"):
@@ -75,6 +76,104 @@ def _paddle_ocr_image(image_path: str) -> dict:
         "full_text": "\n".join(full_text_parts),
         "line_count": len(lines),
     }
+
+
+def _get_paddle_structure(lang: str = "japan"):
+    global _paddle_structure
+    if _paddle_structure is None:
+        try:
+            from paddleocr import PPStructure
+            _paddle_structure = PPStructure(lang=lang, table=True, layout=True)
+            logger.info("PPStructure engine ready (lang=%s)", lang)
+        except Exception as exc:
+            logger.error("PPStructure load failed: %s", exc)
+    return _paddle_structure
+
+
+def _parse_html_table(html_str: str) -> list:
+    """Convert an HTML <table> string into a list of row-dicts."""
+    from html.parser import HTMLParser
+
+    class _P(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.rows, self.cur_row, self.cur_cell, self.in_cell = [], [], "", False
+
+        def handle_starttag(self, tag, _):
+            if tag in ('td', 'th'):
+                self.in_cell, self.cur_cell = True, ""
+            elif tag == 'tr':
+                self.cur_row = []
+
+        def handle_endtag(self, tag):
+            if tag in ('td', 'th'):
+                self.cur_row.append(self.cur_cell.strip())
+                self.in_cell = False
+            elif tag == 'tr' and self.cur_row:
+                self.rows.append(self.cur_row)
+
+        def handle_data(self, data):
+            if self.in_cell:
+                self.cur_cell += data
+
+    p = _P()
+    p.feed(html_str)
+    if len(p.rows) < 2:
+        return []
+    headers = p.rows[0] or [f"Col{i+1}" for i in range(len(p.rows[1]))]
+    result = []
+    for row in p.rows[1:]:
+        padded = row + [""] * max(0, len(headers) - len(row))
+        result.append({headers[i]: padded[i] for i in range(len(headers))})
+    return result
+
+
+def _table_data_to_markdown(data: list) -> str:
+    if not data:
+        return ""
+    hdrs = list(data[0].keys())
+    lines = [
+        "| " + " | ".join(hdrs) + " |",
+        "| " + " | ".join(["---"] * len(hdrs)) + " |",
+    ]
+    for row in data:
+        lines.append("| " + " | ".join(str(row.get(h, "")) for h in hdrs) + " |")
+    return "\n".join(lines)
+
+
+def _paddle_tables_from_image(image_path: str) -> list:
+    """Run PPStructure on a rasterized page to extract table regions."""
+    engine = _get_paddle_structure()
+    if engine is None:
+        return []
+    try:
+        import cv2
+        img = cv2.imread(str(image_path))
+        if img is None:
+            return []
+        result = engine(img)
+        tables = []
+        for region in (result or []):
+            if region.get('type', '').lower() != 'table':
+                continue
+            html_str = (region.get('res') or {}).get('html', '')
+            if not html_str:
+                continue
+            data = _parse_html_table(html_str)
+            if data:
+                tables.append({
+                    "caption":  "",
+                    "markdown": _table_data_to_markdown(data),
+                    "data":     data,
+                    "shape":    [len(data), len(data[0]) if data else 0],
+                    "source":   "PPStructure",
+                })
+        if tables:
+            logger.info("PPStructure found %d table(s) in %s", len(tables), Path(image_path).name)
+        return tables
+    except Exception as exc:
+        logger.error("PPStructure table extraction failed: %s", exc)
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -378,18 +477,22 @@ def process_pdf(file_path: str, engines: str = "all") -> dict:
 
         if page_images:
             if use_paddle:
-                all_lines, all_text = [], []
+                all_lines, all_text, structure_tables = [], [], []
                 for img_path in page_images:
                     r = _paddle_ocr_image(str(img_path))
                     all_lines.extend(r.get("lines", []))
                     if r.get("full_text"):
                         all_text.append(r["full_text"])
+                    structure_tables.extend(_paddle_tables_from_image(str(img_path)))
                 output["paddle"] = {
                     "engine":     "PaddleOCR",
                     "lines":      all_lines,
                     "full_text":  "\n\n".join(all_text),
                     "line_count": len(all_lines),
                 }
+                # Use PPStructure tables when Docling found none
+                if not output["tables"] and structure_tables:
+                    output["tables"] = structure_tables
 
             if use_deepseek:
                 # DeepSeek on first page only (expensive; model is 7 GB)
@@ -425,7 +528,67 @@ def process_pdf(file_path: str, engines: str = "all") -> dict:
 
 
 SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+SUPPORTED_EXCEL_EXTS = {".xlsx", ".xls", ".xlsm"}
 SUPPORTED_DOC_EXTS   = {".pdf", ".docx", ".pptx", ".html", ".xlsx"}
+
+
+def _excel_process(file_path: str) -> dict:
+    """Read every sheet of an Excel file; return tables + fused text."""
+    t0 = time.time()
+    try:
+        import pandas as pd
+        xl = pd.ExcelFile(file_path)
+        tables, text_parts = [], []
+
+        for sheet in xl.sheet_names:
+            df = xl.parse(sheet, header=0)
+            df = df.dropna(how="all").fillna("")
+            if df.empty:
+                continue
+
+            # Normalise column names to strings
+            df.columns = [str(c) for c in df.columns]
+            data = df.astype(str).to_dict(orient="records")
+
+            md_lines = ["| " + " | ".join(df.columns) + " |",
+                        "| " + " | ".join(["---"] * len(df.columns)) + " |"]
+            for row in data:
+                md_lines.append("| " + " | ".join(row[c] for c in df.columns) + " |")
+            md = "\n".join(md_lines)
+
+            text_parts.append(f"=== {sheet} ===\n" + df.to_string(index=False))
+            tables.append({
+                "caption":  sheet,
+                "markdown": md,
+                "data":     data,
+                "shape":    list(df.shape),
+                "source":   "Excel",
+            })
+
+        full_text = "\n\n".join(text_parts)
+        return {
+            "file":              Path(file_path).name,
+            "primary_engine":    "Excel",
+            "fused_text":        full_text,
+            "confidence_avg":    1.0,
+            "tables":            tables,
+            "paddle":            {},
+            "docling":           {"text": full_text, "markdown": full_text, "tables": tables},
+            "deepseek":          {},
+            "processing_time_s": round(time.time() - t0, 2),
+        }
+    except Exception as exc:
+        logger.error("Excel processing failed: %s", exc)
+        return {
+            "file": Path(file_path).name,
+            "primary_engine": "Excel",
+            "fused_text": "",
+            "confidence_avg": 0.0,
+            "tables": [],
+            "paddle": {}, "docling": {}, "deepseek": {},
+            "error": str(exc),
+            "processing_time_s": round(time.time() - t0, 2),
+        }
 
 
 def process_file(file_path: str, engines: str = "all") -> dict:
@@ -433,6 +596,8 @@ def process_file(file_path: str, engines: str = "all") -> dict:
     ext = Path(file_path).suffix.lower()
     if ext in SUPPORTED_IMAGE_EXTS:
         return process_image(file_path, engines=engines)
+    elif ext in SUPPORTED_EXCEL_EXTS:
+        return _excel_process(file_path)
     elif ext in SUPPORTED_DOC_EXTS:
         return process_pdf(file_path, engines=engines)
     else:

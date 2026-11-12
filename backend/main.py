@@ -28,8 +28,9 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 RESULT_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTENSIONS = {
-    ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp",
-    ".pdf", ".docx", ".pptx", ".html", ".xlsx",
+    ".jpg", ".jpeg", ".png", ".webp",
+    ".pdf",
+    ".xlsx", ".xls", ".xlsm",
 }
 MAX_FILE_SIZE_MB = 50
 
@@ -237,7 +238,16 @@ async def _run_ocr(job_id: str, file_path: str, engine: str):
 
 
 def _sync_ocr(file_path: str, engine: str) -> dict:
-    from backend.ocr_engine import process_file, _paddle_ocr_image, _docling_process_file, _deepseek_ocr_image
+    from backend.ocr_engine import (
+        process_file, _paddle_ocr_image, _docling_process_file,
+        _deepseek_ocr_image, SUPPORTED_EXCEL_EXTS,
+    )
+
+    ext = Path(file_path).suffix.lower()
+
+    # Excel always goes through the dedicated parser regardless of engine choice
+    if ext in SUPPORTED_EXCEL_EXTS:
+        return process_file(file_path, engines=engine)
 
     if engine == "paddle":
         return _paddle_ocr_image(file_path)
@@ -246,5 +256,4 @@ def _sync_ocr(file_path: str, engine: str) -> dict:
     elif engine == "deepseek":
         return _deepseek_ocr_image(file_path, mode="markdown")
     else:
-        # "all", "both", or any multi-engine combo
         return process_file(file_path, engines=engine)
