@@ -5,6 +5,262 @@
 // Auto-detect and prefix with the local server origin.
 const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
 
+// ============================================================
+// Sidebar navigation
+// ============================================================
+(function initSidebar() {
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.view;
+      document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+      const view = document.getElementById('view' + target.charAt(0).toUpperCase() + target.slice(1));
+      if (view) view.classList.remove('hidden');
+      if (target === 'order') initOrderView();
+    });
+  });
+})();
+
+// ============================================================
+// Order view — clients → files + client CRUD
+// ============================================================
+let _orderLoaded = false;
+let _clientModalEditId = null; // null = adding, integer = editing
+
+function openClientModal(client = null) {
+  _clientModalEditId = client ? client.id : null;
+  document.getElementById('clientModalTitle').textContent = client ? 'Edit Client' : 'Add Client';
+  document.getElementById('clientFormNameJa').value  = client ? (client.name_ja  || '') : '';
+  document.getElementById('clientFormNameEn').value  = client ? (client.name_en  || '') : '';
+  document.getElementById('clientFormCode').value    = client ? (client.code     || '') : '';
+  document.getElementById('clientFormKeywords').value= client ? (client.keywords || '') : '';
+  document.getElementById('clientModalBackdrop').classList.remove('hidden');
+  document.getElementById('clientFormNameJa').focus();
+}
+
+function closeClientModal() {
+  document.getElementById('clientModalBackdrop').classList.add('hidden');
+}
+
+document.getElementById('clientFormCancel')?.addEventListener('click', closeClientModal);
+document.getElementById('clientModalBackdrop')?.addEventListener('click', e => {
+  if (e.target === document.getElementById('clientModalBackdrop')) closeClientModal();
+});
+
+document.getElementById('clientFormSave')?.addEventListener('click', async () => {
+  const nameJa   = document.getElementById('clientFormNameJa').value.trim();
+  const nameEn   = document.getElementById('clientFormNameEn').value.trim();
+  const code     = document.getElementById('clientFormCode').value.trim();
+  const keywords = document.getElementById('clientFormKeywords').value.trim();
+  if (!nameJa || !code) { showToast('Japanese name and code are required', true); return; }
+
+  const saveBtn = document.getElementById('clientFormSave');
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
+  try {
+    const url     = _clientModalEditId ? `${API_BASE}/api/db/clients/${_clientModalEditId}` : `${API_BASE}/api/db/clients`;
+    const method  = _clientModalEditId ? 'PUT' : 'POST';
+    const r = await fetch(url, {
+      method, headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name_ja: nameJa, name_en: nameEn, code, keywords }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    closeClientModal();
+    showToast(_clientModalEditId ? 'Client updated' : 'Client added');
+    _orderLoaded = false;
+    await loadOrderClients();
+  } catch (e) {
+    showToast('Error: ' + e.message, true);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
+  }
+});
+
+document.getElementById('addClientBtn')?.addEventListener('click', () => openClientModal(null));
+
+async function deleteClient(client) {
+  if (!confirm(`Delete client "${client.name_ja}"?\nJobs linked to this client will become unassigned.`)) return;
+  try {
+    const r = await fetch(`${API_BASE}/api/db/clients/${client.id}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    showToast('Client deleted');
+    _orderLoaded = false;
+    document.getElementById('orderFileList').innerHTML = '<div class="order-empty">← Select a client to view their files</div>';
+    document.getElementById('orderFilesTitle').textContent = 'Select a client';
+    await loadOrderClients();
+  } catch (e) {
+    showToast('Error: ' + e.message, true);
+  }
+}
+
+async function initOrderView() {
+  if (_orderLoaded) return;
+  _orderLoaded = true;
+  await loadOrderClients();
+}
+
+async function loadOrderClients() {
+  const listEl = document.getElementById('orderClientList');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="order-loading">Loading clients…</div>';
+  try {
+    const r = await fetch(`${API_BASE}/api/db/clients`);
+    if (!r.ok) throw new Error('DB not connected');
+    const clients = await r.json();
+    if (!clients.length) {
+      listEl.innerHTML = '<div class="order-empty">No clients. Click + Add to create one.</div>';
+      return;
+    }
+    listEl.innerHTML = clients.map(c => {
+      const initials = (c.name_en || c.code || c.name_ja || '?').slice(0,2).toUpperCase();
+      const clientJson = JSON.stringify({id:c.id,name_ja:c.name_ja,name_en:c.name_en||'',code:c.code,keywords:c.keywords||''}).replace(/'/g,"&#39;");
+      return `
+      <div class="order-client-item" data-client-id="${c.id}"
+           data-name-ja="${esc(c.name_ja)}" data-name-en="${esc(c.name_en || '')}">
+        <span class="order-client-avatar">${esc(initials)}</span>
+        <span class="order-client-label">
+          <span class="order-client-name">${esc(c.name_ja)}</span>
+          <span class="order-client-sub">${esc(c.name_en || c.code)}</span>
+        </span>
+        <span class="order-client-count">${c.total_jobs || 0}</span>
+        <span class="client-actions">
+          <button class="client-action-btn edit" title="Edit" data-client-json='${clientJson}'>✎</button>
+          <button class="client-action-btn del" title="Delete">🗑</button>
+        </span>
+      </div>`;
+    }).join('');
+
+    listEl.querySelectorAll('.order-client-item').forEach(item => {
+      // Click on row (not on action buttons) → load files
+      item.addEventListener('click', e => {
+        if (e.target.closest('.client-actions')) return;
+        listEl.querySelectorAll('.order-client-item').forEach(b => b.classList.remove('active'));
+        item.classList.add('active');
+        const titleEl = document.getElementById('orderFilesTitle');
+        if (titleEl) titleEl.textContent = item.dataset.nameJa + (item.dataset.nameEn ? ' / ' + item.dataset.nameEn : '');
+        loadOrderFiles(item.dataset.clientId);
+      });
+
+      // Edit button
+      item.querySelector('.client-action-btn.edit')?.addEventListener('click', e => {
+        e.stopPropagation();
+        try {
+          const c = JSON.parse(e.currentTarget.dataset.clientJson);
+          openClientModal(c);
+        } catch {}
+      });
+
+      // Delete button
+      item.querySelector('.client-action-btn.del')?.addEventListener('click', e => {
+        e.stopPropagation();
+        const c = { id: parseInt(item.dataset.clientId), name_ja: item.dataset.nameJa };
+        deleteClient(c);
+      });
+    });
+  } catch (e) {
+    listEl.innerHTML = `<div class="order-empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function loadOrderFiles(clientId) {
+  const fileEl  = document.getElementById('orderFileList');
+  const countEl = document.getElementById('orderFilesCount');
+  if (!fileEl) return;
+  fileEl.innerHTML = '<div class="order-loading">Loading…</div>';
+  if (countEl) countEl.classList.add('hidden');
+  try {
+    const r = await fetch(`${API_BASE}/api/db/jobs?limit=500&client_id=${encodeURIComponent(clientId)}`);
+    if (!r.ok) throw new Error(r.statusText);
+    const jobs = await r.json();
+    if (!jobs.length) {
+      fileEl.innerHTML = `<div class="order-empty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        No files saved for this client yet.
+        <small>Process a file on Home, then click "Save to DB".</small>
+      </div>`;
+      return;
+    }
+    if (countEl) { countEl.textContent = `${jobs.length} file${jobs.length !== 1 ? 's' : ''}`; countEl.classList.remove('hidden'); }
+
+    const rows = jobs.map(j => {
+      const confVal   = j.confidence_avg != null ? j.confidence_avg * 100 : null;
+      const confStr   = confVal != null ? confVal.toFixed(1) + '%' : '—';
+      const confClass = confVal == null ? '' : confVal >= 85 ? '' : confVal >= 65 ? 'conf-warn' : 'conf-low';
+      const confBar   = confVal != null ? `<div class="conf-bar-wrap"><div class="conf-bar" style="width:${Math.round(confVal)}%"></div></div>` : '';
+      const date      = j.created_at ? j.created_at.replace('T',' ').slice(0,16) : '—';
+      const engine    = esc(j.primary_engine || j.engine_requested || '—');
+      const statusCls = `badge badge-${esc(j.status)}`;
+      const timeStr   = j.processing_time_s != null ? j.processing_time_s + 's' : '—';
+      return `<tr data-job-id="${esc(j.job_id)}" data-filename="${esc(j.filename)}">
+        <td class="col-name" title="${esc(j.filename)}">${esc(j.filename)}</td>
+        <td class="col-engine"><span class="badge badge-engine">${engine}</span></td>
+        <td class="col-status"><span class="${statusCls}"><span class="badge-dot"></span>${esc(j.status)}</span></td>
+        <td class="col-conf"><span class="conf-cell ${confClass}">${confBar}<span>${confStr}</span></span></td>
+        <td class="col-time">${esc(timeStr)}</td>
+        <td class="col-date">${esc(date)}</td>
+      </tr>`;
+    }).join('');
+
+    fileEl.innerHTML = `<table class="order-files-table">
+      <thead><tr>
+        <th>Filename</th>
+        <th>Engine</th>
+        <th>Status</th>
+        <th style="text-align:right">Confidence</th>
+        <th style="text-align:right">Time</th>
+        <th>Date</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+    fileEl.querySelectorAll('tbody tr').forEach(tr => {
+      tr.addEventListener('click', () => openOrderPreview(tr.dataset.jobId, tr.dataset.filename));
+    });
+  } catch (e) {
+    fileEl.innerHTML = `<div class="order-empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function openOrderPreview(jobId, filename) {
+  const preview = document.getElementById('orderPreview');
+  const titleEl = document.getElementById('orderPreviewTitle');
+  const textEl  = document.getElementById('orderPreviewText');
+  if (!preview) return;
+  titleEl.textContent = filename || jobId;
+  textEl.textContent  = 'Loading…';
+  preview.classList.remove('hidden');
+  try {
+    const r = await fetch(`${API_BASE}/api/ocr/result/${encodeURIComponent(jobId)}`);
+    if (!r.ok) throw new Error('Result not available (status: ' + r.status + ')');
+    const data = await r.json();
+    textEl.textContent = data.fused_text || data.text || data.markdown || JSON.stringify(data, null, 2);
+  } catch (e) {
+    textEl.textContent = 'Could not load result: ' + e.message;
+  }
+}
+
+document.getElementById('orderPreviewClose')?.addEventListener('click', () => {
+  document.getElementById('orderPreview')?.classList.add('hidden');
+});
+
+document.getElementById('orderRefreshBtn')?.addEventListener('click', () => {
+  _orderLoaded = false;
+  document.getElementById('orderClientList').innerHTML = '<div class="order-loading">Loading clients…</div>';
+  document.getElementById('orderFileList').innerHTML   = `<div class="order-empty">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    Select a client to view their files
+  </div>`;
+  document.getElementById('orderFilesTitle').textContent = 'Select a client';
+  const countEl = document.getElementById('orderFilesCount');
+  if (countEl) countEl.classList.add('hidden');
+  initOrderView();
+});
+
 let selectedFile   = null;
 let selectedEngine = "all";
 let currentResult  = null;

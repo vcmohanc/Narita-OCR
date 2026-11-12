@@ -265,6 +265,52 @@ async def list_clients():
     return [_serialize_dates(r) for r in db.list_clients(with_counts=True)]
 
 
+@app.post("/api/db/clients")
+async def create_client(payload: dict):
+    """Create a new client. Body: {name_ja, name_en, code, keywords?}"""
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    name_ja  = (payload.get("name_ja") or "").strip()
+    name_en  = (payload.get("name_en") or "").strip()
+    code     = (payload.get("code")    or "").strip()
+    keywords = (payload.get("keywords") or "").strip()
+    if not name_ja or not code:
+        raise HTTPException(status_code=400, detail="name_ja and code are required")
+    try:
+        result = db.add_client(name_ja=name_ja, name_en=name_en, code=code, keywords=keywords)
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.put("/api/db/clients/{client_id}")
+async def update_client(client_id: int, payload: dict):
+    """Update an existing client."""
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    name_ja  = (payload.get("name_ja") or "").strip()
+    name_en  = (payload.get("name_en") or "").strip()
+    code     = (payload.get("code")    or "").strip()
+    keywords = (payload.get("keywords") or "").strip()
+    if not name_ja or not code:
+        raise HTTPException(status_code=400, detail="name_ja and code are required")
+    updated = db.update_client(client_id, name_ja=name_ja, name_en=name_en, code=code, keywords=keywords)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return {"updated": True, "id": client_id}
+
+
+@app.delete("/api/db/clients/{client_id}")
+async def delete_client(client_id: int):
+    """Delete a client (jobs' client_id becomes NULL)."""
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    deleted = db.delete_client_by_id(client_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return {"deleted": True, "id": client_id}
+
+
 @app.get("/api/db/jobs")
 async def list_jobs(
     limit:     int = Query(default=50, ge=1, le=500),

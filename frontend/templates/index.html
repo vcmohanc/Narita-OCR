@@ -10,178 +10,249 @@
 </head>
 <body>
 
-  <div class="page">
+  <div class="app-shell">
 
-    <!-- Header -->
-    <header class="header">
-      <div class="header-logo">
-        <div class="header-logo-mark">OCR</div>
-        OCR System
-      </div>
-      <div class="header-engines">
-        <span class="engine-badge"><span class="engine-dot"></span>PaddleOCR</span>
-        <span class="engine-badge"><span class="engine-dot"></span>Docling</span>
-        <span class="engine-badge"><span class="engine-dot"></span>DeepSeek-OCR</span>
-      </div>
-    </header>
-
-    <!-- Upload card -->
-    <div class="card">
-      <div class="card-title">Upload Document</div>
-
-      <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-label="Upload file">
-        <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.pdf,.xlsx,.xls,.xlsm">
-        <div class="drop-icon">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-        </div>
-        <div class="drop-title">Drop file here or <span class="drop-link">browse</span></div>
-        <div class="drop-hint">JPG · PNG · WebP · PDF · Excel &nbsp;·&nbsp; max 50 MB</div>
-      </div>
-
-      <!-- File preview -->
-      <div class="preview-area hidden" id="previewArea">
-        <div class="file-icon" id="fileIcon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <span id="fileExt"></span>
-        </div>
-        <img id="previewImg" class="file-thumb hidden" src="" alt="">
-        <div class="file-info">
-          <div class="file-name" id="fileName">—</div>
-          <div class="preview-meta" id="previewMeta"></div>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-logo">
+        <div class="sidebar-logo-mark">OCR</div>
+        <div>
+          <div class="sidebar-logo-text">OCR System</div>
+          <div class="sidebar-logo-sub">Document Intelligence</div>
         </div>
       </div>
+      <div class="sidebar-nav">
+        <div class="sidebar-section-label">Workspace</div>
+        <button class="nav-item active" data-view="home">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span>Home</span>
+        </button>
+        <button class="nav-item" data-view="order">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <span>Order</span>
+        </button>
+      </div>
+    </nav>
 
-      <!-- Engine selector -->
-      <div class="engine-row">
-        <span class="engine-label">Engine:</span>
-        <div class="toggle-group">
-          <button class="toggle active" data-engine="all">All 3 (Best)</button>
-          <button class="toggle" data-engine="both">Paddle + Docling</button>
-          <button class="toggle" data-engine="deepseek">DeepSeek-OCR</button>
-          <button class="toggle" data-engine="paddle">PaddleOCR</button>
-          <button class="toggle" data-engine="docling">Docling</button>
+    <!-- Main area -->
+    <div class="main-area">
+
+      <!-- HOME VIEW -->
+      <div class="view" id="viewHome">
+        <div class="page">
+
+          <!-- Header -->
+          <header class="header">
+            <div class="header-logo">
+              OCR System
+            </div>
+            <div class="header-engines">
+              <span class="engine-badge"><span class="engine-dot"></span>PaddleOCR</span>
+              <span class="engine-badge"><span class="engine-dot"></span>Docling</span>
+              <span class="engine-badge"><span class="engine-dot"></span>DeepSeek-OCR</span>
+            </div>
+          </header>
+
+          <!-- Upload card -->
+          <div class="card">
+            <div class="card-title">Upload Document</div>
+
+            <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-label="Upload file">
+              <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.pdf,.xlsx,.xls,.xlsm">
+              <div class="drop-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <div class="drop-title">Drop file here or <span class="drop-link">browse</span></div>
+              <div class="drop-hint">JPG · PNG · WebP · PDF · Excel &nbsp;·&nbsp; max 50 MB</div>
+            </div>
+
+            <!-- File preview -->
+            <div class="preview-area hidden" id="previewArea">
+              <div class="file-icon" id="fileIcon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span id="fileExt"></span>
+              </div>
+              <img id="previewImg" class="file-thumb hidden" src="" alt="">
+              <div class="file-info">
+                <div class="file-name" id="fileName">—</div>
+                <div class="preview-meta" id="previewMeta"></div>
+              </div>
+            </div>
+
+            <!-- Engine selector -->
+            <div class="engine-row">
+              <span class="engine-label">Engine:</span>
+              <div class="toggle-group">
+                <button class="toggle active" data-engine="all">All 3 (Best)</button>
+                <button class="toggle" data-engine="both">Paddle + Docling</button>
+                <button class="toggle" data-engine="deepseek">DeepSeek-OCR</button>
+                <button class="toggle" data-engine="paddle">PaddleOCR</button>
+                <button class="toggle" data-engine="docling">Docling</button>
+              </div>
+            </div>
+
+            <!-- Process button -->
+            <button class="btn-primary" id="processBtn" disabled>
+              <svg id="procIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              <span class="spinner hidden" id="spinner"></span>
+              <span class="btn-text">Process Document</span>
+            </button>
+          </div>
+
+          <!-- Progress -->
+          <div class="progress-wrap hidden" id="progressWrap">
+            <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+            <div class="progress-label" id="progressLabel">Initializing…</div>
+          </div>
+
+          <!-- Results -->
+          <div class="card hidden" id="resultsCard">
+            <div class="results-header">
+              <span class="results-title">Results</span>
+              <div class="results-meta" id="resultsMeta"></div>
+              <div class="results-actions">
+                <button class="btn-sm btn-save" id="saveDbBtn" disabled>Save to DB</button>
+                <button class="btn-sm" id="copyBtn">Copy text</button>
+                <button class="btn-sm" id="downloadBtn">Copy JSON</button>
+              </div>
+            </div>
+
+            <div class="tab-bar" role="tablist">
+              <button class="tab active" data-tab="fused"    role="tab" aria-selected="true">Fused Output</button>
+              <button class="tab"        data-tab="paddle"   role="tab" aria-selected="false">PaddleOCR</button>
+              <button class="tab"        data-tab="docling"  role="tab" aria-selected="false">Docling</button>
+              <button class="tab"        data-tab="deepseek" role="tab" aria-selected="false">DeepSeek-OCR</button>
+              <button class="tab"        data-tab="tables"   role="tab" aria-selected="false">Tables</button>
+              <button class="tab"        data-tab="raw"      role="tab" aria-selected="false">Raw JSON</button>
+            </div>
+
+            <div class="tab-panel" id="tab-fused"><pre class="text-out" id="fusedText"></pre></div>
+            <div class="tab-panel hidden" id="tab-paddle"><div class="lines-list" id="paddleLines"></div></div>
+            <div class="tab-panel hidden" id="tab-docling"><pre class="text-out" id="doclingText"></pre></div>
+            <div class="tab-panel hidden" id="tab-deepseek"><pre class="text-out" id="deepseekText"></pre></div>
+            <div class="tab-panel hidden" id="tab-tables"><div id="tablesOutput"></div></div>
+            <div class="tab-panel hidden" id="tab-raw"><pre class="text-out json-out" id="rawJson"></pre></div>
+          </div>
+
+          <!-- DB History -->
+          <div class="card" id="historyCard">
+            <div class="results-header">
+              <span class="card-title" style="margin:0">Job History</span>
+              <div class="results-actions">
+                <span id="dbStatus" class="engine-badge" style="font-size:11px"></span>
+                <select id="historyClientFilter" class="btn-sm" aria-label="Filter by client">
+                  <option value="">All Clients</option>
+                </select>
+                <button class="btn-sm" id="refreshHistoryBtn">↻ Refresh</button>
+              </div>
+            </div>
+            <div id="bulkBar" class="bulk-bar hidden">
+              <span id="bulkCount">0 selected</span>
+              <button id="bulkDeleteBtn" class="btn-sm" style="color:#dc2626;border-color:#dc2626">🗑 Delete Selected</button>
+              <button id="bulkCancelBtn" class="btn-sm">Cancel</button>
+            </div>
+            <div id="historyTable" style="overflow-x:auto;margin-top:12px">
+              <table class="hist-table">
+                <thead>
+                  <tr>
+                    <th style="width:32px"><input type="checkbox" id="selectAllJobs" title="Select all"></th>
+                    <th>File</th><th>Client</th><th>Engine</th><th>Status</th>
+                    <th>Confidence</th><th>Time (s)</th><th>Created</th><th></th>
+                  </tr>
+                </thead>
+                <tbody id="historyBody">
+                  <tr><td colspan="9" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="footer">OCR System — PaddleOCR · Docling · DeepSeek-OCR</div>
         </div>
       </div>
 
-      <!-- Process button -->
-      <button class="btn-primary" id="processBtn" disabled>
-        <svg id="procIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        <span class="spinner hidden" id="spinner"></span>
-        <span class="btn-text">Process Document</span>
-      </button>
-    </div>
+      <!-- ORDER VIEW -->
+      <div class="view hidden" id="viewOrder">
+        <div class="order-topbar">
+          <div class="order-topbar-title">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Orders
+          </div>
+          <button class="btn-sm" id="orderRefreshBtn">↻ Refresh</button>
+        </div>
+        <div class="order-layout">
+          <!-- Client list -->
+          <div class="order-clients-panel">
+            <div class="order-panel-hd">
+              <span class="order-panel-hd-title">Clients</span>
+              <button class="btn-sm btn-add-client" id="addClientBtn" title="Add new client">+ Add</button>
+            </div>
+            <div id="orderClientList" class="order-client-list">
+              <div class="order-loading">Loading…</div>
+            </div>
+          </div>
+          <!-- Files panel -->
+          <div class="order-files-panel">
+            <div class="order-files-hd">
+              <span class="order-files-hd-title" id="orderFilesTitle">Select a client</span>
+              <span class="order-files-count hidden" id="orderFilesCount">0 files</span>
+            </div>
+            <div class="order-files-body" id="orderFileList">
+              <div class="order-empty">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Select a client to view their files
+              </div>
+            </div>
+          </div>
+        </div>
 
-    <!-- Progress -->
-    <div class="progress-wrap hidden" id="progressWrap">
-      <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
-      <div class="progress-label" id="progressLabel">Initializing…</div>
-    </div>
-
-    <!-- Results -->
-    <div class="card hidden" id="resultsCard">
-      <div class="results-header">
-        <span class="results-title">Results</span>
-        <div class="results-meta" id="resultsMeta"></div>
-        <div class="results-actions">
-          <button class="btn-sm btn-save" id="saveDbBtn" disabled>Save to DB</button>
-          <button class="btn-sm" id="copyBtn">Copy text</button>
-          <button class="btn-sm" id="downloadBtn">Copy JSON</button>
+        <!-- Result preview drawer -->
+        <div class="order-preview hidden" id="orderPreview">
+          <div class="order-preview-header">
+            <span id="orderPreviewTitle">Result</span>
+            <button class="btn-sm" id="orderPreviewClose">✕ Close</button>
+          </div>
+          <pre class="text-out order-preview-body" id="orderPreviewText"></pre>
         </div>
       </div>
 
-      <div class="tab-bar" role="tablist">
-        <button class="tab active" data-tab="fused"    role="tab" aria-selected="true">Fused Output</button>
-        <button class="tab"        data-tab="paddle"   role="tab" aria-selected="false">PaddleOCR</button>
-        <button class="tab"        data-tab="docling"  role="tab" aria-selected="false">Docling</button>
-        <button class="tab"        data-tab="deepseek" role="tab" aria-selected="false">DeepSeek-OCR</button>
-        <button class="tab"        data-tab="tables"   role="tab" aria-selected="false">Tables</button>
-        <button class="tab"        data-tab="raw"      role="tab" aria-selected="false">Raw JSON</button>
-      </div>
-
-      <div class="tab-panel" id="tab-fused"><pre class="text-out" id="fusedText"></pre></div>
-      <div class="tab-panel hidden" id="tab-paddle"><div class="lines-list" id="paddleLines"></div></div>
-      <div class="tab-panel hidden" id="tab-docling"><pre class="text-out" id="doclingText"></pre></div>
-      <div class="tab-panel hidden" id="tab-deepseek"><pre class="text-out" id="deepseekText"></pre></div>
-      <div class="tab-panel hidden" id="tab-tables"><div id="tablesOutput"></div></div>
-      <div class="tab-panel hidden" id="tab-raw"><pre class="text-out json-out" id="rawJson"></pre></div>
-    </div>
-
-    <!-- How it works -->
-    <div class="card">
-      <div class="card-title">How it works</div>
-      <div class="steps">
-        <div class="step"><div class="step-num">1</div><div class="step-name">Upload</div><div class="step-desc">Any image or document up to 50 MB.</div></div>
-        <div class="step"><div class="step-num">2</div><div class="step-name">PaddleOCR</div><div class="step-desc">DB++ detection + SVTR_LCNet. 80+ languages.</div></div>
-        <div class="step"><div class="step-num">3</div><div class="step-name">Docling</div><div class="step-desc">Layout analysis, table extraction, Markdown.</div></div>
-        <div class="step"><div class="step-num">4</div><div class="step-name">DeepSeek-OCR</div><div class="step-desc">Vision-language model. GPU recommended.</div></div>
-        <div class="step"><div class="step-num">5</div><div class="step-name">Fusion</div><div class="step-desc">Richest output wins for maximum accuracy.</div></div>
-      </div>
-    </div>
-
-    <!-- Setup -->
-    <div class="card">
-      <div class="card-title">Setup &amp; Run</div>
-      <div class="setup-steps">
-        <div class="setup-step">
-          <div class="setup-title">1 · Install</div>
-          <div class="code-line">cd E:\agent\ocr-webapp</div>
-          <div class="code-line">setup.bat <span class="code-comment"># Windows</span></div>
-        </div>
-        <div class="setup-step">
-          <div class="setup-title">2 · Start</div>
-          <div class="code-line">python run.py</div>
-          <div class="code-line code-url">→ http://localhost:8080</div>
-        </div>
-        <div class="setup-step">
-          <div class="setup-title">3 · API</div>
-          <div class="code-line">POST /api/ocr/upload?engine=all</div>
-          <div class="code-line">GET  /api/ocr/status/{job_id}</div>
-          <div class="code-line">GET  /api/ocr/result/{job_id}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- DB History -->
-    <div class="card" id="historyCard">
-      <div class="results-header">
-        <span class="card-title" style="margin:0">Job History</span>
-        <div class="results-actions">
-          <span id="dbStatus" class="engine-badge" style="font-size:11px"></span>
-          <select id="historyClientFilter" class="btn-sm" aria-label="Filter by client">
-            <option value="">All Clients</option>
-          </select>
-          <button class="btn-sm" id="refreshHistoryBtn">↻ Refresh</button>
-        </div>
-      </div>
-      <div id="bulkBar" class="bulk-bar hidden">
-        <span id="bulkCount">0 selected</span>
-        <button id="bulkDeleteBtn" class="btn-sm" style="color:#dc2626;border-color:#dc2626">🗑 Delete Selected</button>
-        <button id="bulkCancelBtn" class="btn-sm">Cancel</button>
-      </div>
-      <div id="historyTable" style="overflow-x:auto;margin-top:12px">
-        <table class="hist-table">
-          <thead>
-            <tr>
-              <th style="width:32px"><input type="checkbox" id="selectAllJobs" title="Select all"></th>
-              <th>File</th><th>Client</th><th>Engine</th><th>Status</th>
-              <th>Confidence</th><th>Time (s)</th><th>Created</th><th></th>
-            </tr>
-          </thead>
-          <tbody id="historyBody">
-            <tr><td colspan="9" style="text-align:center;color:var(--muted)">Loading…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="footer">OCR System — PaddleOCR · Docling · DeepSeek-OCR</div>
-  </div>
+    </div><!-- /main-area -->
+  </div><!-- /app-shell -->
 
   <div class="toast hidden" id="toast"></div>
+
+  <!-- Client add/edit modal -->
+  <div class="modal-backdrop hidden" id="clientModalBackdrop">
+    <div class="modal-box">
+      <div class="modal-title" id="clientModalTitle">Add Client</div>
+      <div class="modal-body">
+        <div class="modal-field">
+          <label class="modal-label" for="clientFormNameJa">Japanese Name <span class="required">*</span></label>
+          <input class="modal-input" id="clientFormNameJa" placeholder="e.g. 三徳" />
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="clientFormNameEn">English Name</label>
+          <input class="modal-input" id="clientFormNameEn" placeholder="e.g. Santoku" />
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="clientFormCode">Code <span class="required">*</span></label>
+          <input class="modal-input" id="clientFormCode" placeholder="e.g. SANTOKU" />
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="clientFormKeywords">Keywords <small>— comma-separated, for auto-detection</small></label>
+          <input class="modal-input" id="clientFormKeywords" placeholder="e.g. 三徳,santoku,SANTOKU" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm" id="clientFormCancel">Cancel</button>
+        <button class="btn-primary modal-save-btn" id="clientFormSave">Save Client</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

@@ -837,6 +837,42 @@ def _migrate():
         cur.close()
 
 
+def add_client(name_ja: str, name_en: str, code: str, keywords: str = "") -> dict:
+    """Insert a new client. Returns the new row dict."""
+    with _get_connection() as con:
+        cur = con.cursor()
+        cur.execute(
+            "INSERT INTO ocr_clients (code, name_ja, name_en, keywords) VALUES (%s, %s, %s, %s)",
+            (code.strip(), name_ja.strip(), name_en.strip(), keywords.strip()),
+        )
+        new_id = cur.lastrowid
+        cur.close()
+    return {"id": new_id, "code": code, "name_ja": name_ja, "name_en": name_en, "keywords": keywords}
+
+
+def update_client(client_id: int, name_ja: str, name_en: str, code: str, keywords: str = "") -> bool:
+    """Update an existing client row. Returns True if a row was changed."""
+    with _get_connection() as con:
+        cur = con.cursor()
+        cur.execute(
+            "UPDATE ocr_clients SET name_ja=%s, name_en=%s, code=%s, keywords=%s WHERE id=%s",
+            (name_ja.strip(), name_en.strip(), code.strip(), keywords.strip(), client_id),
+        )
+        affected = cur.rowcount
+        cur.close()
+    return affected > 0
+
+
+def delete_client_by_id(client_id: int) -> bool:
+    """Delete a client (jobs' client_id becomes NULL via FK ON DELETE SET NULL)."""
+    with _get_connection() as con:
+        cur = con.cursor()
+        cur.execute("DELETE FROM ocr_clients WHERE id = %s", (client_id,))
+        affected = cur.rowcount
+        cur.close()
+    return affected > 0
+
+
 def delete_jobs_bulk(job_ids: list) -> int:
     """Delete multiple jobs by job_id. Returns count of deleted rows."""
     if not is_connected() or not job_ids:
