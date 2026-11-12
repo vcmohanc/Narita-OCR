@@ -273,8 +273,68 @@ body{
 .conf-low{color:var(--danger)}
 
 /* ── Extracted tables (OCR result) ── */
-.table-wrap{overflow-x:auto;margin-bottom:16px}
-.tbl-caption{font-size:11px;color:var(--muted);margin-bottom:6px}
+/* ── Tables tab ── */
+#tab-tables{padding:16px 20px;display:flex;flex-direction:column;gap:20px}
+
+.tbl-empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:60px 20px;color:var(--muted);font-size:13px;text-align:center;
+}
+.tbl-empty svg{opacity:.3}
+
+.tbl-block{
+  border:1px solid var(--border2);border-radius:var(--radius);
+  overflow:hidden;background:var(--surface);
+  box-shadow:var(--shadow-sm);
+}
+
+.tbl-header{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;
+  background:#eef1f6;
+  border-bottom:2px solid var(--border2);
+}
+.tbl-title{
+  font-size:13px;font-weight:700;color:var(--text);flex:1;
+}
+.tbl-meta{
+  font-size:11px;color:var(--muted);
+  background:var(--surface);border:1px solid var(--border);
+  padding:2px 8px;border-radius:10px;font-weight:500;white-space:nowrap;
+}
+
+.tbl-scroll{overflow-x:auto}
+
+.tbl-grid{
+  width:100%;border-collapse:collapse;font-size:13px;
+  min-width:400px;
+}
+.tbl-grid thead th{
+  background:#eef1f6;
+  padding:9px 13px;
+  text-align:left;
+  font-size:12px;font-weight:700;
+  color:var(--text2);
+  border:1px solid var(--border2);
+  white-space:nowrap;
+}
+.tbl-grid tbody td{
+  padding:8px 13px;
+  border:1px solid var(--border2);
+  color:var(--text);
+  vertical-align:top;
+  line-height:1.45;
+}
+.tbl-grid tbody tr:hover td{background:#eef4ff}
+.tbl-grid tbody tr.tbl-alt td{background:#f9fafb}
+.tbl-grid tbody tr.tbl-alt:hover td{background:#eef4ff}
+
+.tbl-markdown{
+  font-size:12px;line-height:1.6;padding:14px 16px;
+  background:var(--surface2);color:var(--mono);
+  font-family:'Courier New',monospace;overflow-x:auto;
+  white-space:pre;
+}
 table{border-collapse:collapse;width:100%;font-size:12.5px}
 th,td{border:1px solid var(--border);padding:7px 10px;text-align:left}
 th{background:var(--surface2);font-weight:600;font-size:11.5px;color:var(--text2)}

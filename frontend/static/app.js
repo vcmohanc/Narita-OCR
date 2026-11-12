@@ -471,20 +471,59 @@ function renderResults(res) {
     : `<p class="empty-msg">No PaddleOCR lines returned.</p>`;
 
   const tables = res.tables || res.docling?.tables || [];
-  document.getElementById("tablesOutput").innerHTML = tables.length
-    ? tables.map((tbl, i) => {
-        const rows = tbl.data || [];
-        if (!rows.length) return "";
-        const cols = Object.keys(rows[0]);
-        return `<div class="table-wrap">
-          <div class="tbl-caption">Table ${i + 1}${tbl.caption ? ": " + esc(tbl.caption) : ""}</div>
-          <table>
-            <thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead>
-            <tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${esc(String(r[c] ?? ""))}</td>`).join("")}</tr>`).join("")}</tbody>
-          </table>
+  if (!tables.length) {
+    document.getElementById("tablesOutput").innerHTML = `<div class="tbl-empty">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
+      <span>No tables detected in this document.</span>
+    </div>`;
+  } else {
+    document.getElementById("tablesOutput").innerHTML = tables.map((tbl, i) => {
+      const rows = tbl.data || [];
+      const shape = tbl.shape || [rows.length, rows.length ? Object.keys(rows[0]).length : 0];
+      const caption = tbl.caption ? esc(tbl.caption) : `Table ${i + 1}`;
+
+      // If no row data, fall back to rendering markdown as a pre block
+      if (!rows.length) {
+        return `<div class="tbl-block">
+          <div class="tbl-header">
+            <span class="tbl-title">${caption}</span>
+            <span class="tbl-meta">No row data</span>
+          </div>
+          ${tbl.markdown ? `<pre class="tbl-markdown">${esc(tbl.markdown)}</pre>` : ''}
         </div>`;
-      }).join("")
-    : `<p class="empty-msg">No tables detected.</p>`;
+      }
+
+      const cols = Object.keys(rows[0]);
+      // Detect if first column keys are numeric (0,1,2…) → treat first data row as header
+      const numericKeys = cols.every(c => !isNaN(Number(c)));
+      let headerCols, bodyRows;
+      if (numericKeys && rows.length > 1) {
+        headerCols = cols.map(c => String(rows[0][c] ?? ''));
+        bodyRows   = rows.slice(1);
+      } else {
+        headerCols = cols;
+        bodyRows   = rows;
+      }
+
+      const thead = `<thead><tr>${headerCols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>`;
+      const tbody = `<tbody>${bodyRows.map((r, ri) =>
+        `<tr class="${ri % 2 === 1 ? 'tbl-alt' : ''}">${cols.map(c => `<td>${esc(String(r[c] ?? ''))}</td>`).join('')}</tr>`
+      ).join('')}</tbody>`;
+
+      return `<div class="tbl-block">
+        <div class="tbl-header">
+          <span class="tbl-title">${caption}</span>
+          <span class="tbl-meta">${shape[0]} rows × ${shape[1]} cols</span>
+        </div>
+        <div class="tbl-scroll">
+          <table class="tbl-grid">
+            ${thead}
+            ${tbody}
+          </table>
+        </div>
+      </div>`;
+    }).join('');
+  }
 
   document.getElementById("rawJson").textContent = JSON.stringify(res, null, 2);
   document.getElementById("resultsCard").classList.remove("hidden");
