@@ -313,7 +313,7 @@ async def delete_client(client_id: int):
 
 @app.get("/api/db/jobs")
 async def list_jobs(
-    limit:     int = Query(default=50, ge=1, le=500),
+    limit:     int = Query(default=50, ge=1, le=1000),
     offset:    int = Query(default=0,  ge=0),
     client_id: Optional[int] = Query(default=None, ge=1),
 ):
