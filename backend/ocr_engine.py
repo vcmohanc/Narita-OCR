@@ -14,6 +14,7 @@ import os
 import time
 import logging
 import tempfile
+from concurrent.futures import ThreadPoolExecutor as _TPE
 from pathlib import Path
 from typing import Optional
 import numpy as np
@@ -28,6 +29,20 @@ except ImportError:
     pass  # will be reported properly when _get_deepseek() is called
 
 logger = logging.getLogger(__name__)
+
+_has_gpu: Optional[bool] = None
+
+
+def _check_gpu() -> bool:
+    global _has_gpu
+    if _has_gpu is None:
+        try:
+            import torch
+            _has_gpu = torch.cuda.is_available()
+        except ImportError:
+            _has_gpu = False
+    return _has_gpu
+
 
 # ---------------------------------------------------------------------------
 # 1. PaddleOCR engine
@@ -253,42 +268,34 @@ _DEEPSEEK_MODEL_ID  = "deepseek-ai/DeepSeek-OCR"
 
 
 def _get_deepseek():
-    """Load DeepSeek-OCR model and tokenizer (lazy, cached)."""
+    """Load DeepSeek-OCR model and tokenizer (lazy, cached). Requires CUDA GPU."""
     global _deepseek_model, _deepseek_tokenizer, _deepseek_device
     if _deepseek_model is not None:
         return _deepseek_model, _deepseek_tokenizer, _deepseek_device
+
+    # Hard gate: never attempt the 7 GB download/load without a CUDA GPU.
+    if not _check_gpu():
+        logger.info("DeepSeek-OCR: skipped — CUDA GPU not available")
+        return None, None, None
 
     try:
         import torch
         from transformers import AutoModel, AutoTokenizer
 
-        has_cuda = torch.cuda.is_available()
-        _deepseek_device = "cuda" if has_cuda else "cpu"
-
-        if not has_cuda:
-            logger.warning(
-                "DeepSeek-OCR: no CUDA GPU detected — running on CPU is very slow. "
-                "Install CUDA-enabled PyTorch for production use."
-            )
-
+        _deepseek_device = "cuda"
         logger.info("Loading DeepSeek-OCR model from %s …", _DEEPSEEK_MODEL_ID)
         _deepseek_tokenizer = AutoTokenizer.from_pretrained(
             _DEEPSEEK_MODEL_ID, trust_remote_code=True
         )
+        load_kwargs: dict = {
+            "trust_remote_code": True,
+            "_attn_implementation": "flash_attention_2",
+        }
+        _deepseek_model = AutoModel.from_pretrained(
+            _DEEPSEEK_MODEL_ID, **load_kwargs
+        ).eval().cuda().to(torch.bfloat16)
 
-        load_kwargs: dict = {"trust_remote_code": True, "use_safetensors": True}
-        if has_cuda:
-            load_kwargs["_attn_implementation"] = "flash_attention_2"
-            _deepseek_model = AutoModel.from_pretrained(
-                _DEEPSEEK_MODEL_ID, **load_kwargs
-            ).eval().cuda().to(torch.bfloat16)
-        else:
-            # CPU mode: float32, no flash attention
-            _deepseek_model = AutoModel.from_pretrained(
-                _DEEPSEEK_MODEL_ID, **load_kwargs
-            ).eval()
-
-        logger.info("DeepSeek-OCR ready on %s", _deepseek_device)
+        logger.info("DeepSeek-OCR ready on CUDA")
         return _deepseek_model, _deepseek_tokenizer, _deepseek_device
 
     except Exception as exc:
@@ -304,6 +311,11 @@ def _deepseek_ocr_image(image_path: str, mode: str = "markdown") -> dict:
       "free"     → plain text extraction  (prompt: Free OCR.)
       "markdown" → structured Markdown    (prompt: Convert the document to markdown.)
     """
+    if not _check_gpu():
+        return {
+            "error": "DeepSeek-OCR requires a CUDA GPU — not available on this machine",
+            "text": "", "markdown": "",
+        }
     model, tokenizer, device = _get_deepseek()
     if model is None:
         return {"error": "DeepSeek-OCR unavailable", "text": "", "markdown": ""}
@@ -373,9 +385,12 @@ def process_image(file_path: str, engines: str = "all") -> dict:
     use_docling  = engines in ("all", "docling")  or "docling"  in engines
     use_deepseek = engines in ("all", "deepseek") or "deepseek" in engines
 
-    # Always run PaddleOCR for per-line confidence (unless explicitly excluded)
     if engines == "both":
         use_paddle, use_docling, use_deepseek = True, True, False
+
+    # Auto-skip DeepSeek when no GPU and not explicitly requested
+    if use_deepseek and engines != "deepseek" and not _check_gpu():
+        use_deepseek = False
 
     output: dict = {
         "file": Path(file_path).name,
@@ -445,7 +460,8 @@ def _pdf_to_images(file_path: str, dpi: int = 200) -> list:
 def process_pdf(file_path: str, engines: str = "all") -> dict:
     """
     Process a PDF through the requested engines.
-    Docling leads on text PDFs; PaddleOCR covers all pages as raster images.
+    Docling and PDF rasterization run in parallel for speed.
+    DeepSeek is auto-skipped in multi-engine mode when no CUDA GPU.
     """
     t0 = time.time()
     use_paddle   = engines in ("all", "paddle")   or "paddle"   in engines
@@ -454,62 +470,63 @@ def process_pdf(file_path: str, engines: str = "all") -> dict:
     if engines == "both":
         use_paddle, use_docling, use_deepseek = True, True, False
 
+    # Auto-skip DeepSeek when no GPU and not explicitly requested
+    if use_deepseek and engines != "deepseek" and not _check_gpu():
+        use_deepseek = False
+
     output: dict = {
-        "file": Path(file_path).name,
-        "paddle":   {},
-        "docling":  {},
-        "deepseek": {},
-        "fused_text":     "",
-        "tables":         [],
-        "processing_time_s": 0.0,
+        "file":    Path(file_path).name,
+        "paddle":  {}, "docling": {}, "deepseek": {},
+        "fused_text": "", "tables": [], "processing_time_s": 0.0,
     }
 
-    # Docling (full document - handles text-based PDFs and structure)
-    if use_docling:
+    # --- Run Docling and PDF→image rasterization IN PARALLEL ---
+    page_images: list = []
+    if use_docling and (use_paddle or use_deepseek):
+        with _TPE(max_workers=2) as ex:
+            f_doc   = ex.submit(_docling_process_file, file_path)
+            f_pages = ex.submit(_pdf_to_images, file_path, 200)
+            output["docling"] = f_doc.result()
+            page_images = f_pages.result()
+    elif use_docling:
         output["docling"] = _docling_process_file(file_path)
-        output["tables"]  = output["docling"].get("tables", [])
-        if output["docling"].get("error"):
-            logger.warning("Docling error: %s", output["docling"]["error"])
-
-    # PaddleOCR + DeepSeek: rasterize ALL pages then process
-    if use_paddle or use_deepseek:
+    elif use_paddle or use_deepseek:
         page_images = _pdf_to_images(file_path, dpi=200)
 
-        if page_images:
-            if use_paddle:
-                all_lines, all_text, structure_tables = [], [], []
-                for img_path in page_images:
-                    r = _paddle_ocr_image(str(img_path))
-                    all_lines.extend(r.get("lines", []))
-                    if r.get("full_text"):
-                        all_text.append(r["full_text"])
-                    structure_tables.extend(_paddle_tables_from_image(str(img_path)))
-                output["paddle"] = {
-                    "engine":     "PaddleOCR",
-                    "lines":      all_lines,
-                    "full_text":  "\n\n".join(all_text),
-                    "line_count": len(all_lines),
-                }
-                # Use PPStructure tables when Docling found none
-                if not output["tables"] and structure_tables:
-                    output["tables"] = structure_tables
+    output["tables"] = output["docling"].get("tables", [])
+    if output["docling"].get("error"):
+        logger.warning("Docling error: %s", output["docling"]["error"])
 
-            if use_deepseek:
-                # DeepSeek on first page only (expensive; model is 7 GB)
-                output["deepseek"] = _deepseek_ocr_image(str(page_images[0]), mode="markdown")
-
-            # Remove temp images
+    # --- PaddleOCR + DeepSeek on rasterized pages ---
+    if page_images:
+        if use_paddle:
+            all_lines, all_text = [], []
             for img_path in page_images:
-                img_path.unlink(missing_ok=True)
+                r = _paddle_ocr_image(str(img_path))
+                all_lines.extend(r.get("lines", []))
+                if r.get("full_text"):
+                    all_text.append(r["full_text"])
+            output["paddle"] = {
+                "engine":     "PaddleOCR",
+                "lines":      all_lines,
+                "full_text":  "\n\n".join(all_text),
+                "line_count": len(all_lines),
+            }
 
-        else:
-            msg = "Could not rasterize PDF. Install PyMuPDF: pip install pymupdf"
-            if use_paddle:
-                output["paddle"]   = {"error": msg, "lines": [], "full_text": ""}
-            if use_deepseek:
-                output["deepseek"] = {"error": msg, "text": "", "markdown": ""}
+        if use_deepseek:
+            output["deepseek"] = _deepseek_ocr_image(str(page_images[0]), mode="markdown")
 
-    # Fusion
+        for img_path in page_images:
+            img_path.unlink(missing_ok=True)
+
+    elif (use_paddle or use_deepseek) and not page_images:
+        msg = "Could not rasterize PDF. Install PyMuPDF: pip install pymupdf"
+        if use_paddle:
+            output["paddle"]   = {"error": msg, "lines": [], "full_text": ""}
+        if use_deepseek:
+            output["deepseek"] = {"error": msg, "text": "", "markdown": ""}
+
+    # --- Fusion ---
     candidate_texts = {
         "DeepSeek-OCR": output["deepseek"].get("markdown") or output["deepseek"].get("text", ""),
         "Docling":      output["docling"].get("markdown")  or output["docling"].get("text", ""),
@@ -518,11 +535,11 @@ def process_pdf(file_path: str, engines: str = "all") -> dict:
     best_engine = max(
         {k: v for k, v in candidate_texts.items() if v.strip()},
         key=lambda k: len(candidate_texts[k].strip()),
-        default="Docling",
+        default="PaddleOCR",
     )
-    output["fused_text"]     = candidate_texts.get(best_engine, "").strip()
-    output["primary_engine"] = best_engine
-    output["confidence_avg"] = _avg_confidence(output["paddle"].get("lines", []))
+    output["fused_text"]        = candidate_texts.get(best_engine, "").strip()
+    output["primary_engine"]    = best_engine
+    output["confidence_avg"]    = _avg_confidence(output["paddle"].get("lines", []))
     output["processing_time_s"] = round(time.time() - t0, 2)
     return output
 

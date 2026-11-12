@@ -3,7 +3,8 @@ MySQL database layer for the OCR web app.
 Database: ocrdatabasedb (localhost)
 
 Tables created automatically on startup:
-  - ocr_jobs        : one row per OCR job, stores metadata + fused text
+  - ocr_clients     : master list of clients/companies (seeded on init)
+  - ocr_jobs        : one row per OCR job, stores metadata + fused text + client_id FK
   - ocr_job_engines : per-engine sub-results (paddle / docling / deepseek)
   - ocr_tables      : extracted tables from Docling
 """
@@ -11,6 +12,8 @@ Tables created automatically on startup:
 import json
 import logging
 import os
+import re
+import unicodedata
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional
@@ -19,6 +22,76 @@ import mysql.connector
 from mysql.connector import pooling
 
 logger = logging.getLogger(__name__)
+
+# Master client list seeded into `ocr_clients`
+CLIENTS_SEED = [
+    {
+        "code": "greenwald",
+        "name_ja": "グリーンワルド",
+        "name_en": "Greenwald",
+        "keywords": "グリーンワルド,greenwald",
+    },
+    {
+        "code": "national",
+        "name_ja": "ナショナル",
+        "name_en": "National",
+        "keywords": "ナショナル,national",
+    },
+    {
+        "code": "props_japan",
+        "name_ja": "プロップスジャパン",
+        "name_en": "Props Japan",
+        "keywords": "プロップスジャパン,プロップス,props japan,propsjapan,props_japan",
+    },
+    {
+        "code": "rosen",
+        "name_ja": "ローゼン",
+        "name_en": "Rosen",
+        "keywords": "ローゼン,口ーゼン,相鉄ローゼン,相鉄口ーゼン,rosen,sotetsu",
+    },
+    {
+        "code": "wald_delica",
+        "name_ja": "ワルドデリカ",
+        "name_en": "Wald Delica",
+        "keywords": "ワルドデリカ,ワルドデリ力,wald delica,walddelica,wald_delica",
+    },
+    {
+        "code": "haibukiya",
+        "name_ja": "灰吹屋",
+        "name_en": "Haibukiya",
+        "keywords": "灰吹屋,haibukiya",
+    },
+    {
+        "code": "santoku",
+        "name_ja": "三徳",
+        "name_en": "Santoku",
+        "keywords": "三徳,santoku",
+    },
+    {
+        "code": "sanchoku",
+        "name_ja": "産直",
+        "name_en": "Sanchoku",
+        "keywords": "産直,sanchoku",
+    },
+    {
+        "code": "joso",
+        "name_ja": "常総",
+        "name_en": "Joso",
+        "keywords": "常総,常総生協,joso",
+    },
+    {
+        "code": "fusui_project",
+        "name_ja": "風水プロジェクト",
+        "name_en": "Fusui Project",
+        "keywords": "風水プロジェクト,風水,fusui project,fusuiproject,fusui_project,fusui",
+    },
+    {
+        "code": "nanohana",
+        "name_ja": "なのはな",
+        "name_en": "Nanohana",
+        "keywords": "なのはな,菜の花,nanohana",
+    },
+]
 
 # ---------------------------------------------------------------------------
 # Config — override via environment variables or .env
@@ -107,6 +180,17 @@ def is_connected() -> bool:
 
 def _create_tables():
     ddl = [
+        # Clients / customers master table
+        """
+        CREATE TABLE IF NOT EXISTS ocr_clients (
+            id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            code       VARCHAR(64)  NOT NULL UNIQUE,
+            name_ja    VARCHAR(128) NOT NULL,
+            name_en    VARCHAR(128) NOT NULL,
+            keywords   TEXT         NULL,
+            created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """,
         # Main jobs table
         """
         CREATE TABLE IF NOT EXISTS ocr_jobs (
@@ -114,17 +198,22 @@ def _create_tables():
             job_id           VARCHAR(36)   NOT NULL UNIQUE,
             filename         VARCHAR(512)  NOT NULL,
             engine_requested VARCHAR(64)   NOT NULL DEFAULT 'all',
+            client_id        INT UNSIGNED  NULL,
             status           ENUM('queued','processing','done','error') NOT NULL DEFAULT 'queued',
             primary_engine   VARCHAR(64)   NULL,
             fused_text       LONGTEXT      NULL,
             confidence_avg   FLOAT         NULL,
             processing_time_s FLOAT        NULL,
+            result_json      LONGTEXT      NULL,
             error_message    TEXT          NULL,
             created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
                                            ON UPDATE CURRENT_TIMESTAMP,
             INDEX idx_status  (status),
-            INDEX idx_created (created_at)
+            INDEX idx_created (created_at),
+            INDEX idx_client  (client_id),
+            CONSTRAINT fk_job_client FOREIGN KEY (client_id)
+                REFERENCES ocr_clients (id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """,
         # Per-engine sub-results
@@ -170,29 +259,131 @@ def _create_tables():
 
 
 # ---------------------------------------------------------------------------
+# Client lookup & auto-detection
+# ---------------------------------------------------------------------------
+
+def _normalize_text(s: str) -> str:
+    """Normalize full-width/half-width characters and lowercase for matching."""
+    return unicodedata.normalize("NFKC", s or "").lower()
+
+
+def _keyword_matches(norm_haystack: str, norm_kw: str) -> bool:
+    """Match keyword in normalized text; use boundaries for ASCII-only keywords."""
+    if not norm_kw or not norm_haystack:
+        return False
+    if re.fullmatch(r"[a-z0-9 _-]+", norm_kw):
+        pattern = r"(?<![a-z0-9])" + re.escape(norm_kw) + r"(?![a-z0-9])"
+        return re.search(pattern, norm_haystack) is not None
+    return norm_kw in norm_haystack
+
+
+def list_clients(with_counts: bool = True) -> list:
+    """Return all rows from ocr_clients (optionally with done job counts)."""
+    if not is_connected():
+        return []
+    try:
+        with _get_connection() as con:
+            cur = con.cursor(dictionary=True)
+            if with_counts:
+                cur.execute(
+                    """
+                    SELECT c.id, c.code, c.name_ja, c.name_en, c.keywords, c.created_at,
+                           COUNT(j.id) AS total_jobs,
+                           SUM(j.status = 'done') AS done_jobs
+                      FROM ocr_clients c
+                      LEFT JOIN ocr_jobs j ON j.client_id = c.id
+                     GROUP BY c.id
+                     ORDER BY c.id ASC
+                    """
+                )
+            else:
+                cur.execute(
+                    "SELECT id, code, name_ja, name_en, keywords, created_at "
+                    "FROM ocr_clients ORDER BY id ASC"
+                )
+            rows = cur.fetchall()
+            cur.close()
+            for row in rows:
+                if "total_jobs" in row:
+                    row["total_jobs"] = int(row["total_jobs"] or 0)
+                if "done_jobs" in row:
+                    row["done_jobs"] = int(row["done_jobs"] or 0)
+            return rows
+    except Exception as exc:
+        logger.error("DB list_clients failed: %s", exc)
+        return []
+
+
+def detect_client(filename: str = "", text: str = "") -> Optional[dict]:
+    """
+    Auto-detect matching client from filename first, then OCR text.
+    Reads client definitions from `ocr_clients` when DB is connected.
+    Returns {id, code, name_ja, name_en} or None.
+    """
+    clients = list_clients(with_counts=False) if is_connected() else []
+    if not clients:
+        return None
+
+    # Build (normalized_keyword, client_dict) pairs sorted longest-first
+    pairs: list[tuple[str, dict]] = []
+    for c in clients:
+        raw_kws = [c.get("name_ja", ""), c.get("name_en", ""), c.get("code", "")]
+        if c.get("keywords"):
+            raw_kws.extend(c["keywords"].split(","))
+        seen_kws: set[str] = set()
+        for kw in raw_kws:
+            nkw = _normalize_text(kw).strip()
+            if nkw and nkw not in seen_kws:
+                seen_kws.add(nkw)
+                pairs.append((nkw, c))
+
+    pairs.sort(key=lambda item: len(item[0]), reverse=True)
+
+    for source in (_normalize_text(filename), _normalize_text(text)):
+        if not source:
+            continue
+        for nkw, client in pairs:
+            if _keyword_matches(source, nkw):
+                return {
+                    "id":      client["id"],
+                    "code":    client["code"],
+                    "name_ja": client["name_ja"],
+                    "name_en": client["name_en"],
+                }
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Public write helpers
 # ---------------------------------------------------------------------------
 
-def save_job_queued(job_id: str, filename: str, engine: str):
-    """Insert a new job row with status='queued'."""
+def save_job_queued(job_id: str, filename: str, engine: str) -> Optional[dict]:
+    """Insert a new job row with status='queued' and auto-detected client_id."""
     if not is_connected():
-        return
+        return None
+    matched_client = detect_client(filename=filename)
+    client_id = matched_client["id"] if matched_client else None
     try:
         with _get_connection() as con:
             cur = con.cursor()
+            now = datetime.utcnow()
             cur.execute(
                 """
-                INSERT INTO ocr_jobs (job_id, filename, engine_requested, status, created_at, updated_at)
-                VALUES (%s, %s, %s, 'queued', %s, %s)
-                ON DUPLICATE KEY UPDATE status='queued', updated_at=%s
+                INSERT INTO ocr_jobs
+                    (job_id, filename, engine_requested, client_id, status, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, 'queued', %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    status='queued',
+                    client_id=COALESCE(%s, client_id),
+                    updated_at=%s
                 """,
-                (job_id, filename, engine,
-                 datetime.utcnow(), datetime.utcnow(),
-                 datetime.utcnow()),
+                (job_id, filename, engine, client_id, now, now, client_id, now),
             )
             cur.close()
+        return matched_client
     except Exception as exc:
         logger.error("DB save_job_queued failed: %s", exc)
+        return matched_client
 
 
 def save_job_processing(job_id: str):
@@ -205,14 +396,32 @@ def save_job_processing(job_id: str):
         logger.error("DB save_job_processing failed: %s", exc)
 
 
-def save_job_done(job_id: str, result: dict):
+def save_job_done(job_id: str, result: dict, filename: str = "") -> Optional[dict]:
     """
     Persist the completed OCR result.
-    Writes to ocr_jobs, ocr_job_engines, and ocr_tables.
+    Auto-detects client from filename and extracted OCR text,
+    then writes to ocr_jobs, ocr_job_engines, and ocr_tables.
     """
     if not is_connected():
-        return
+        return None
     try:
+        text_candidates = [
+            result.get("fused_text"),
+            result.get("full_text"),
+            result.get("text"),
+            result.get("markdown"),
+        ]
+        for eng_key in ("paddle", "docling", "deepseek"):
+            eng = result.get(eng_key)
+            if isinstance(eng, dict):
+                text_candidates.extend([eng.get("markdown"), eng.get("text"), eng.get("full_text")])
+        combined_text = "\n".join(t for t in text_candidates if isinstance(t, str) and t)
+
+        matched_client = detect_client(filename=filename, text=combined_text)
+        client_id = matched_client["id"] if matched_client else None
+        if matched_client and "client" not in result:
+            result["client"] = matched_client
+
         with _get_connection() as con:
             cur = con.cursor()
 
@@ -221,6 +430,7 @@ def save_job_done(job_id: str, result: dict):
                 """
                 UPDATE ocr_jobs
                    SET status            = 'done',
+                       client_id         = COALESCE(%s, client_id),
                        primary_engine    = %s,
                        fused_text        = %s,
                        confidence_avg    = %s,
@@ -230,6 +440,7 @@ def save_job_done(job_id: str, result: dict):
                  WHERE job_id = %s
                 """,
                 (
+                    client_id,
                     result.get("primary_engine") or result.get("engine"),
                     result.get("fused_text") or result.get("full_text") or result.get("text") or result.get("markdown", ""),
                     result.get("confidence_avg"),
@@ -296,8 +507,10 @@ def save_job_done(job_id: str, result: dict):
                 )
 
             cur.close()
+        return matched_client
     except Exception as exc:
         logger.error("DB save_job_done failed: %s", exc)
+        return None
 
 
 def save_job_error(job_id: str, error: str):
@@ -325,13 +538,24 @@ def save_job_error(job_id: str, error: str):
 # ---------------------------------------------------------------------------
 
 def get_job(job_id: str) -> Optional[dict]:
-    """Fetch a job row by job_id."""
+    """Fetch a job row by job_id (joined with client metadata)."""
     if not is_connected():
         return None
     try:
         with _get_connection() as con:
             cur = con.cursor(dictionary=True)
-            cur.execute("SELECT * FROM ocr_jobs WHERE job_id = %s", (job_id,))
+            cur.execute(
+                """
+                SELECT j.*,
+                       c.code    AS client_code,
+                       c.name_ja AS client_name_ja,
+                       c.name_en AS client_name_en
+                  FROM ocr_jobs j
+                  LEFT JOIN ocr_clients c ON c.id = j.client_id
+                 WHERE j.job_id = %s
+                """,
+                (job_id,),
+            )
             row = cur.fetchone()
             cur.close()
             return row
@@ -358,23 +582,30 @@ def get_job_result(job_id: str) -> Optional[dict]:
         return None
 
 
-def list_jobs(limit: int = 50, offset: int = 0) -> list:
-    """Return recent jobs ordered by created_at DESC."""
+def list_jobs(limit: int = 50, offset: int = 0, client_id: Optional[int] = None) -> list:
+    """Return recent jobs ordered by created_at DESC (with client info)."""
     if not is_connected():
         return []
     try:
         with _get_connection() as con:
             cur = con.cursor(dictionary=True)
+            where_sql = "WHERE j.client_id = %s" if client_id is not None else ""
+            params = (client_id, limit, offset) if client_id is not None else (limit, offset)
             cur.execute(
-                """
-                SELECT job_id, filename, engine_requested, status,
-                       primary_engine, confidence_avg, processing_time_s,
-                       created_at, updated_at
-                  FROM ocr_jobs
-                 ORDER BY created_at DESC
+                f"""
+                SELECT j.job_id, j.filename, j.engine_requested, j.client_id,
+                       c.code    AS client_code,
+                       c.name_ja AS client_name_ja,
+                       c.name_en AS client_name_en,
+                       j.status, j.primary_engine, j.confidence_avg,
+                       j.processing_time_s, j.created_at, j.updated_at
+                  FROM ocr_jobs j
+                  LEFT JOIN ocr_clients c ON c.id = j.client_id
+                 {where_sql}
+                 ORDER BY j.created_at DESC
                  LIMIT %s OFFSET %s
                 """,
-                (limit, offset),
+                params,
             )
             rows = cur.fetchall()
             cur.close()
@@ -453,15 +684,108 @@ def db_stats() -> dict:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _column_exists(cur, table: str, column: str) -> bool:
+    cur.execute(
+        """
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = %s
+           AND COLUMN_NAME = %s
+         LIMIT 1
+        """,
+        (table, column),
+    )
+    return cur.fetchone() is not None
+
+
+def _index_exists(cur, table: str, index_name: str) -> bool:
+    cur.execute(
+        """
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = %s
+           AND INDEX_NAME = %s
+         LIMIT 1
+        """,
+        (table, index_name),
+    )
+    return cur.fetchone() is not None
+
+
+def _constraint_exists(cur, table: str, constraint_name: str) -> bool:
+    cur.execute(
+        """
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = %s
+           AND CONSTRAINT_NAME = %s
+         LIMIT 1
+        """,
+        (table, constraint_name),
+    )
+    return cur.fetchone() is not None
+
+
+def _seed_clients(cur):
+    """Ensure the 11 configured clients exist in `ocr_clients` (idempotent)."""
+    for client in CLIENTS_SEED:
+        cur.execute(
+            """
+            INSERT IGNORE INTO ocr_clients (code, name_ja, name_en, keywords)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (client["code"], client["name_ja"], client["name_en"], client["keywords"]),
+        )
+
+
 def _migrate():
-    """Add new columns to existing tables without recreating them."""
+    """Add new columns/constraints to existing tables and seed clients."""
     with _get_connection() as con:
         cur = con.cursor()
-        try:
+        if not _column_exists(cur, "ocr_jobs", "result_json"):
             cur.execute("ALTER TABLE ocr_jobs ADD COLUMN result_json LONGTEXT NULL")
-        except Exception:
-            pass  # column already exists
+        if not _column_exists(cur, "ocr_jobs", "client_id"):
+            cur.execute("ALTER TABLE ocr_jobs ADD COLUMN client_id INT UNSIGNED NULL AFTER engine_requested")
+        if not _index_exists(cur, "ocr_jobs", "idx_client"):
+            cur.execute("ALTER TABLE ocr_jobs ADD INDEX idx_client (client_id)")
+        if not _constraint_exists(cur, "ocr_jobs", "fk_job_client"):
+            cur.execute(
+                """
+                ALTER TABLE ocr_jobs
+                ADD CONSTRAINT fk_job_client FOREIGN KEY (client_id)
+                    REFERENCES ocr_clients (id) ON DELETE SET NULL
+                """
+            )
+        _seed_clients(cur)
         cur.close()
+
+
+def cleanup_stale_jobs(older_than_minutes: int = 5) -> int:
+    """Mark processing/queued jobs older than N minutes as error (server restarted)."""
+    if not is_connected():
+        return 0
+    try:
+        with _get_connection() as con:
+            cur = con.cursor()
+            cur.execute(
+                """
+                UPDATE ocr_jobs
+                   SET status        = 'error',
+                       error_message = 'Server restarted while processing',
+                       updated_at    = %s
+                 WHERE status IN ('processing', 'queued')
+                   AND created_at < DATE_SUB(%s, INTERVAL %s MINUTE)
+                """,
+                (datetime.utcnow(), datetime.utcnow(), older_than_minutes),
+            )
+            affected = cur.rowcount
+            cur.close()
+        if affected:
+            logger.info("Cleaned up %d stale job(s)", affected)
+        return affected
+    except Exception as exc:
+        logger.error("DB cleanup_stale_jobs failed: %s", exc)
+        return 0
 
 
 def _update_job_status(job_id: str, status: str):

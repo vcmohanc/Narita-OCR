@@ -106,6 +106,9 @@ body{
   transition:all .12s;
 }
 .toggle.active,.toggle:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+.toggle.gpu-required{opacity:.55;cursor:not-allowed}
+.toggle.gpu-required:hover{background:var(--surface);border-color:var(--border);color:var(--muted)}
+.gpu-badge{font-size:10px;color:#f59e0b;font-weight:700;margin-left:2px}
 
 /* Process button */
 .btn-primary{
@@ -135,6 +138,7 @@ body{
 .results-meta{display:flex;gap:6px;flex-wrap:wrap;flex:1}
 .meta-pill{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500;background:var(--bg);border:1px solid var(--border);color:var(--muted)}
 .meta-pill.engine{background:var(--accent-bg);color:var(--accent);border-color:#bfdbfe}
+.meta-pill.client{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}
 .meta-pill.good{background:#f0fdf4;color:var(--success);border-color:#bbf7d0}
 .meta-pill.warn{background:#fffbeb;color:var(--warning);border-color:#fde68a}
 .results-actions{display:flex;gap:6px}

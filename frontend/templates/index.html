@@ -150,6 +150,9 @@
         <span class="card-title" style="margin:0">Job History</span>
         <div class="results-actions">
           <span id="dbStatus" class="engine-badge" style="font-size:11px"></span>
+          <select id="historyClientFilter" class="btn-sm" aria-label="Filter by client">
+            <option value="">All Clients</option>
+          </select>
           <button class="btn-sm" id="refreshHistoryBtn">↻ Refresh</button>
         </div>
       </div>
@@ -157,12 +160,12 @@
         <table class="hist-table">
           <thead>
             <tr>
-              <th>File</th><th>Engine</th><th>Status</th>
+              <th>File</th><th>Client</th><th>Engine</th><th>Status</th>
               <th>Confidence</th><th>Time (s)</th><th>Created</th>
             </tr>
           </thead>
           <tbody id="historyBody">
-            <tr><td colspan="6" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+            <tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading…</td></tr>
           </tbody>
         </table>
       </div>

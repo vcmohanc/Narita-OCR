@@ -67,6 +67,9 @@ async def on_startup():
     connected = await loop.run_in_executor(None, db.init_db)
     if connected:
         logger.info("MySQL persistence enabled (ocrdatabasedb)")
+        stale = await loop.run_in_executor(None, db.cleanup_stale_jobs, 5)
+        if stale:
+            logger.info("Marked %d orphaned job(s) as error", stale)
     else:
         logger.warning("MySQL unavailable — in-memory mode only")
 
@@ -112,15 +115,18 @@ async def upload_and_ocr(
         "filename": file.filename,
         "status":   "queued",
         "engine":   engine,
+        "client":   None,
         "result":   None,
         "error":    None,
     }
 
-    # Persist queued status to DB
-    db.save_job_queued(job_id, file.filename, engine)
+    # Persist queued status to DB (auto-detects client from filename if possible)
+    matched_client = db.save_job_queued(job_id, file.filename, engine)
+    if matched_client:
+        jobs[job_id]["client"] = matched_client
 
-    background_tasks.add_task(_run_ocr, job_id, str(dest), engine)
-    return {"job_id": job_id, "status": "queued"}
+    background_tasks.add_task(_run_ocr, job_id, str(dest), engine, file.filename)
+    return {"job_id": job_id, "status": "queued", "client": matched_client}
 
 
 @app.get("/api/ocr/status/{job_id}")
@@ -132,11 +138,22 @@ async def job_status(job_id: str):
     db_row = db.get_job(job_id)
     if db_row is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    client_info = (
+        {
+            "id":      db_row["client_id"],
+            "code":    db_row["client_code"],
+            "name_ja": db_row["client_name_ja"],
+            "name_en": db_row["client_name_en"],
+        }
+        if db_row.get("client_id")
+        else None
+    )
     return {
         "job_id":   job_id,
         "filename": db_row.get("filename", ""),
         "status":   db_row.get("status", "unknown"),
         "engine":   db_row.get("engine_requested", "all"),
+        "client":   client_info,
         "result":   None,
         "error":    db_row.get("error_message"),
     }
@@ -165,10 +182,12 @@ async def job_result(job_id: str):
 
 @app.get("/api/health")
 async def health():
+    from backend.ocr_engine import _check_gpu
     return {
-        "status":   "ok",
-        "engines":  ["PaddleOCR", "Docling", "DeepSeek-OCR"],
-        "database": "connected" if db.is_connected() else "disconnected",
+        "status":        "ok",
+        "engines":       ["PaddleOCR", "Docling", "DeepSeek-OCR"],
+        "database":      "connected" if db.is_connected() else "disconnected",
+        "gpu_available": _check_gpu(),
     }
 
 
@@ -176,21 +195,32 @@ async def health():
 # DB-backed history & statistics endpoints
 # ---------------------------------------------------------------------------
 
-@app.get("/api/db/jobs")
-async def list_jobs(
-    limit:  int = Query(default=50, ge=1, le=500),
-    offset: int = Query(default=0,  ge=0),
-):
-    """Return recent OCR jobs stored in MySQL."""
+def _serialize_dates(row: dict) -> dict:
+    for k, v in row.items():
+        if hasattr(v, "isoformat"):
+            row[k] = v.isoformat()
+    return row
+
+
+@app.get("/api/db/clients")
+async def list_clients():
+    """Return all registered clients from `ocr_clients` with job counts."""
     if not db.is_connected():
         raise HTTPException(status_code=503, detail="Database not connected")
-    rows = db.list_jobs(limit=limit, offset=offset)
-    # Convert datetime objects to ISO strings for JSON serialisation
-    for row in rows:
-        for k, v in row.items():
-            if hasattr(v, "isoformat"):
-                row[k] = v.isoformat()
-    return rows
+    return [_serialize_dates(r) for r in db.list_clients(with_counts=True)]
+
+
+@app.get("/api/db/jobs")
+async def list_jobs(
+    limit:     int = Query(default=50, ge=1, le=500),
+    offset:    int = Query(default=0,  ge=0),
+    client_id: Optional[int] = Query(default=None, ge=1),
+):
+    """Return recent OCR jobs stored in MySQL (optionally filtered by client_id)."""
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    rows = db.list_jobs(limit=limit, offset=offset, client_id=client_id)
+    return [_serialize_dates(r) for r in rows]
 
 
 @app.get("/api/db/jobs/{job_id}")
@@ -201,9 +231,7 @@ async def db_job_detail(job_id: str):
     row = db.get_job(job_id)
     if not row:
         raise HTTPException(status_code=404, detail="Job not found in database")
-    for k, v in row.items():
-        if hasattr(v, "isoformat"):
-            row[k] = v.isoformat()
+    _serialize_dates(row)
     row["engines"] = db.get_job_engines(job_id)
     row["tables"]  = db.get_job_tables(job_id)
     return row
@@ -219,17 +247,28 @@ async def db_statistics():
 # Background OCR task
 # ---------------------------------------------------------------------------
 
-async def _run_ocr(job_id: str, file_path: str, engine: str):
+OCR_TIMEOUT_S = 300  # 5 minutes
+
+
+async def _run_ocr(job_id: str, file_path: str, engine: str, filename: str = ""):
     jobs[job_id]["status"] = "processing"
     db.save_job_processing(job_id)
     try:
-        # Run in thread pool so it doesn't block the event loop
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _sync_ocr, file_path, engine)
-        jobs[job_id]["status"] = "done"
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, _sync_ocr, file_path, engine),
+            timeout=OCR_TIMEOUT_S,
+        )
+        matched_client = db.save_job_done(job_id, result, filename=filename)
+        if matched_client:
+            jobs[job_id]["client"] = matched_client
         jobs[job_id]["result"] = result
-        # Persist result to MySQL
-        db.save_job_done(job_id, result)
+        jobs[job_id]["status"] = "done"
+    except asyncio.TimeoutError:
+        logger.error("OCR timed out after %ds for job %s", OCR_TIMEOUT_S, job_id)
+        jobs[job_id]["status"] = "error"
+        jobs[job_id]["error"]  = f"Processing timed out ({OCR_TIMEOUT_S}s)"
+        db.save_job_error(job_id, f"Processing timed out ({OCR_TIMEOUT_S}s)")
     except Exception as exc:
         logger.exception("OCR failed for job %s", job_id)
         jobs[job_id]["status"] = "error"

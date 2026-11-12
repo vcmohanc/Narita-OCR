@@ -8,18 +8,41 @@ const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
 let selectedFile   = null;
 let selectedEngine = "all";
 let currentResult  = null;
+let gpuAvailable   = false;  // updated from /api/health on load
 
 // Engine selector
 document.querySelectorAll(".toggle").forEach(btn => {
   btn.addEventListener("click", () => {
+    if (btn.dataset.engine === "deepseek" && !gpuAvailable) {
+      showToast("DeepSeek-OCR requires a CUDA GPU — not available on this machine.", true);
+      return;
+    }
     document.querySelectorAll(".toggle").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     selectedEngine = btn.dataset.engine;
-    if (selectedEngine === "deepseek" || selectedEngine === "all") {
-      showToast("DeepSeek-OCR needs a GPU and ~7 GB model on first run.");
-    }
   });
 });
+
+// Mark DeepSeek button as GPU-required based on health check
+(async function checkGpu() {
+  try {
+    const r = await fetch(`${API_BASE}/api/health`);
+    const j = await r.json();
+    gpuAvailable = !!j.gpu_available;
+  } catch { gpuAvailable = false; }
+  const dsBtn = document.querySelector('.toggle[data-engine="deepseek"]');
+  if (dsBtn && !gpuAvailable) {
+    dsBtn.classList.add("gpu-required");
+    dsBtn.title = "Requires CUDA GPU — not available on this machine";
+    // Append a small badge if not already there
+    if (!dsBtn.querySelector(".gpu-badge")) {
+      const badge = document.createElement("span");
+      badge.className = "gpu-badge";
+      badge.textContent = " ⚠ GPU";
+      dsBtn.appendChild(badge);
+    }
+  }
+})();
 
 // Tab switching
 document.querySelectorAll(".tab").forEach(tab => {
@@ -153,14 +176,21 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function renderResults(res) {
   const conf = res.confidence_avg ? (res.confidence_avg * 100).toFixed(1) + "%" : null;
   const confClass = (res.confidence_avg || 0) >= 0.9 ? "good" : "warn";
+  const clientPill = res.client
+    ? `<span class="meta-pill client">${esc(res.client.name_ja)} / ${esc(res.client.name_en)}</span>`
+    : "";
   document.getElementById("resultsMeta").innerHTML =
+    clientPill +
     `<span class="meta-pill engine">${esc(res.primary_engine || "—")}</span>` +
     (conf ? `<span class="meta-pill ${confClass}">${conf} confidence</span>` : "") +
     (res.processing_time_s ? `<span class="meta-pill">${res.processing_time_s}s</span>` : "");
 
   document.getElementById("fusedText").textContent   = res.fused_text || "(no text extracted)";
   document.getElementById("doclingText").textContent  = res.docling?.markdown || res.docling?.text || "(Docling produced no output)";
-  document.getElementById("deepseekText").textContent = res.deepseek?.markdown || res.deepseek?.text || "(DeepSeek-OCR not run — requires GPU or first-time model download)";
+  const dsErr = res.deepseek?.error || "";
+  document.getElementById("deepseekText").textContent =
+    res.deepseek?.markdown || res.deepseek?.text ||
+    (dsErr ? dsErr : "(DeepSeek-OCR not run — requires a CUDA GPU)");
 
   const lines = res.paddle?.lines || [];
   document.getElementById("paddleLines").innerHTML = lines.length
@@ -204,6 +234,7 @@ function renderResults(res) {
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
   document.getElementById("tab-fused").classList.remove("hidden");
   document.getElementById("resultsCard").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (typeof window._onJobDone === "function") window._onJobDone(res);
 }
 
 // Copy / Download buttons
@@ -251,13 +282,14 @@ function esc(s) {
 // MySQL History panel
 // ============================================================
 (async function initHistory() {
-  const statusEl  = document.getElementById('dbStatus');
-  const bodyEl    = document.getElementById('historyBody');
-  const refreshBtn= document.getElementById('refreshHistoryBtn');
+  const statusEl     = document.getElementById('dbStatus');
+  const bodyEl       = document.getElementById('historyBody');
+  const refreshBtn   = document.getElementById('refreshHistoryBtn');
+  const clientFilter = document.getElementById('historyClientFilter');
 
   async function checkDb() {
     try {
-      const r = await fetch('/api/health');
+      const r = await fetch(`${API_BASE}/api/health`);
       const j = await r.json();
       if (statusEl) {
         statusEl.textContent = j.database === 'connected' ? '🟢 MySQL' : '🔴 No DB';
@@ -265,43 +297,67 @@ function esc(s) {
     } catch { if (statusEl) statusEl.textContent = '🔴 No DB'; }
   }
 
+  async function loadClients() {
+    if (!clientFilter) return;
+    const prev = clientFilter.value;
+    try {
+      const r = await fetch(`${API_BASE}/api/db/clients`);
+      if (!r.ok) return;
+      const clients = await r.json();
+      clientFilter.innerHTML =
+        '<option value="">All Clients</option>' +
+        clients.map(c =>
+          `<option value="${c.id}">${esc(c.name_ja)} / ${esc(c.name_en)} (${c.total_jobs || 0})</option>`
+        ).join('');
+      if (prev) clientFilter.value = prev;
+    } catch { /* ignore when DB unavailable */ }
+  }
+
   async function loadHistory() {
     if (!bodyEl) return;
-    bodyEl.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted)">Loading…</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading…</td></tr>';
     try {
-      const r = await fetch('/api/db/jobs?limit=50');
+      const cid = clientFilter && clientFilter.value ? `&client_id=${encodeURIComponent(clientFilter.value)}` : '';
+      const r = await fetch(`${API_BASE}/api/db/jobs?limit=50${cid}`);
       if (!r.ok) {
-        bodyEl.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#cb2431">Database not connected</td></tr>`;
+        bodyEl.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#cb2431">Database not connected</td></tr>';
         return;
       }
       const rows = await r.json();
       if (!rows.length) {
-        bodyEl.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted)">No jobs yet</td></tr>';
+        bodyEl.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No jobs yet</td></tr>';
         return;
       }
-      bodyEl.innerHTML = rows.map(j => `
+      bodyEl.innerHTML = rows.map(j => {
+        const clientLabel = j.client_name_ja
+          ? `${esc(j.client_name_ja)} (${esc(j.client_name_en)})`
+          : '—';
+        return `
         <tr>
-          <td title="${j.filename}">${j.filename}</td>
-          <td>${j.engine_requested}</td>
-          <td><span class="status-${j.status}">${j.status}</span></td>
+          <td title="${esc(j.filename)}">${esc(j.filename)}</td>
+          <td title="${clientLabel}">${clientLabel}</td>
+          <td>${esc(j.engine_requested)}</td>
+          <td><span class="status-${esc(j.status)}">${esc(j.status)}</span></td>
           <td>${j.confidence_avg != null ? (j.confidence_avg * 100).toFixed(1) + '%' : '—'}</td>
           <td>${j.processing_time_s != null ? j.processing_time_s : '—'}</td>
-          <td>${j.created_at ? j.created_at.replace('T',' ').slice(0,19) : '—'}</td>
-        </tr>
-      `).join('');
+          <td>${j.created_at ? esc(j.created_at.replace('T',' ').slice(0,19)) : '—'}</td>
+        </tr>`;
+      }).join('');
     } catch (e) {
-      bodyEl.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#cb2431">Error: ${e.message}</td></tr>`;
+      bodyEl.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#cb2431">Error: ${esc(e.message)}</td></tr>`;
     }
   }
 
   await checkDb();
+  await loadClients();
   await loadHistory();
-  if (refreshBtn) refreshBtn.addEventListener('click', loadHistory);
+  if (refreshBtn) refreshBtn.addEventListener('click', () => { loadClients(); loadHistory(); });
+  if (clientFilter) clientFilter.addEventListener('change', loadHistory);
 
   // Auto-refresh history when a job completes
   const origHandler = window._onJobDone;
   window._onJobDone = function(result) {
     if (origHandler) origHandler(result);
-    setTimeout(loadHistory, 800);
+    setTimeout(() => { loadClients(); loadHistory(); }, 400);
   };
 })();

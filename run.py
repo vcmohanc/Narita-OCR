@@ -43,7 +43,7 @@ if __name__ == "__main__":
         "backend.main:app",
         host="0.0.0.0",
         port=8080,
-        reload=not in_docker,
+        reload=False,       # hot-reload disabled: causes constant restarts that orphan in-flight jobs
         log_level="info",
         workers=1,          # OCR models are too large for multi-worker mode
     )
