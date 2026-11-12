@@ -41,12 +41,8 @@ def _get_paddle(lang: str = "japan"):
         try:
             from paddleocr import PaddleOCR
             _paddle_ocr = PaddleOCR(
-                use_angle_cls=True,       # auto-rotate skewed text
                 lang=lang,
-                use_gpu=False,
-                show_log=False,
-                det_db_score_mode="slow", # more accurate bounding boxes
-                rec_algorithm="SVTR_LCNet",
+                use_angle_cls=True,
             )
             logger.info("PaddleOCR engine ready (lang=%s)", lang)
         except Exception as exc:

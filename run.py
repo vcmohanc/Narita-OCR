@@ -8,6 +8,10 @@ import sys
 import os
 from pathlib import Path
 
+# PaddlePaddle requires protobuf ≤ 3.20.2 but onnxruntime pulls in a newer
+# version. Using the pure-Python protobuf parser sidesteps the conflict.
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
+
 ROOT = Path(__file__).resolve().parent
 
 # Load .env only when it exists (local dev); Docker uses injected env vars
@@ -20,9 +24,8 @@ except ImportError:
     pass
 
 # Make the project root and any sibling repos importable
-for p in [str(ROOT), str(ROOT.parent / "PaddleOCR"), str(ROOT.parent / "docling")]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 # torch/transformers must be imported before paddleocr anywhere in the process
 try:
