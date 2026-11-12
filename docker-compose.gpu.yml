@@ -1,0 +1,22 @@
+# =============================================================================
+# docker-compose.gpu.yml — GPU override for NVIDIA CUDA
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# Requires: NVIDIA Container Toolkit installed on the host
+# =============================================================================
+
+services:
+  app:
+    image: ocr-webapp:gpu
+    build:
+      args:
+        BASE_IMAGE: pytorch/pytorch:2.1.2-cuda11.8-cudnn8-runtime
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      CUDA_VISIBLE_DEVICES: "0"

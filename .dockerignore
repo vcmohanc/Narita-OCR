@@ -1,0 +1,56 @@
+# =============================================================================
+# .dockerignore — keep the Docker build context lean
+# =============================================================================
+
+# Virtual environment (packages installed inside image via requirements.txt)
+venv/
+.venv/
+
+# Uploaded files and OCR results (use Docker volumes at runtime)
+uploads/
+results/
+
+# Git & IDE
+.git/
+.gitignore
+.gitattributes
+.vscode/
+.idea/
+*.code-workspace
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Environment files (secrets — injected via compose env or Docker secrets)
+.env
+.env.*
+!.env.example
+
+# Docs & CI
+*.md
+*.txt
+!requirements.txt
+docs/
+.github/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test / local scratch
+tests/
+*.test.*
+*.spec.*
+
+# Node (if any frontend tooling)
+node_modules/
+

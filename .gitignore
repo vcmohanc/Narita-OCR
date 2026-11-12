@@ -1,0 +1,65 @@
+# =============================================================================
+# .gitignore — OCR Web App
+# =============================================================================
+
+# Python virtual environment
+venv/
+.venv/
+ENV/
+env/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Environment / secrets — NEVER commit
+.env
+!.env.example
+
+# Uploaded files and OCR results (use Docker volumes or object storage)
+uploads/
+results/
+
+# HuggingFace / model caches
+*.safetensors
+*.bin
+*.onnx
+.cache/
+
+# Logs
+*.log
+logs/
+
+# IDE / editor
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker build cache (local only)
+.docker/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node (if any future frontend tooling)
+node_modules/

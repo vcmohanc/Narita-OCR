@@ -1,0 +1,84 @@
+# =============================================================================
+# docker-compose.yml — OCR Web App + MySQL (MariaDB)
+# Usage:
+#   docker compose up -d          # start all services
+#   docker compose down           # stop (keeps volumes)
+#   docker compose down -v        # stop + wipe DB volume
+#   docker compose logs -f app    # tail app logs
+# =============================================================================
+
+services:
+
+  # ── Application ─────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: ocr-webapp:latest
+    container_name: ocr-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # MySQL — points to the db service defined below
+      MYSQL_HOST:     db
+      MYSQL_PORT:     "3306"
+      MYSQL_USER:     ocruser
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ocrpassword}
+      MYSQL_DATABASE: ocrdatabasedb
+    volumes:
+      # Persist uploaded files and OCR results across container restarts
+      - uploads_data:/app/uploads
+      - results_data:/app/results
+      # Optional: mount a HuggingFace cache so DeepSeek model isn't re-downloaded
+      - hf_cache:/root/.cache/huggingface
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - ocr-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  # ── Database ─────────────────────────────────────────────────────────────────
+  db:
+    image: mariadb:11
+    container_name: ocr-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MARIADB_DATABASE:      ocrdatabasedb
+      MARIADB_USER:          ocruser
+      MARIADB_PASSWORD:      ${MYSQL_PASSWORD:-ocrpassword}
+    volumes:
+      - db_data:/var/lib/mysql
+      # Init SQL executed only on first startup (empty volume)
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    ports:
+      # Expose only to localhost for direct DB access (optional — remove in prod)
+      - "127.0.0.1:3307:3306"
+    networks:
+      - ocr-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+# ── Named volumes ──────────────────────────────────────────────────────────────
+volumes:
+  db_data:
+  uploads_data:
+  results_data:
+  hf_cache:
+
+# ── Network ────────────────────────────────────────────────────────────────────
+networks:
+  ocr-net:
+    driver: bridge

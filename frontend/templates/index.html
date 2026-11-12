@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OCR System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <div class="page">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-logo">
+        <div class="header-logo-mark">OCR</div>
+        OCR System
+      </div>
+      <div class="header-engines">
+        <span class="engine-badge"><span class="engine-dot"></span>PaddleOCR</span>
+        <span class="engine-badge"><span class="engine-dot"></span>Docling</span>
+        <span class="engine-badge"><span class="engine-dot"></span>DeepSeek-OCR</span>
+      </div>
+    </header>
+
+    <!-- Upload card -->
+    <div class="card">
+      <div class="card-title">Upload Document</div>
+
+      <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-label="Upload file">
+        <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.bmp,.tif,.tiff,.webp,.pdf,.docx,.pptx,.xlsx,.html">
+        <div class="drop-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <div class="drop-title">Drop file here or <span class="drop-link">browse</span></div>
+        <div class="drop-hint">JPG · PNG · PDF · DOCX · PPTX · XLSX · HTML &nbsp;·&nbsp; max 50 MB</div>
+      </div>
+
+      <!-- File preview -->
+      <div class="preview-area hidden" id="previewArea">
+        <div class="file-icon" id="fileIcon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span id="fileExt"></span>
+        </div>
+        <img id="previewImg" class="file-thumb hidden" src="" alt="">
+        <div class="file-info">
+          <div class="file-name" id="fileName">—</div>
+          <div class="preview-meta" id="previewMeta"></div>
+        </div>
+      </div>
+
+      <!-- Engine selector -->
+      <div class="engine-row">
+        <span class="engine-label">Engine:</span>
+        <div class="toggle-group">
+          <button class="toggle active" data-engine="all">All 3 (Best)</button>
+          <button class="toggle" data-engine="both">Paddle + Docling</button>
+          <button class="toggle" data-engine="deepseek">DeepSeek-OCR</button>
+          <button class="toggle" data-engine="paddle">PaddleOCR</button>
+          <button class="toggle" data-engine="docling">Docling</button>
+        </div>
+      </div>
+
+      <!-- Process button -->
+      <button class="btn-primary" id="processBtn" disabled>
+        <svg id="procIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        <span class="spinner hidden" id="spinner"></span>
+        <span class="btn-text">Process Document</span>
+      </button>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-wrap hidden" id="progressWrap">
+      <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+      <div class="progress-label" id="progressLabel">Initializing…</div>
+    </div>
+
+    <!-- Results -->
+    <div class="card hidden" id="resultsCard">
+      <div class="results-header">
+        <span class="results-title">Results</span>
+        <div class="results-meta" id="resultsMeta"></div>
+        <div class="results-actions">
+          <button class="btn-sm" id="copyBtn">Copy text</button>
+          <button class="btn-sm" id="downloadBtn">Copy JSON</button>
+        </div>
+      </div>
+
+      <div class="tab-bar" role="tablist">
+        <button class="tab active" data-tab="fused"    role="tab" aria-selected="true">Fused Output</button>
+        <button class="tab"        data-tab="paddle"   role="tab" aria-selected="false">PaddleOCR</button>
+        <button class="tab"        data-tab="docling"  role="tab" aria-selected="false">Docling</button>
+        <button class="tab"        data-tab="deepseek" role="tab" aria-selected="false">DeepSeek-OCR</button>
+        <button class="tab"        data-tab="tables"   role="tab" aria-selected="false">Tables</button>
+        <button class="tab"        data-tab="raw"      role="tab" aria-selected="false">Raw JSON</button>
+      </div>
+
+      <div class="tab-panel" id="tab-fused"><pre class="text-out" id="fusedText"></pre></div>
+      <div class="tab-panel hidden" id="tab-paddle"><div class="lines-list" id="paddleLines"></div></div>
+      <div class="tab-panel hidden" id="tab-docling"><pre class="text-out" id="doclingText"></pre></div>
+      <div class="tab-panel hidden" id="tab-deepseek"><pre class="text-out" id="deepseekText"></pre></div>
+      <div class="tab-panel hidden" id="tab-tables"><div id="tablesOutput"></div></div>
+      <div class="tab-panel hidden" id="tab-raw"><pre class="text-out json-out" id="rawJson"></pre></div>
+    </div>
+
+    <!-- How it works -->
+    <div class="card">
+      <div class="card-title">How it works</div>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-name">Upload</div><div class="step-desc">Any image or document up to 50 MB.</div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-name">PaddleOCR</div><div class="step-desc">DB++ detection + SVTR_LCNet. 80+ languages.</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-name">Docling</div><div class="step-desc">Layout analysis, table extraction, Markdown.</div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-name">DeepSeek-OCR</div><div class="step-desc">Vision-language model. GPU recommended.</div></div>
+        <div class="step"><div class="step-num">5</div><div class="step-name">Fusion</div><div class="step-desc">Richest output wins for maximum accuracy.</div></div>
+      </div>
+    </div>
+
+    <!-- Setup -->
+    <div class="card">
+      <div class="card-title">Setup &amp; Run</div>
+      <div class="setup-steps">
+        <div class="setup-step">
+          <div class="setup-title">1 · Install</div>
+          <div class="code-line">cd E:\agent\ocr-webapp</div>
+          <div class="code-line">setup.bat <span class="code-comment"># Windows</span></div>
+        </div>
+        <div class="setup-step">
+          <div class="setup-title">2 · Start</div>
+          <div class="code-line">python run.py</div>
+          <div class="code-line code-url">→ http://localhost:8080</div>
+        </div>
+        <div class="setup-step">
+          <div class="setup-title">3 · API</div>
+          <div class="code-line">POST /api/ocr/upload?engine=all</div>
+          <div class="code-line">GET  /api/ocr/status/{job_id}</div>
+          <div class="code-line">GET  /api/ocr/result/{job_id}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DB History -->
+    <div class="card" id="historyCard">
+      <div class="results-header">
+        <span class="card-title" style="margin:0">Job History</span>
+        <div class="results-actions">
+          <span id="dbStatus" class="engine-badge" style="font-size:11px"></span>
+          <button class="btn-sm" id="refreshHistoryBtn">↻ Refresh</button>
+        </div>
+      </div>
+      <div id="historyTable" style="overflow-x:auto;margin-top:12px">
+        <table class="hist-table">
+          <thead>
+            <tr>
+              <th>File</th><th>Engine</th><th>Status</th>
+              <th>Confidence</th><th>Time (s)</th><th>Created</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr><td colspan="6" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="footer">OCR System — PaddleOCR · Docling · DeepSeek-OCR</div>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
