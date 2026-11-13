@@ -1,4 +1,16 @@
 /* OCR System — style.css  (professional redesign) */
+
+/* ── Download dropdown ── */
+.dl-dropdown{position:relative;display:inline-block}
+.dl-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:200;
+  background:var(--surface);border:1px solid var(--border2);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow-lg);
+  min-width:170px;padding:4px 0;white-space:nowrap}
+.dl-item{display:block;width:100%;padding:7px 14px;
+  background:none;border:none;cursor:pointer;
+  font:inherit;font-size:13px;color:var(--text2);text-align:left;
+  transition:background .12s}
+.dl-item:hover{background:var(--accent-bg);color:var(--accent)}
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -611,6 +623,175 @@ td{color:var(--muted)}
 .modal-footer{display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--border);padding-top:16px;margin-top:-4px}
 .modal-save-btn{padding:8px 22px;font-size:13px;font-weight:600}
 
+/* ── Excel Preview Modal ── */
+.xls-overlay{
+  position:fixed;inset:0;z-index:2000;
+  background:rgba(0,0,0,.55);
+  display:flex;align-items:center;justify-content:center;
+  backdrop-filter:blur(3px);
+}
+.xls-overlay.hidden{display:none}
+.xls-window{
+  width:94vw;height:90vh;max-width:1440px;
+  background:#fff;border-radius:4px;
+  box-shadow:0 24px 64px rgba(0,0,0,.45);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+/* titlebar */
+.xls-titlebar{
+  background:#217346;color:#fff;
+  display:flex;align-items:center;
+  padding:0 8px 0 12px;height:36px;flex-shrink:0;
+}
+.xls-titlebar-left{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.xls-title-text{
+  font-size:13px;font-weight:500;letter-spacing:.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.xls-win-btn{
+  background:transparent;border:none;color:rgba(255,255,255,.85);
+  width:32px;height:32px;border-radius:2px;cursor:pointer;
+  font-size:14px;display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;
+}
+.xls-win-btn:hover{background:#c41e3a;color:#fff}
+/* formula bar */
+.xls-formulabar{
+  display:flex;align-items:center;gap:6px;
+  border-bottom:1px solid #d0d0d0;background:#fff;
+  padding:4px 10px;flex-shrink:0;min-height:36px;
+  flex-wrap:nowrap;overflow-x:auto;
+}
+.xls-cell-ref{
+  min-width:68px;max-width:68px;text-align:center;
+  font-size:12px;font-family:'Calibri','Arial',sans-serif;
+  border:1px solid #bbb;border-radius:2px;padding:2px 6px;
+  color:#000;flex-shrink:0;
+}
+.xls-formulabar-sep{
+  margin:0 6px;color:#888;font-size:12px;
+  font-style:italic;flex-shrink:0;
+}
+.xls-cell-val{
+  flex:1;font-size:12px;
+  font-family:'Calibri','Consolas',monospace;
+  color:#000;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;min-width:120px;padding:2px 4px;
+}
+.xls-header-tools{
+  display:flex;align-items:center;gap:6px;flex-shrink:0;
+  margin-left:8px;margin-right:8px;
+  padding-left:10px;border-left:1px solid #e0e0e0;
+}
+.xls-header-lbl{
+  font-size:11px;font-weight:700;color:#475569;
+  font-family:'Calibri','Arial',sans-serif;white-space:nowrap;
+}
+.xls-header-select{
+  font-size:11px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:3px;
+  background:#f8fafc;color:#0f172a;max-width:240px;outline:none;
+  font-family:'Calibri','Arial',sans-serif;cursor:pointer;
+  font-weight:500;
+}
+.xls-header-select:focus{border-color:#217346;background:#fff}
+.btn-header-act{
+  background:#f0fdf4;border:1px solid #86efac;color:#166534;font-weight:600;
+  padding:3px 8px;font-size:11px;border-radius:3px;cursor:pointer;
+  transition:all .12s;white-space:nowrap;
+}
+.btn-header-act:hover{background:#dcfce7;border-color:#4ade80;color:#15803d}
+/* main grid */
+.xls-main{flex:1;overflow:hidden;position:relative;background:#f0f0f0}
+.xls-loading{
+  display:flex;align-items:center;justify-content:center;
+  height:100%;font-size:14px;color:#888;
+}
+.xls-grid-wrap{height:100%;overflow:auto;background:#fff}
+.xls-grid-wrap.hidden{display:none}
+/* spreadsheet table */
+.xls-table{border-collapse:collapse;min-width:100%;background:#fff}
+.xls-th-corner{
+  position:sticky;top:0;left:0;z-index:4;
+  width:52px;min-width:52px;
+  background:#e8e8e8;border:1px solid #c0c0c0;
+  border-top:none;border-left:none;
+}
+.xls-th-col{
+  position:sticky;top:0;z-index:3;
+  background:#e8e8e8;border:1px solid #c0c0c0;border-top:none;
+  text-align:center;font-size:11px;font-weight:600;color:#333;
+  padding:4px 8px;min-width:96px;user-select:none;
+  font-family:'Calibri','Arial',sans-serif;white-space:nowrap;
+  box-sizing:border-box;
+}
+.xls-th-col.has-heading{
+  background:#e0effe;border-bottom:2px solid #2563eb;
+  padding:3px 8px 4px;
+}
+.xls-th-letter{
+  font-size:10px;color:#64748b;font-weight:700;line-height:1.2;
+}
+.xls-th-title{
+  font-size:12px;color:#0f172a;font-weight:700;
+  max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  margin-top:2px;letter-spacing:0.01em;
+}
+.xls-th-col.xls-col-sel{background:#bdd7ee;border-color:#2d6ea6}
+.xls-td-row{
+  position:sticky;left:0;z-index:2;
+  background:#e8e8e8;border:1px solid #c0c0c0;border-left:none;
+  text-align:center;font-size:11px;font-weight:600;color:#333;
+  padding:2px 6px;min-width:52px;user-select:none;
+  font-family:'Calibri','Arial',sans-serif;
+  cursor:pointer;
+  transition:background .1s;
+}
+.xls-td-row:hover{background:#dbeafe;color:#1e40af}
+.xls-td-row.is-header-row{
+  background:#dbeafe !important;border-color:#93c5fd;color:#1d4ed8;font-weight:700;
+}
+.xls-td-row.xls-row-sel{background:#bdd7ee;border-color:#2d6ea6}
+.xls-cell{
+  border:1px solid #d0d0d0;padding:3px 8px;
+  font-size:12px;font-family:'Calibri','Arial',sans-serif;
+  color:#000;min-width:96px;max-width:320px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  cursor:cell;vertical-align:middle;background:#fff;
+}
+.xls-row-is-header .xls-cell{
+  background:#eff6ff !important;font-weight:700;
+  border-color:#bfdbfe;color:#1e3a8a;
+}
+.xls-cell.xls-hdr{
+  background:#eff6ff;font-weight:700;
+  border-color:#bfdbfe;color:#1e3a8a;
+}
+.xls-row-alt .xls-cell{background:#f8fafc}
+.xls-row-alt.xls-row-is-header .xls-cell{background:#eff6ff !important}
+.xls-cell.xls-sel{
+  background:#cce0ff !important;
+  outline:2px solid #1a73e8;outline-offset:-2px;
+  position:relative;z-index:1;
+}
+/* sheet tabs bar */
+.xls-sheetbar{
+  display:flex;align-items:center;
+  background:#e0e0e0;border-top:1px solid #c0c0c0;
+  height:28px;flex-shrink:0;padding:0 8px;gap:2px;
+}
+.xls-sheet-tabs{display:flex;align-items:flex-end;gap:1px;height:100%;flex:1;overflow:hidden}
+.xls-sheet-tab{
+  padding:2px 14px 0;background:#c8c8c8;
+  border:1px solid #aaa;border-bottom:none;
+  border-radius:3px 3px 0 0;cursor:pointer;
+  font-size:11px;color:#444;height:24px;
+  display:flex;align-items:center;user-select:none;
+  white-space:nowrap;transition:background .1s;
+}
+.xls-sheet-tab:hover{background:#d8d8d8}
+.xls-sheet-tab.active{background:#fff;color:#000;font-weight:600;border-color:#c0c0c0}
+.xls-sheetbar-status{font-size:11px;color:#555;white-space:nowrap;flex-shrink:0}
+
 /* ── Mobile ── */
 @media(max-width:640px){
   .header-engines{display:none}
@@ -624,3 +805,4 @@ td{color:var(--muted)}
   .order-filterbar{flex-wrap:wrap}
   .filter-search-wrap{min-width:100%;order:-1}
 }
+

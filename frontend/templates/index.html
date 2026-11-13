@@ -6,7 +6,7 @@
   <title>OCR System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=3" />
 </head>
 <body>
 
@@ -117,7 +117,15 @@
               <div class="results-actions">
                 <button class="btn-sm btn-save" id="saveDbBtn" disabled>Save to DB</button>
                 <button class="btn-sm" id="copyBtn">Copy text</button>
-                <button class="btn-sm" id="downloadBtn">Copy JSON</button>
+                <div class="dl-dropdown" id="dlDropdown">
+                  <button class="btn-sm dl-toggle" id="dlToggle" disabled>Download ▾</button>
+                  <div class="dl-menu hidden" id="dlMenu">
+                    <button class="dl-item" data-fmt="txt">Plain Text (.txt)</button>
+                    <button class="dl-item" data-fmt="md">Markdown (.md)</button>
+                    <button class="dl-item" data-fmt="json">Full JSON (.json)</button>
+                    <button class="dl-item" data-fmt="csv">Tables CSV (.csv)</button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -127,6 +135,7 @@
               <button class="tab"        data-tab="docling"  role="tab" aria-selected="false">Docling</button>
               <button class="tab"        data-tab="deepseek" role="tab" aria-selected="false">DeepSeek-OCR</button>
               <button class="tab"        data-tab="tables"   role="tab" aria-selected="false">Tables</button>
+              <button class="tab"        data-tab="csv"      role="tab" aria-selected="false">CSV</button>
               <button class="tab"        data-tab="raw"      role="tab" aria-selected="false">Raw JSON</button>
             </div>
 
@@ -135,6 +144,7 @@
             <div class="tab-panel hidden" id="tab-docling"><pre class="text-out" id="doclingText"></pre></div>
             <div class="tab-panel hidden" id="tab-deepseek"><pre class="text-out" id="deepseekText"></pre></div>
             <div class="tab-panel hidden" id="tab-tables"><div id="tablesOutput"></div></div>
+            <div class="tab-panel hidden" id="tab-csv"><pre class="text-out" id="csvOutput"></pre></div>
             <div class="tab-panel hidden" id="tab-raw"><pre class="text-out json-out" id="rawJson"></pre></div>
           </div>
 
@@ -253,6 +263,42 @@
 
   <div class="toast hidden" id="toast"></div>
 
+  <!-- ── Excel Preview Modal ── -->
+  <div class="xls-overlay hidden" id="xlsModal">
+    <div class="xls-window">
+      <div class="xls-titlebar">
+        <div class="xls-titlebar-left">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style="flex-shrink:0">
+            <rect width="18" height="18" rx="3" fill="#217346"/>
+            <path d="M4 4h4l1.5 3L11 4h3l-3 5 3 5h-3l-1.5-3L8 14H4l3-5L4 4z" fill="white"/>
+          </svg>
+          <span class="xls-title-text" id="xlsTitle">Document</span>
+        </div>
+        <button class="xls-win-btn" id="xlsClose" title="Close (Esc)">✕</button>
+      </div>
+      <div class="xls-formulabar">
+        <div class="xls-cell-ref" id="xlsCellRef">A1</div>
+        <div class="xls-formulabar-sep">fx</div>
+        <div class="xls-cell-val" id="xlsCellVal"></div>
+        <div class="xls-header-tools">
+          <label class="xls-header-lbl" for="xlsHeaderSelect">Heading:</label>
+          <select class="xls-header-select" id="xlsHeaderSelect" title="Select row to use as column headings"></select>
+          <button class="btn-sm btn-header-act" id="xlsSetHeaderBtn" title="Set selected row as table headings">📌 Set as Header</button>
+          <button class="btn-sm" id="xlsResetHeaderBtn" title="Reset headers to default (A, B, C...)">↺ Reset</button>
+        </div>
+        <button class="btn-sm" id="xlsCsvBtn" style="margin-left:auto;flex-shrink:0;white-space:nowrap">↓ CSV</button>
+      </div>
+      <div class="xls-main">
+        <div class="xls-loading" id="xlsLoading">Loading…</div>
+        <div class="xls-grid-wrap hidden" id="xlsGridWrap"></div>
+      </div>
+      <div class="xls-sheetbar">
+        <div class="xls-sheet-tabs" id="xlsSheetTabs"></div>
+        <div class="xls-sheetbar-status" id="xlsStatusBar"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Client add/edit modal -->
   <div class="modal-backdrop hidden" id="clientModalBackdrop">
     <div class="modal-box">
@@ -282,6 +328,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=12"></script>
 </body>
 </html>

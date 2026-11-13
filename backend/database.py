@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import time
 import unicodedata
 import uuid
 from contextlib import contextmanager
@@ -110,9 +111,11 @@ DB_CONFIG = {
 }
 
 # ---------------------------------------------------------------------------
-# Connection pool (created once at startup)
+# Connection pool (created once at startup; retried lazily on first use)
 # ---------------------------------------------------------------------------
 _pool: Optional[pooling.MySQLConnectionPool] = None
+_last_connect_attempt: float = 0.0
+_RECONNECT_COOLDOWN = 15.0  # seconds between auto-reconnect attempts
 
 
 def init_db() -> bool:
@@ -172,6 +175,13 @@ def _get_connection():
 
 
 def is_connected() -> bool:
+    global _last_connect_attempt
+    if _pool is not None:
+        return True
+    # Lazy reconnect: try once every _RECONNECT_COOLDOWN seconds
+    if time.time() - _last_connect_attempt >= _RECONNECT_COOLDOWN:
+        _last_connect_attempt = time.time()
+        init_db()
     return _pool is not None
 
 

@@ -246,6 +246,17 @@ async def health():
     }
 
 
+@app.post("/api/db/reconnect")
+async def db_reconnect():
+    """Re-attempt database connection (useful when DB was down at startup)."""
+    loop = asyncio.get_event_loop()
+    connected = await loop.run_in_executor(None, db.init_db)
+    return {
+        "connected": connected,
+        "database":  "connected" if connected else "disconnected",
+    }
+
+
 # ---------------------------------------------------------------------------
 # DB-backed history & statistics endpoints
 # ---------------------------------------------------------------------------

@@ -529,6 +529,16 @@ def process_pdf(file_path: str, engines: str = "all") -> dict:
         if use_deepseek:
             output["deepseek"] = _deepseek_ocr_image(str(page_images[0]), mode="markdown")
 
+        # PPStructure fallback: when Docling returned no structured table data
+        if not output["tables"] or all(not t.get("data") for t in output["tables"]):
+            ppstruct_tables = []
+            for img_path in page_images:
+                ppstruct_tables.extend(_paddle_tables_from_image(str(img_path)))
+            if ppstruct_tables:
+                output["tables"] = ppstruct_tables
+                output["docling"]["tables"] = ppstruct_tables
+                logger.info("PPStructure fallback: %d table(s) recovered", len(ppstruct_tables))
+
         for img_path in page_images:
             img_path.unlink(missing_ok=True)
 
