@@ -107,7 +107,8 @@ DB_CONFIG = {
     "charset":  "utf8mb4",
     "use_unicode": True,
     "autocommit": False,
-    "ssl_disabled": True,   # MariaDB local instance; no TLS needed
+    "ssl_disabled": os.getenv("MYSQL_SSL_DISABLED", "true").lower() in ("1", "true", "yes"),
+    "connection_timeout": 5,
 }
 
 # ---------------------------------------------------------------------------

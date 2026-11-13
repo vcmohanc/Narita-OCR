@@ -31,8 +31,9 @@ services:
       # Persist uploaded files and OCR results across container restarts
       - uploads_data:/app/uploads
       - results_data:/app/results
-      # Optional: mount a HuggingFace cache so DeepSeek model isn't re-downloaded
-      - hf_cache:/root/.cache/huggingface
+      # Persist HuggingFace/Docling and PaddleOCR model caches for ocruser
+      - hf_cache:/home/ocruser/.cache/huggingface
+      - paddle_cache:/home/ocruser/.paddleocr
     depends_on:
       db:
         condition: service_healthy
@@ -77,6 +78,7 @@ volumes:
   uploads_data:
   results_data:
   hf_cache:
+  paddle_cache:
 
 # ── Network ────────────────────────────────────────────────────────────────────
 networks:

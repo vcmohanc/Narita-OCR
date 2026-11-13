@@ -52,9 +52,9 @@ WORKDIR /app
 # Copy application source (respects .dockerignore)
 COPY --chown=ocruser:ocruser . .
 
-# Create data directories
-RUN mkdir -p uploads results && \
-    chown -R ocruser:ocruser uploads results
+# Create data & model cache directories owned by ocruser (needed for named volumes)
+RUN mkdir -p uploads results /home/ocruser/.cache/huggingface /home/ocruser/.paddleocr && \
+    chown -R ocruser:ocruser uploads results /home/ocruser/.cache /home/ocruser/.paddleocr
 
 USER ocruser
 

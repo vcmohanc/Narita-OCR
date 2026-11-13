@@ -14,6 +14,7 @@ import os
 import time
 import logging
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor as _TPE
 from pathlib import Path
 from typing import Optional
@@ -31,6 +32,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 _has_gpu: Optional[bool] = None
+_model_init_lock = threading.Lock()
 
 
 def _check_gpu() -> bool:
@@ -54,15 +56,17 @@ _paddle_structure = None
 def _get_paddle(lang: str = "japan"):
     global _paddle_ocr
     if _paddle_ocr is None:
-        try:
-            from paddleocr import PaddleOCR
-            _paddle_ocr = PaddleOCR(
-                lang=lang,
-                use_angle_cls=True,
-            )
-            logger.info("PaddleOCR engine ready (lang=%s)", lang)
-        except Exception as exc:
-            logger.error("PaddleOCR load failed: %s", exc)
+        with _model_init_lock:
+            if _paddle_ocr is None:
+                try:
+                    from paddleocr import PaddleOCR
+                    _paddle_ocr = PaddleOCR(
+                        lang=lang,
+                        use_angle_cls=True,
+                    )
+                    logger.info("PaddleOCR engine ready (lang=%s)", lang)
+                except (Exception, SystemExit) as exc:
+                    logger.error("PaddleOCR load failed: %s", exc)
     return _paddle_ocr
 
 
@@ -72,18 +76,26 @@ def _paddle_ocr_image(image_path: str) -> dict:
     if ocr is None:
         return {"error": "PaddleOCR unavailable", "lines": [], "full_text": ""}
 
-    result = ocr.ocr(image_path, cls=True)
+    try:
+        result = ocr.ocr(image_path, cls=True)
+    except (Exception, SystemExit) as exc:
+        logger.error("PaddleOCR inference failed for %s: %s", image_path, exc)
+        return {"error": str(exc), "lines": [], "full_text": ""}
+
     lines, full_text_parts = [], []
 
     if result and result[0]:
         for item in result[0]:
-            bbox, (text, confidence) = item
-            lines.append({
-                "text": text,
-                "confidence": round(float(confidence), 4),
-                "bbox": [[round(p[0], 1), round(p[1], 1)] for p in bbox],
-            })
-            full_text_parts.append(text)
+            try:
+                bbox, (text, confidence) = item
+                lines.append({
+                    "text": text,
+                    "confidence": round(float(confidence), 4),
+                    "bbox": [[round(p[0], 1), round(p[1], 1)] for p in bbox],
+                })
+                full_text_parts.append(text)
+            except (TypeError, ValueError, IndexError):
+                continue
 
     return {
         "engine": "PaddleOCR",
@@ -96,12 +108,17 @@ def _paddle_ocr_image(image_path: str) -> dict:
 def _get_paddle_structure(lang: str = "japan"):
     global _paddle_structure
     if _paddle_structure is None:
-        try:
-            from paddleocr import PPStructure
-            _paddle_structure = PPStructure(lang=lang, table=True, layout=True)
-            logger.info("PPStructure engine ready (lang=%s)", lang)
-        except Exception as exc:
-            logger.error("PPStructure load failed: %s", exc)
+        with _model_init_lock:
+            if _paddle_structure is None:
+                try:
+                    from paddleocr import PPStructure
+                    # PP-StructureV2 layout models only support "en" and "ch";
+                    # passing "japan" triggers sys.exit(-1) inside paddleocr.
+                    struct_lang = lang if lang in ("en", "ch") else "en"
+                    _paddle_structure = PPStructure(lang=struct_lang, table=True, layout=True)
+                    logger.info("PPStructure engine ready (lang=%s)", struct_lang)
+                except (Exception, SystemExit) as exc:
+                    logger.error("PPStructure load failed: %s", exc)
     return _paddle_structure
 
 
@@ -200,22 +217,24 @@ _docling_converter = None
 def _get_docling():
     global _docling_converter
     if _docling_converter is None:
-        try:
-            from docling.document_converter import DocumentConverter, PdfFormatOption
-            from docling.datamodel.base_models import InputFormat
-            from docling.datamodel.pipeline_options import PdfPipelineOptions, TableStructureOptions
-            pipeline_options = PdfPipelineOptions()
-            pipeline_options.do_ocr = True
-            pipeline_options.do_table_structure = True
-            pipeline_options.table_structure_options = TableStructureOptions(do_cell_matching=True)
-            _docling_converter = DocumentConverter(
-                format_options={
-                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
-                }
-            )
-            logger.info("Docling engine ready")
-        except Exception as exc:
-            logger.error("Docling load failed: %s", exc)
+        with _model_init_lock:
+            if _docling_converter is None:
+                try:
+                    from docling.document_converter import DocumentConverter, PdfFormatOption
+                    from docling.datamodel.base_models import InputFormat
+                    from docling.datamodel.pipeline_options import PdfPipelineOptions, TableStructureOptions
+                    pipeline_options = PdfPipelineOptions()
+                    pipeline_options.do_ocr = True
+                    pipeline_options.do_table_structure = True
+                    pipeline_options.table_structure_options = TableStructureOptions(do_cell_matching=True)
+                    _docling_converter = DocumentConverter(
+                        format_options={
+                            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+                        }
+                    )
+                    logger.info("Docling engine ready")
+                except (Exception, SystemExit) as exc:
+                    logger.error("Docling load failed: %s", exc)
     return _docling_converter
 
 
@@ -291,29 +310,32 @@ def _get_deepseek():
         logger.info("DeepSeek-OCR: skipped — CUDA GPU not available")
         return None, None, None
 
-    try:
-        import torch
-        from transformers import AutoModel, AutoTokenizer
+    with _model_init_lock:
+        if _deepseek_model is not None:
+            return _deepseek_model, _deepseek_tokenizer, _deepseek_device
+        try:
+            import torch
+            from transformers import AutoModel, AutoTokenizer
 
-        _deepseek_device = "cuda"
-        logger.info("Loading DeepSeek-OCR model from %s …", _DEEPSEEK_MODEL_ID)
-        _deepseek_tokenizer = AutoTokenizer.from_pretrained(
-            _DEEPSEEK_MODEL_ID, trust_remote_code=True
-        )
-        load_kwargs: dict = {
-            "trust_remote_code": True,
-            "_attn_implementation": "flash_attention_2",
-        }
-        _deepseek_model = AutoModel.from_pretrained(
-            _DEEPSEEK_MODEL_ID, **load_kwargs
-        ).eval().cuda().to(torch.bfloat16)
+            _deepseek_device = "cuda"
+            logger.info("Loading DeepSeek-OCR model from %s …", _DEEPSEEK_MODEL_ID)
+            _deepseek_tokenizer = AutoTokenizer.from_pretrained(
+                _DEEPSEEK_MODEL_ID, trust_remote_code=True
+            )
+            load_kwargs: dict = {
+                "trust_remote_code": True,
+                "_attn_implementation": "flash_attention_2",
+            }
+            _deepseek_model = AutoModel.from_pretrained(
+                _DEEPSEEK_MODEL_ID, **load_kwargs
+            ).eval().cuda().to(torch.bfloat16)
 
-        logger.info("DeepSeek-OCR ready on CUDA")
-        return _deepseek_model, _deepseek_tokenizer, _deepseek_device
+            logger.info("DeepSeek-OCR ready on CUDA")
+            return _deepseek_model, _deepseek_tokenizer, _deepseek_device
 
-    except Exception as exc:
-        logger.error("DeepSeek-OCR load failed: %s", exc)
-        return None, None, None
+        except (Exception, SystemExit) as exc:
+            logger.error("DeepSeek-OCR load failed: %s", exc)
+            return None, None, None
 
 
 def _deepseek_ocr_image(image_path: str, mode: str = "markdown") -> dict:
@@ -443,7 +465,7 @@ def process_image(file_path: str, engines: str = "all") -> dict:
     return output
 
 
-def _pdf_to_images(file_path: str, dpi: int = 200) -> list:
+def _pdf_to_images(file_path: str, dpi: int = 200, out_dir: Optional[str] = None) -> list:
     """Convert every PDF page to a temp PNG. Returns list of Path objects."""
     try:
         import pymupdf as fitz  # pymupdf >= 2.0 (replaces fitz)
@@ -456,10 +478,11 @@ def _pdf_to_images(file_path: str, dpi: int = 200) -> list:
     try:
         pdf_doc = fitz.open(file_path)
         images  = []
-        base    = Path(file_path).parent
+        base    = Path(out_dir) if out_dir else Path(file_path).parent
+        stem    = Path(file_path).stem
         for i, page in enumerate(pdf_doc):
             pix = page.get_pixmap(dpi=dpi)
-            tmp = base / f"_tmp_page{i}.png"
+            tmp = base / f"_tmp_{stem}_page{i}.png"
             pix.save(str(tmp))
             images.append(tmp)
         pdf_doc.close()
@@ -493,61 +516,59 @@ def process_pdf(file_path: str, engines: str = "all") -> dict:
         "fused_text": "", "tables": [], "processing_time_s": 0.0,
     }
 
-    # --- Run Docling and PDF→image rasterization IN PARALLEL ---
-    page_images: list = []
-    if use_docling and (use_paddle or use_deepseek):
-        with _TPE(max_workers=2) as ex:
-            f_doc   = ex.submit(_docling_process_file, file_path)
-            f_pages = ex.submit(_pdf_to_images, file_path, 200)
-            output["docling"] = f_doc.result()
-            page_images = f_pages.result()
-    elif use_docling:
-        output["docling"] = _docling_process_file(file_path)
-    elif use_paddle or use_deepseek:
-        page_images = _pdf_to_images(file_path, dpi=200)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # --- Run Docling and PDF→image rasterization IN PARALLEL ---
+        page_images: list = []
+        if use_docling and (use_paddle or use_deepseek):
+            with _TPE(max_workers=2) as ex:
+                f_doc   = ex.submit(_docling_process_file, file_path)
+                f_pages = ex.submit(_pdf_to_images, file_path, 200, tmp_dir)
+                output["docling"] = f_doc.result()
+                page_images = f_pages.result()
+        elif use_docling:
+            output["docling"] = _docling_process_file(file_path)
+        elif use_paddle or use_deepseek:
+            page_images = _pdf_to_images(file_path, dpi=200, out_dir=tmp_dir)
 
-    output["tables"] = output["docling"].get("tables", [])
-    if output["docling"].get("error"):
-        logger.warning("Docling error: %s", output["docling"]["error"])
+        output["tables"] = output["docling"].get("tables", [])
+        if output["docling"].get("error"):
+            logger.warning("Docling error: %s", output["docling"]["error"])
 
-    # --- PaddleOCR + DeepSeek on rasterized pages ---
-    if page_images:
-        if use_paddle:
-            all_lines, all_text = [], []
-            for img_path in page_images:
-                r = _paddle_ocr_image(str(img_path))
-                all_lines.extend(r.get("lines", []))
-                if r.get("full_text"):
-                    all_text.append(r["full_text"])
-            output["paddle"] = {
-                "engine":     "PaddleOCR",
-                "lines":      all_lines,
-                "full_text":  "\n\n".join(all_text),
-                "line_count": len(all_lines),
-            }
+        # --- PaddleOCR + DeepSeek on rasterized pages ---
+        if page_images:
+            if use_paddle:
+                all_lines, all_text = [], []
+                for img_path in page_images:
+                    r = _paddle_ocr_image(str(img_path))
+                    all_lines.extend(r.get("lines", []))
+                    if r.get("full_text"):
+                        all_text.append(r["full_text"])
+                output["paddle"] = {
+                    "engine":     "PaddleOCR",
+                    "lines":      all_lines,
+                    "full_text":  "\n\n".join(all_text),
+                    "line_count": len(all_lines),
+                }
 
-        if use_deepseek:
-            output["deepseek"] = _deepseek_ocr_image(str(page_images[0]), mode="markdown")
+            if use_deepseek:
+                output["deepseek"] = _deepseek_ocr_image(str(page_images[0]), mode="markdown")
 
-        # PPStructure fallback: when Docling returned no structured table data
-        if not output["tables"] or all(not t.get("data") for t in output["tables"]):
-            ppstruct_tables = []
-            for img_path in page_images:
-                ppstruct_tables.extend(_paddle_tables_from_image(str(img_path)))
-            if ppstruct_tables:
-                output["tables"] = ppstruct_tables
-                output["docling"]["tables"] = ppstruct_tables
-                logger.info("PPStructure fallback: %d table(s) recovered", len(ppstruct_tables))
+            # PPStructure fallback: when Docling returned no structured table data
+            if not output["tables"] or all(not t.get("data") for t in output["tables"]):
+                ppstruct_tables = []
+                for img_path in page_images:
+                    ppstruct_tables.extend(_paddle_tables_from_image(str(img_path)))
+                if ppstruct_tables:
+                    output["tables"] = ppstruct_tables
+                    output["docling"]["tables"] = ppstruct_tables
+                    logger.info("PPStructure fallback: %d table(s) recovered", len(ppstruct_tables))
 
-        for img_path in page_images:
-            img_path.unlink(missing_ok=True)
-
-    elif (use_paddle or use_deepseek) and not page_images:
-        msg = "Could not rasterize PDF. Install PyMuPDF: pip install pymupdf"
-        if use_paddle:
-            output["paddle"]   = {"error": msg, "lines": [], "full_text": ""}
-        if use_deepseek:
-            output["deepseek"] = {"error": msg, "text": "", "markdown": ""}
+        elif (use_paddle or use_deepseek) and not page_images:
+            msg = "Could not rasterize PDF. Install PyMuPDF: pip install pymupdf"
+            if use_paddle:
+                output["paddle"]   = {"error": msg, "lines": [], "full_text": ""}
+            if use_deepseek:
+                output["deepseek"] = {"error": msg, "text": "", "markdown": ""}
 
     # --- Fusion ---
     candidate_texts = {
