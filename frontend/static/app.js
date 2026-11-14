@@ -263,6 +263,10 @@ let _clientsSort       = { col: 'code', dir: 1 };
 let _clientHeadingTarget = null;
 
 const HEADING_PRESETS = {
+  national: {
+    row: 8,
+    columns: '品目, 産地, 栽培区分, 規格・入数, 単価/p (税別), 単価/cs, JANコード, 備考・今週の産地状況, 9/21 月 要望, 9/22 火 要望, 9/23 水 要望, 9/24 木 要望, 9/25 金 要望, 9/26 土 要望'
+  },
   fusui: {
     row: 8,
     columns: '商品名, 規格母目, C/S入数, 単価, 金額, 備考'
@@ -280,6 +284,35 @@ const HEADING_PRESETS = {
     columns: '品名, 数量, 単価, 金額'
   }
 };
+
+function updateHeadingModalLivePreview() {
+  const colsTextarea = document.getElementById('clientHeadingColumns');
+  const countEl = document.getElementById('clientHeadingColCount');
+  const previewBar = document.getElementById('headingLivePreviewBar');
+  if (!colsTextarea || !previewBar) return;
+
+  const rawVal = colsTextarea.value || '';
+  const cols = rawVal
+    .split(/[,、\n]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (countEl) {
+    countEl.textContent = `${cols.length} column${cols.length === 1 ? '' : 's'}`;
+  }
+
+  if (cols.length === 0) {
+    previewBar.innerHTML = '<div class="heading-live-preview-empty">Type column names above or choose a preset to preview heading format</div>';
+    return;
+  }
+
+  previewBar.innerHTML = cols.map((col, idx) => {
+    return `<div class="heading-live-preview-cell" title="Col ${idx + 1}: ${esc(col)}">
+      <div class="heading-cell-idx">${idx + 1}</div>
+      <div class="heading-cell-content">${formatHeaderHtml(col)}</div>
+    </div>`;
+  }).join('');
+}
 
 function openClientHeadingModal(client) {
   _clientHeadingTarget = client;
@@ -308,6 +341,7 @@ function openClientHeadingModal(client) {
     presetSel.value = matched;
   }
 
+  updateHeadingModalLivePreview();
   document.getElementById('clientHeadingModalBackdrop')?.classList.remove('hidden');
   rowInput?.focus();
 }
@@ -330,8 +364,12 @@ document.getElementById('clientHeadingPreset')?.addEventListener('change', e => 
     const colsInput = document.getElementById('clientHeadingColumns');
     if (rowInput) rowInput.value = p.row;
     if (colsInput) colsInput.value = p.columns;
+    updateHeadingModalLivePreview();
   }
 });
+
+document.getElementById('clientHeadingColumns')?.addEventListener('input', updateHeadingModalLivePreview);
+document.getElementById('clientHeadingColumns')?.addEventListener('change', updateHeadingModalLivePreview);
 
 document.getElementById('clientHeadingSave')?.addEventListener('click', async () => {
   if (!_clientHeadingTarget) return;
@@ -442,11 +480,11 @@ function renderClientsSheet() {
     const hRow = c.header_row || 1;
     let colsPreview = '';
     if (c.heading_columns) {
-      const colItems = c.heading_columns.split(',').map(s => s.trim()).filter(Boolean);
+      const colItems = c.heading_columns.split(/[,、\n]+/).map(s => s.trim()).filter(Boolean);
       const displayItems = colItems.slice(0, 4);
       const moreCount = colItems.length - displayItems.length;
-      colsPreview = displayItems.map(col => `<span class="client-kw-tag">${esc(col)}</span>`).join('') +
-        (moreCount > 0 ? `<span class="client-kw-tag" style="opacity:.65" title="${esc(c.heading_columns)}">+${moreCount}</span>` : '');
+      colsPreview = displayItems.map(col => `<span class="client-col-chip">${esc(col)}</span>`).join('') +
+        (moreCount > 0 ? `<span class="client-col-chip more" title="${esc(c.heading_columns)}">+${moreCount}</span>` : '');
     } else {
       colsPreview = '<span class="sheet-unassigned" style="font-size:11px">Default</span>';
     }
@@ -1051,6 +1089,33 @@ function _syncHeaderSelect(sheet) {
   }
 }
 
+function formatHeaderHtml(raw) {
+  if (raw == null) return '';
+  const str = String(raw).trim();
+  if (!str) return '';
+  if (str.includes('\n')) {
+    const parts = str.split('\n').map(s => s.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      return `<div class="hdr-main">${esc(parts[0])}</div>` + parts.slice(1).map(p => `<div class="hdr-sub">${esc(p)}</div>`).join('');
+    }
+  }
+  const dateMatch = str.match(/^(\d{1,2}[\/\.-]\d{1,2})\s*(?:[\(（]([月火水木金土日])[\)）]|([月火水木金土日]))?\s*(.*)$/);
+  if (dateMatch && (dateMatch[2] || dateMatch[3] || dateMatch[4])) {
+    const d = dateMatch[1];
+    const day = dateMatch[2] || dateMatch[3] || '';
+    const extra = (dateMatch[4] || '').trim();
+    let html = `<div class="hdr-main">${esc(d)}</div>`;
+    if (day) html += `<div class="hdr-day">${esc(day)}</div>`;
+    if (extra) html += `<div class="hdr-extra">${esc(extra)}</div>`;
+    return html;
+  }
+  const parenMatch = str.match(/^([^\(（]+)\s*([\(\（][^\)）]+[\)\）])$/);
+  if (parenMatch) {
+    return `<div class="hdr-main">${esc(parenMatch[1].trim())}</div><div class="hdr-sub">${esc(parenMatch[2].trim())}</div>`;
+  }
+  return `<div class="hdr-main">${esc(str)}</div>`;
+}
+
 function _renderXlsGrid(sheet) {
   const gridWrap  = document.getElementById('xlsGridWrap');
   const cellRefEl = document.getElementById('xlsCellRef');
@@ -1100,7 +1165,7 @@ function _renderXlsGrid(sheet) {
 
     th.classList.toggle('has-heading', !!headingVal);
     if (headingVal) {
-      th.innerHTML = `<div class="xls-th-letter">${colLetters[ci]}</div><div class="xls-th-title" title="${esc(headingVal)}">${esc(headingVal)}</div>`;
+      th.innerHTML = `<div class="xls-th-letter">${colLetters[ci]}</div><div class="xls-th-title" title="${esc(headingVal)}">${formatHeaderHtml(headingVal)}</div>`;
     } else {
       th.innerHTML = `<div class="xls-th-letter">${colLetters[ci]}</div>`;
     }
@@ -1198,7 +1263,11 @@ function _renderXlsGrid(sheet) {
     rows[ri][ci] = newVal;
     const td = cellMatrix[ri]?.[ci];
     if (td && !td.classList.contains('xls-editing')) {
-      td.textContent = newVal;
+      if (sheet.hasHeader && ri === sheet.headerIdx && newVal) {
+        td.innerHTML = formatHeaderHtml(newVal);
+      } else {
+        td.textContent = newVal;
+      }
       td.title = newVal;
     }
     _markXlsDirty(true);
@@ -1239,7 +1308,11 @@ function _renderXlsGrid(sheet) {
       committed = true;
       const finalVal = save ? input.value : origVal;
       td.classList.remove('xls-editing');
-      td.textContent = finalVal;
+      if (sheet.hasHeader && ri === sheet.headerIdx && finalVal) {
+        td.innerHTML = formatHeaderHtml(finalVal);
+      } else {
+        td.textContent = finalVal;
+      }
       td.title = finalVal;
       if (save) updateCellValue(ri, ci, finalVal);
       cellValEl.value = (rows[ri] && rows[ri][ci] != null) ? String(rows[ri][ci]) : '';
@@ -1305,7 +1378,11 @@ function _renderXlsGrid(sheet) {
       td.className = 'xls-cell' + (isHdr ? ' xls-hdr' : '');
       const val = rowCells[ci] != null ? String(rowCells[ci]) : '';
       td.title = val;
-      td.textContent = val;
+      if (isHdr && val) {
+        td.innerHTML = formatHeaderHtml(val);
+      } else {
+        td.textContent = val;
+      }
 
       td.addEventListener('click', () => selectCell(ri, ci, true));
       td.addEventListener('dblclick', (e) => {

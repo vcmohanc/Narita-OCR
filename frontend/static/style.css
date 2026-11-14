@@ -535,18 +535,18 @@ td{color:var(--muted)}
   border:1px solid var(--border2);
 }
 .order-sheet thead th{
-  background:#eef1f6;
+  background:#132e56;
   padding:10px 14px;
   text-align:left;
   font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
-  color:var(--text2);
-  border:1px solid var(--border2);
+  color:#ffffff;
+  border:1px solid #23477a;
   white-space:nowrap;
   position:sticky;top:0;z-index:5;
 }
 .order-sheet thead th.sortable{cursor:pointer;user-select:none}
-.order-sheet thead th.sortable:hover{background:#e2e7f0;color:var(--text)}
-.sort-icon{font-size:10px;opacity:.5;margin-left:3px}
+.order-sheet thead th.sortable:hover{background:#1b3e73;color:#ffffff}
+.sort-icon{font-size:10px;opacity:.85;margin-left:3px;color:#93c5fd}
 
 .order-sheet tbody tr{transition:background .08s}
 .order-sheet tbody tr:hover td{background:#eef4ff;cursor:pointer}
@@ -782,17 +782,39 @@ td{color:var(--muted)}
   box-sizing:border-box;
 }
 .xls-th-col.has-heading{
-  background:#e0effe;border-bottom:2px solid #2563eb;
-  padding:3px 8px 4px;
+  background:#132e56 !important;
+  border:1px solid #23477a !important;
+  border-bottom:2px solid #0b1c36 !important;
+  padding:4px 8px !important;
+  color:#ffffff !important;
 }
 .xls-th-letter{
   font-size:10px;color:#64748b;font-weight:700;line-height:1.2;
 }
+.xls-th-col.has-heading .xls-th-letter{
+  color:#93c5fd !important;font-size:9px;opacity:.9;
+}
 .xls-th-title{
   font-size:12px;color:#0f172a;font-weight:700;
-  max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  margin-top:2px;letter-spacing:0.01em;
+  max-width:260px;overflow:hidden;text-overflow:ellipsis;
+  margin-top:2px;letter-spacing:0.01em;line-height:1.25;
 }
+.xls-th-col.has-heading .xls-th-title{
+  color:#ffffff !important;
+}
+.hdr-main{
+  font-size:12px;font-weight:700;color:#ffffff;line-height:1.25;white-space:nowrap;
+}
+.hdr-sub{
+  font-size:10px;font-weight:500;color:#bfdbfe;line-height:1.15;margin-top:2px;white-space:nowrap;
+}
+.hdr-day{
+  font-size:10px;font-weight:700;color:#e0f2fe;line-height:1.15;margin-top:1px;white-space:nowrap;
+}
+.hdr-extra{
+  font-size:9px;font-weight:500;color:#93c5fd;line-height:1.15;margin-top:1px;letter-spacing:0.02em;white-space:nowrap;
+}
+.xls-th-col.has-heading:hover{background:#1b3e73 !important}
 .xls-th-col.xls-col-sel{background:#bdd7ee;border-color:#2d6ea6}
 .xls-td-row{
   position:sticky;left:0;z-index:2;
@@ -805,7 +827,7 @@ td{color:var(--muted)}
 }
 .xls-td-row:hover{background:#dbeafe;color:#1e40af}
 .xls-td-row.is-header-row{
-  background:#dbeafe !important;border-color:#93c5fd;color:#1d4ed8;font-weight:700;
+  background:#0b1c36 !important;border-color:#1e3a63 !important;color:#93c5fd !important;font-weight:700;
 }
 .xls-td-row.xls-row-sel{background:#bdd7ee;border-color:#2d6ea6}
 .xls-cell{
@@ -816,15 +838,21 @@ td{color:var(--muted)}
   cursor:cell;vertical-align:middle;background:#fff;
 }
 .xls-row-is-header .xls-cell{
-  background:#eff6ff !important;font-weight:700;
-  border-color:#bfdbfe;color:#1e3a8a;
+  background:#132e56 !important;font-weight:700 !important;
+  border-color:#23477a !important;color:#ffffff !important;
+  text-align:center;padding:5px 8px !important;line-height:1.25;
 }
 .xls-cell.xls-hdr{
-  background:#eff6ff;font-weight:700;
-  border-color:#bfdbfe;color:#1e3a8a;
+  background:#132e56 !important;font-weight:700 !important;
+  border-color:#23477a !important;color:#ffffff !important;
+  text-align:center;padding:5px 8px !important;line-height:1.25;
+}
+.xls-row-is-header:hover .xls-cell,
+.xls-cell.xls-hdr:hover{
+  background:#1b3e73 !important;
 }
 .xls-row-alt .xls-cell{background:#f8fafc}
-.xls-row-alt.xls-row-is-header .xls-cell{background:#eff6ff !important}
+.xls-row-alt.xls-row-is-header .xls-cell{background:#132e56 !important}
 .xls-cell.xls-sel{
   background:#cce0ff !important;
   outline:2px solid #1a73e8;outline-offset:-2px;
@@ -832,7 +860,7 @@ td{color:var(--muted)}
 }
 .xls-grid-wrap:focus{outline:none}
 .xls-cell.xls-editing{
-  padding:0 !important;background:#fff !important;
+  padding:0 !important;background:#fff !important;color:#000 !important;
   outline:2px solid #1a73e8;outline-offset:-2px;
   position:relative;z-index:2;
 }
@@ -879,6 +907,101 @@ td{color:var(--muted)}
 .xls-sheet-tab:hover{background:#d8d8d8}
 .xls-sheet-tab.active{background:#fff;color:#000;font-weight:600;border-color:#c0c0c0}
 .xls-sheetbar-status{font-size:11px;color:#555;white-space:nowrap;flex-shrink:0}
+
+/* ── Live Heading Preview Bar (National Azabu Order Sheet Style) ── */
+.heading-live-preview-wrap {
+  border: 1px solid #1e3a63;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #0b1a2e;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4);
+  scrollbar-width: thin;
+  scrollbar-color: #23477a #0b1a2e;
+}
+.heading-live-preview-wrap::-webkit-scrollbar {
+  height: 6px;
+}
+.heading-live-preview-wrap::-webkit-scrollbar-track {
+  background: #0b1a2e;
+}
+.heading-live-preview-wrap::-webkit-scrollbar-thumb {
+  background: #23477a;
+  border-radius: 3px;
+}
+.heading-live-preview-bar {
+  display: inline-flex;
+  min-width: 100%;
+  background: #132e56;
+  border-top: 1px solid #23477a;
+  border-bottom: 2px solid #081528;
+}
+.heading-live-preview-cell {
+  padding: 8px 12px;
+  border-right: 1px solid #23477a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #ffffff;
+  min-width: 72px;
+  user-select: none;
+  position: relative;
+  transition: background 0.12s;
+  flex-shrink: 0;
+}
+.heading-live-preview-cell:last-child {
+  border-right: none;
+}
+.heading-live-preview-cell:hover {
+  background: #1b3e73;
+}
+.heading-cell-idx {
+  font-size: 9px;
+  font-weight: 700;
+  color: #60a5fa;
+  opacity: 0.85;
+  margin-bottom: 3px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.heading-cell-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.heading-live-preview-empty {
+  padding: 24px 16px;
+  color: #94a3b8;
+  font-size: 12px;
+  text-align: center;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ── Client table heading format badge chips ── */
+.client-col-chip {
+  display: inline-block;
+  background: #132e56;
+  border: 1px solid #23477a;
+  border-radius: 3px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+.client-col-chip.more {
+  background: #1e3a63;
+  color: #93c5fd;
+  border-color: #2e5999;
+}
 
 /* ── Mobile ── */
 @media(max-width:640px){
