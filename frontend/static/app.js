@@ -35,7 +35,7 @@ let _clientModalEditId = null;
 // ── Client modal ──────────────────────────────────────────────
 function openClientModal(client = null) {
   _clientModalEditId = client ? client.id : null;
-  document.getElementById('clientModalTitle').textContent = client ? 'Edit Client' : 'Add Client';
+  document.getElementById('clientModalTitle').textContent = client ? '取引先情報を編集' : '取引先を追加';
   document.getElementById('clientFormNameJa').value   = client ? (client.name_ja  || '') : '';
   document.getElementById('clientFormNameEn').value   = client ? (client.name_en  || '') : '';
   document.getElementById('clientFormCode').value     = client ? (client.code     || '') : '';
@@ -63,9 +63,9 @@ document.getElementById('clientFormSave')?.addEventListener('click', async () =>
   const headerRow = parseInt(document.getElementById('clientFormHeaderRow')?.value || '1', 10) || 1;
   const headingColumns = (document.getElementById('clientFormHeadingColumns')?.value || '').trim();
 
-  if (!nameJa || !code) { showToast('Japanese name and code are required', true); return; }
+  if (!nameJa || !code) { showToast('取引先名(日本語)とコードは必須項目です', true); return; }
   const saveBtn = document.getElementById('clientFormSave');
-  saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+  saveBtn.disabled = true; saveBtn.textContent = '保存中…';
   try {
     const url    = _clientModalEditId ? `${API_BASE}/api/db/clients/${_clientModalEditId}` : `${API_BASE}/api/db/clients`;
     const method = _clientModalEditId ? 'PUT' : 'POST';
@@ -80,11 +80,12 @@ document.getElementById('clientFormSave')?.addEventListener('click', async () =>
       }) });
     if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.statusText);
     closeClientModal();
-    showToast(_clientModalEditId ? 'Client updated' : 'Client added');
+    showToast(_clientModalEditId ? '取引先情報を更新しました' : '取引先を追加しました');
     await reloadOrderSheet();
     if (typeof reloadClientsSheet === 'function') await reloadClientsSheet();
-  } catch (e) { showToast('Error: ' + e.message, true); }
-  finally { saveBtn.disabled = false; saveBtn.textContent = 'Save Client'; }
+    if (typeof reloadProductSheet === 'function' && _productsLoaded) await reloadProductSheet();
+  } catch (e) { showToast('エラー: ' + e.message, true); }
+  finally { saveBtn.disabled = false; saveBtn.textContent = '取引先を保存'; }
 });
 document.getElementById('addClientBtn')?.addEventListener('click', () => openClientModal(null));
 
@@ -160,10 +161,10 @@ function renderOrderSheet() {
   if (!tbody) return;
 
   const rows = getFilteredSorted();
-  if (countEl) countEl.textContent = `${rows.length} record${rows.length !== 1 ? 's' : ''}`;
+  if (countEl) countEl.textContent = `${rows.length} 件`;
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="sheet-empty">No records match the current filters.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="sheet-empty">条件に一致する発注書データが見つかりませんでした。</td></tr>';
     return;
   }
 
@@ -173,6 +174,8 @@ function renderOrderSheet() {
       : '<span class="sheet-unassigned">—</span>';
     const engine     = esc(j.primary_engine || j.engine_requested || '—');
     const statusCls  = `badge badge-${esc(j.status)}`;
+    const statusLabels = { done: '完了', error: 'エラー', processing: '処理中', queued: '待機中' };
+    const statusText = statusLabels[j.status] || esc(j.status);
     const confVal    = j.confidence_avg != null ? j.confidence_avg * 100 : null;
     const confStr    = confVal != null ? confVal.toFixed(1) + '%' : '—';
     const confClass  = confVal == null ? '' : confVal >= 85 ? '' : confVal >= 65 ? 'conf-warn' : 'conf-low';
@@ -187,11 +190,11 @@ function renderOrderSheet() {
       <td class="col-client">${clientName}</td>
       <td class="col-file" title="${esc(j.filename)}">${esc(j.filename)}</td>
       <td class="col-engine"><span class="badge badge-engine">${engine}</span></td>
-      <td class="col-status"><span class="${statusCls}"><span class="badge-dot"></span>${esc(j.status)}</span></td>
+      <td class="col-status"><span class="${statusCls}"><span class="badge-dot"></span>${statusText}</span></td>
       <td class="col-conf"><span class="conf-cell ${confClass}">${confBar}<span>${confStr}</span></span></td>
       <td class="col-time">${esc(timeStr)}</td>
       <td class="col-date">${esc(date)}</td>
-      <td class="col-preview"><button class="preview-btn" data-job-id="${esc(j.job_id)}" data-filename="${esc(j.filename)}" title="Preview">▶</button></td>
+      <td class="col-preview"><button class="preview-btn" data-job-id="${esc(j.job_id)}" data-filename="${esc(j.filename)}" title="プレビュー表示">▶</button></td>
     </tr>`;
   }).join('');
 
@@ -298,16 +301,16 @@ function updateHeadingModalLivePreview() {
     .filter(Boolean);
 
   if (countEl) {
-    countEl.textContent = `${cols.length} column${cols.length === 1 ? '' : 's'}`;
+    countEl.textContent = `${cols.length} 列`;
   }
 
   if (cols.length === 0) {
-    previewBar.innerHTML = '<div class="heading-live-preview-empty">Type column names above or choose a preset to preview heading format</div>';
+    previewBar.innerHTML = '<div class="heading-live-preview-empty">上記に見出し列名を入力するか、テンプレートを選択するとプレビューが表示されます</div>';
     return;
   }
 
   previewBar.innerHTML = cols.map((col, idx) => {
-    return `<div class="heading-live-preview-cell" title="Col ${idx + 1}: ${esc(col)}">
+    return `<div class="heading-live-preview-cell" title="第 ${idx + 1} 列: ${esc(col)}">
       <div class="heading-cell-idx">${idx + 1}</div>
       <div class="heading-cell-content">${formatHeaderHtml(col)}</div>
     </div>`;
@@ -318,7 +321,7 @@ function openClientHeadingModal(client) {
   _clientHeadingTarget = client;
   const titleEl = document.getElementById('clientHeadingModalTitle');
   if (titleEl) {
-    titleEl.textContent = `Configure Heading Format — ${client.name_ja || client.code}`;
+    titleEl.textContent = `見出しフォーマット設定 — ${client.name_ja || client.code}`;
   }
   const rowInput  = document.getElementById('clientHeadingRow');
   const colsInput = document.getElementById('clientHeadingColumns');
@@ -377,7 +380,7 @@ document.getElementById('clientHeadingSave')?.addEventListener('click', async ()
   const colsVal = (document.getElementById('clientHeadingColumns')?.value || '').trim();
 
   const saveBtn = document.getElementById('clientHeadingSave');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '保存中…'; }
 
   try {
     const r = await dbFetch(`/api/db/clients/${_clientHeadingTarget.id}/heading-format`, {
@@ -390,15 +393,18 @@ document.getElementById('clientHeadingSave')?.addEventListener('click', async ()
     });
     if (!r || !r.ok) {
       const err = r ? await r.json().catch(() => ({})) : {};
-      throw new Error(err.detail || (r ? r.statusText : 'Save failed'));
+      throw new Error(err.detail || (r ? r.statusText : '保存に失敗しました'));
     }
+    const targetLabel = _clientHeadingTarget.name_ja || _clientHeadingTarget.code;
     closeClientHeadingModal();
-    showToast(`Heading format updated for ${_clientHeadingTarget.name_ja || _clientHeadingTarget.code}`);
+    showToast(`「${targetLabel}」の見出し設定を保存しました`);
     await reloadClientsSheet();
+    if (typeof reloadProductSheet === 'function' && _productsLoaded) await reloadProductSheet();
+    if (typeof _refreshXlsClientsAfterEdit === 'function') await _refreshXlsClientsAfterEdit();
   } catch (err) {
-    showToast('Failed to save heading format: ' + err.message, true);
+    showToast('見出し設定の保存に失敗しました: ' + err.message, true);
   } finally {
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Heading Format'; }
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '見出し設定を保存'; }
   }
 });
 
@@ -464,10 +470,10 @@ function renderClientsSheet() {
   if (!tbody) return;
 
   const rows = getFilteredSortedClients();
-  if (countEl) countEl.textContent = `${rows.length} client${rows.length !== 1 ? 's' : ''}`;
+  if (countEl) countEl.textContent = `${rows.length} 件`;
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="sheet-empty">No clients match the current search.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="sheet-empty">該当する取引先が見つかりませんでした。</td></tr>';
     return;
   }
 
@@ -486,9 +492,9 @@ function renderClientsSheet() {
       colsPreview = displayItems.map(col => `<span class="client-col-chip">${esc(col)}</span>`).join('') +
         (moreCount > 0 ? `<span class="client-col-chip more" title="${esc(c.heading_columns)}">+${moreCount}</span>` : '');
     } else {
-      colsPreview = '<span class="sheet-unassigned" style="font-size:11px">Default</span>';
+      colsPreview = '<span class="sheet-unassigned" style="font-size:11px">デフォルト</span>';
     }
-    const headingFormatHtml = `<div class="client-cols-preview"><span class="client-row-badge">Row ${hRow}</span>${colsPreview}</div>`;
+    const headingFormatHtml = `<div class="client-cols-preview"><span class="client-row-badge">行 ${hRow}</span>${colsPreview}</div>`;
 
     const totalJobs = c.total_jobs != null ? c.total_jobs : 0;
     const date = c.created_at ? c.created_at.replace('T', ' ').slice(0, 16) : '—';
@@ -503,9 +509,9 @@ function renderClientsSheet() {
       <td style="text-align:center"><span class="badge ${totalJobs > 0 ? 'badge-done' : 'badge-queued'}">${totalJobs}</span></td>
       <td class="col-date">${esc(date)}</td>
       <td class="prod-actions">
-        <button class="prod-btn prod-btn-edit" data-id="${esc(c.id)}" title="Edit Client Details">✎ Edit</button>
-        <button class="prod-btn prod-btn-headings" data-id="${esc(c.id)}" title="Configure Heading Format">⚙ Headings</button>
-        <button class="prod-btn prod-btn-del" data-id="${esc(c.id)}" title="Delete Client">🗑</button>
+        <button class="prod-btn prod-btn-edit" data-id="${esc(c.id)}" title="取引先情報を編集">✎ 編集</button>
+        <button class="prod-btn prod-btn-headings" data-id="${esc(c.id)}" title="見出しフォーマットを設定">⚙ 見出し設定</button>
+        <button class="prod-btn prod-btn-del" data-id="${esc(c.id)}" title="取引先を削除">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -535,15 +541,15 @@ function renderClientsSheet() {
       const id = parseInt(btn.dataset.id, 10);
       const client = _clientsAllList.find(x => x.id === id);
       const label = client ? `${client.name_ja} (${client.code})` : `ID ${id}`;
-      if (!confirm(`Delete client ${label}? Existing jobs for this client will remain unassigned.`)) return;
+      if (!confirm(`取引先「${label}」を削除しますか？ 既存の発注書データは保持されます。`)) return;
       btn.disabled = true;
       try {
         const r = await dbFetch(`/api/db/clients/${id}`, { method: 'DELETE' });
         if (!r || !r.ok) {
           const err = r ? await r.json().catch(() => ({})) : {};
-          throw new Error(err.detail || (r ? r.statusText : 'Delete failed'));
+          throw new Error(err.detail || (r ? r.statusText : '削除に失敗しました'));
         }
-        showToast(`Deleted client ${label}`);
+        showToast(`取引先「${label}」を削除しました`);
         await reloadClientsSheet();
         await reloadOrderSheet();
       } catch (err) {
@@ -608,11 +614,244 @@ let _productAllRows    = [];
 let _productAllClients = [];
 let _productSort       = { col: 'product_code', dir: 1 };
 let _productModalEditId = null;
+let _pmForceShowAllClients = false;
+
+function buildClientHeadingColsHtml(headingColumns, maxChips = 6, variant = 'default') {
+  const colItems = headingColumns
+    ? String(headingColumns).split(/[,、\n]+/).map(s => s.trim()).filter(Boolean)
+    : [];
+  if (!colItems.length) {
+    return '<span class="sheet-unassigned" style="font-size:11px">デフォルト (A, B, C…)</span>';
+  }
+  const displayItems = maxChips > 0 ? colItems.slice(0, maxChips) : colItems;
+  const moreCount = colItems.length - displayItems.length;
+  if (variant === 'schema') {
+    const chips = displayItems.map((col, idx) =>
+      `<span class="pm-col-pill"><em class="pm-col-idx">${_colLetter(idx)}</em><span class="pm-col-lbl">${esc(col)}</span></span>`
+    ).join('');
+    const more = moreCount > 0
+      ? `<span class="pm-col-more" title="${esc(headingColumns)}">+${moreCount} 件</span>`
+      : '';
+    return chips + more;
+  }
+  const chips = displayItems.map(col => `<span class="client-col-chip">${esc(col)}</span>`).join('');
+  const more = moreCount > 0
+    ? `<span class="client-col-chip more" title="${esc(headingColumns)}">+${moreCount}</span>`
+    : '';
+  return chips + more;
+}
+
+function buildClientHeadingFormatHtml(headerRow, headingColumns, maxChips = 6, variant = 'default') {
+  const hRow = headerRow || 1;
+  const colsHtml = buildClientHeadingColsHtml(headingColumns, maxChips, variant);
+  if (variant === 'schema') {
+    return `<div class="pm-cols-list${maxChips > 0 ? ' nowrap' : ''}"><span class="pm-row-badge">行 ${hRow}</span>${colsHtml}</div>`;
+  }
+  return `<div class="client-cols-preview"><span class="client-row-badge">行 ${hRow}</span>${colsHtml}</div>`;
+}
+
+function _resolveProductClientHeading(p) {
+  const client = _productAllClients.find(c => c.id === p.client_id);
+  const headerRow = p.client_header_row ?? client?.header_row ?? 1;
+  const headingCols = p.client_heading_columns ?? client?.heading_columns ?? '';
+  return { client, headerRow, headingCols };
+}
+
+function renderProductClientsHeadingGrid() {
+  const grid = document.getElementById('productClientsHeadingGrid');
+  const tabStrip = document.getElementById('productClientsTabStrip');
+  const countEl = document.getElementById('productClientsHeadingCount');
+  const viewAllBtn = document.getElementById('pmViewAllClientsBtn');
+  if (!grid) return;
+
+  if (countEl) {
+    countEl.textContent = `${_productAllClients.length} 社`;
+  }
+
+  if (!_productAllClients.length) {
+    if (tabStrip) tabStrip.innerHTML = '';
+    if (viewAllBtn) viewAllBtn.classList.add('hidden');
+    grid.innerHTML = '<div class="sheet-empty" style="padding:14px">取引先が登録されていません。</div>';
+    return;
+  }
+
+  const cf = document.getElementById('productClientFilter');
+  const activeClientId = cf?.value || '';
+
+  // Render quick client selector tabs
+  if (tabStrip) {
+    const allTab = `<button type="button" class="pm-client-tab${!activeClientId ? ' active' : ''}" data-client-id="">すべての取引先 <span class="pm-tab-badge">${_productAllClients.length}</span></button>`;
+    const clientTabs = _productAllClients.map(c => {
+      const isActive = activeClientId && String(c.id) === activeClientId;
+      const colCount = String(c.heading_columns || '').split(/[,、\n]+/).map(s => s.trim()).filter(Boolean).length;
+      return `<button type="button" class="pm-client-tab${isActive ? ' active' : ''}" data-client-id="${esc(c.id)}" title="${esc(c.code)}${c.name_en ? ' · ' + esc(c.name_en) : ''}">
+        <span>${esc(c.name_ja || c.code)}</span>${colCount ? `<span class="pm-tab-badge">${colCount}</span>` : ''}
+      </button>`;
+    }).join('');
+    tabStrip.innerHTML = allTab + clientTabs;
+
+    tabStrip.querySelectorAll('.pm-client-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!cf) return;
+        const cid = btn.dataset.clientId || '';
+        cf.value = cid;
+        _pmForceShowAllClients = false;
+        renderProductSheet();
+      });
+    });
+  }
+
+  const selectedClient = activeClientId
+    ? _productAllClients.find(c => String(c.id) === activeClientId)
+    : null;
+
+  if (viewAllBtn) {
+    if (selectedClient) {
+      viewAllBtn.classList.remove('hidden');
+      viewAllBtn.textContent = _pmForceShowAllClients ? '⊡ 選択中の取引先に絞込' : `⊞ 全 ${_productAllClients.length} 社を表示`;
+    } else {
+      viewAllBtn.classList.add('hidden');
+    }
+  }
+
+  // Focused Single-Client Schema Banner when a specific client is filtered
+  if (selectedClient && !_pmForceShowAllClients) {
+    grid.innerHTML = `<div class="pm-active-schema-banner">
+      <div class="pm-active-schema-info">
+        <div class="pm-active-schema-name">
+          <span class="prod-code">${esc(selectedClient.code)}</span>
+          <span>${esc(selectedClient.name_ja)}</span>
+        </div>
+        <div class="pm-active-schema-sub">
+          ${selectedClient.name_en ? `<span>${esc(selectedClient.name_en)}</span><span>·</span>` : ''}
+          <span>見出し行: <strong>${selectedClient.header_row || 1} 行目</strong></span>
+        </div>
+      </div>
+      <div class="pm-active-schema-cols">
+        <div class="pm-cols-list">${buildClientHeadingColsHtml(selectedClient.heading_columns, 0, 'schema')}</div>
+      </div>
+      <div class="pm-active-schema-actions">
+        <button class="prod-btn prod-btn-headings pm-banner-headings-btn" data-id="${esc(selectedClient.id)}" type="button" title="見出しフォーマットを設定">⚙ 見出し設定</button>
+      </div>
+    </div>`;
+
+    grid.querySelector('.pm-banner-headings-btn')?.addEventListener('click', () => {
+      openClientHeadingModal(selectedClient);
+    });
+    return;
+  }
+
+  // Enterprise Aligned Schema Matrix Table when viewing All Clients
+  grid.innerHTML = `<div class="pm-schema-matrix-wrap">
+    <table class="pm-schema-table">
+      <thead>
+        <tr>
+          <th>取引先</th>
+          <th style="text-align:center">見出し行</th>
+          <th>注文書列見出し (A → Z)</th>
+          <th style="text-align:right">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${_productAllClients.map(c => {
+          const isActive = activeClientId && String(c.id) === activeClientId;
+          return `<tr class="pm-schema-row${isActive ? ' active' : ''}" data-client-id="${esc(c.id)}" title="${esc(c.name_ja || c.code)} で絞り込み">
+            <td class="pm-schema-client-cell">
+              <div class="pm-schema-client-main">
+                <span class="prod-code">${esc(c.code)}</span>
+                <span class="pm-schema-client-ja">${esc(c.name_ja)}</span>
+              </div>
+              ${c.name_en ? `<div class="pm-schema-client-en">${esc(c.name_en)}</div>` : ''}
+            </td>
+            <td class="pm-schema-row-cell"><span class="pm-row-badge">行 ${c.header_row || 1}</span></td>
+            <td><div class="pm-cols-list">${buildClientHeadingColsHtml(c.heading_columns, 0, 'schema')}</div></td>
+            <td class="pm-schema-action-cell">
+              <button class="prod-btn prod-btn-headings pm-card-headings-btn" data-id="${esc(c.id)}" type="button" title="見出しフォーマットを設定">⚙ 見出し設定</button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`;
+
+  grid.querySelectorAll('.pm-schema-row').forEach(row => {
+    row.addEventListener('click', () => {
+      if (!cf) return;
+      const cid = row.dataset.clientId;
+      cf.value = cf.value === cid ? '' : cid;
+      _pmForceShowAllClients = false;
+      renderProductSheet();
+    });
+  });
+
+  grid.querySelectorAll('.pm-card-headings-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id, 10);
+      const client = _productAllClients.find(x => x.id === id);
+      if (client) openClientHeadingModal(client);
+    });
+  });
+}
+
+document.getElementById('pmViewAllClientsBtn')?.addEventListener('click', () => {
+  _pmForceShowAllClients = !_pmForceShowAllClients;
+  const grid = document.getElementById('productClientsHeadingGrid');
+  const toggleBtn = document.getElementById('toggleProductHeadingsBtn');
+  if (grid && grid.classList.contains('hidden')) {
+    grid.classList.remove('hidden');
+    if (toggleBtn) toggleBtn.textContent = '▾ 見出しを非表示';
+  }
+  renderProductClientsHeadingGrid();
+});
+
+document.getElementById('toggleProductHeadingsBtn')?.addEventListener('click', () => {
+  const grid = document.getElementById('productClientsHeadingGrid');
+  const btn = document.getElementById('toggleProductHeadingsBtn');
+  if (!grid || !btn) return;
+  const hidden = grid.classList.toggle('hidden');
+  btn.textContent = hidden ? '▸ 見出しを表示' : '▾ 見出しを非表示';
+});
+
+function updateProductModalHeadingPreview() {
+  const previewEl = document.getElementById('productFormClientHeadingPreview');
+  const clientSel = document.getElementById('productFormClient');
+  if (!previewEl || !clientSel) return;
+
+  const cid = clientSel.value ? parseInt(clientSel.value, 10) : null;
+  if (cid) {
+    const client = _productAllClients.find(c => c.id === cid);
+    if (client) {
+      previewEl.classList.remove('hidden');
+      previewEl.innerHTML = `<div style="font-weight:600;color:var(--text2);margin-bottom:6px">見出しフォーマット (${esc(client.name_ja)}):</div>` +
+        buildClientHeadingFormatHtml(client.header_row, client.heading_columns, 0, 'schema');
+      return;
+    }
+  }
+
+  if (_productAllClients.length > 0) {
+    previewEl.classList.remove('hidden');
+    previewEl.innerHTML = `<div style="font-weight:600;color:var(--text2);margin-bottom:6px">全取引先 見出しフォーマット (${_productAllClients.length}社):</div>` +
+      `<div style="display:flex;flex-direction:column;gap:6px;max-height:140px;overflow-y:auto">` +
+      _productAllClients.map(c =>
+        `<div style="display:flex;align-items:flex-start;gap:8px">
+          <span class="prod-code" style="flex-shrink:0;white-space:nowrap">${esc(c.name_ja || c.code)}</span>
+          ${buildClientHeadingFormatHtml(c.header_row, c.heading_columns, 0, 'schema')}
+        </div>`
+      ).join('') +
+      `</div>`;
+  } else {
+    previewEl.classList.add('hidden');
+    previewEl.innerHTML = '';
+  }
+}
+
+document.getElementById('productFormClient')?.addEventListener('change', updateProductModalHeadingPreview);
 
 function openProductModal(product = null) {
   _productModalEditId = product ? product.id : null;
   const title = document.getElementById('productModalTitle');
-  if (title) title.textContent = product ? 'Edit Product' : 'Add Product';
+  if (title) title.textContent = product ? '商品情報を編集' : '商品を追加';
   document.getElementById('productFormCode').value   = product ? (product.product_code || '') : '';
   document.getElementById('productFormNameJa').value = product ? (product.name_ja      || '') : '';
   document.getElementById('productFormNameEn').value = product ? (product.name_en      || '') : '';
@@ -622,10 +861,11 @@ function openProductModal(product = null) {
   // populate client select
   const clientSel = document.getElementById('productFormClient');
   if (clientSel) {
-    clientSel.innerHTML = '<option value="">(None / General)</option>' +
+    clientSel.innerHTML = '<option value="">(指定なし / 共通商品)</option>' +
       _productAllClients.map(c => `<option value="${c.id}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''}</option>`).join('');
     clientSel.value = product && product.client_id ? String(product.client_id) : '';
   }
+  updateProductModalHeadingPreview();
 
   const modal = document.getElementById('productModalBackdrop');
   if (modal) modal.classList.remove('hidden');
@@ -652,19 +892,19 @@ document.getElementById('productFormSave')?.addEventListener('click', async () =
   const clientIdVal = document.getElementById('productFormClient')?.value;
 
   if (!code || !nameJa) {
-    showToast('Product code and Japanese name are required', true);
+    showToast('商品コードと商品名(日本語)は必須項目です', true);
     return;
   }
 
   const unit_price = priceVal === '' ? null : parseFloat(priceVal);
   if (unit_price !== null && isNaN(unit_price)) {
-    showToast('Unit price must be a valid number', true);
+    showToast('単価は有効な数値を入力してください', true);
     return;
   }
   const client_id = clientIdVal ? parseInt(clientIdVal, 10) : null;
 
   const saveBtn = document.getElementById('productFormSave');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '保存中…'; }
 
   try {
     const url    = _productModalEditId ? `/api/db/products/${_productModalEditId}` : `/api/db/products`;
@@ -683,15 +923,15 @@ document.getElementById('productFormSave')?.addEventListener('click', async () =
     });
     if (!r || !r.ok) {
       const err = r ? await r.json().catch(() => ({})) : {};
-      throw new Error(err.detail || (r ? r.statusText : 'Server unreachable'));
+      throw new Error(err.detail || (r ? r.statusText : 'サーバーに接続できません'));
     }
     closeProductModal();
-    showToast(_productModalEditId ? 'Product updated' : 'Product added');
+    showToast(_productModalEditId ? '商品情報を更新しました' : '商品を追加しました');
     await reloadProductSheet();
   } catch (e) {
-    showToast('Error: ' + e.message, true);
+    showToast('エラー: ' + e.message, true);
   } finally {
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Product'; }
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '商品を保存'; }
   }
 });
 
@@ -704,7 +944,7 @@ async function initProductMasterView() {
 async function reloadProductSheet() {
   const tbody = document.getElementById('productSheetBody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="9" class="sheet-loading">Loading…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="10" class="sheet-loading">Loading…</td></tr>';
 
   try {
     const [prodsRes, clientsRes] = await Promise.all([
@@ -726,7 +966,7 @@ async function reloadProductSheet() {
 
     renderProductSheet();
   } catch (e) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="sheet-loading" style="color:var(--danger)">Error: ${esc(e.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="sheet-loading" style="color:var(--danger)">Error: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -742,7 +982,9 @@ function getFilteredSortedProducts() {
       const en     = (p.name_en || '').toLowerCase();
       const spec   = (p.spec || '').toLowerCase();
       const client = (p.client_name_ja || p.client_name_en || '').toLowerCase();
-      if (!code.includes(q) && !ja.includes(q) && !en.includes(q) && !spec.includes(q) && !client.includes(q)) {
+      const { headingCols } = _resolveProductClientHeading(p);
+      const hcols  = (headingCols || '').toLowerCase();
+      if (!code.includes(q) && !ja.includes(q) && !en.includes(q) && !spec.includes(q) && !client.includes(q) && !hcols.includes(q)) {
         return false;
       }
     }
@@ -758,6 +1000,12 @@ function getFilteredSortedProducts() {
     else if (col === 'spec')    { av = (a.spec || '').toLowerCase(); bv = (b.spec || '').toLowerCase(); }
     else if (col === 'unit_price') { av = a.unit_price ?? -1; bv = b.unit_price ?? -1; }
     else if (col === 'client')  { av = (a.client_name_ja || '').toLowerCase(); bv = (b.client_name_ja || '').toLowerCase(); }
+    else if (col === 'heading_format') {
+      const ha = _resolveProductClientHeading(a);
+      const hb = _resolveProductClientHeading(b);
+      av = a.client_id ? `row${String(ha.headerRow).padStart(3, '0')}:${(ha.headingCols || '').toLowerCase()}` : 'zzz';
+      bv = b.client_id ? `row${String(hb.headerRow).padStart(3, '0')}:${(hb.headingCols || '').toLowerCase()}` : 'zzz';
+    }
     else { av = a.updated_at || a.created_at || ''; bv = b.updated_at || b.created_at || ''; }
     if (av < bv) return -dir; if (av > bv) return dir; return 0;
   });
@@ -765,21 +1013,30 @@ function getFilteredSortedProducts() {
 }
 
 function renderProductSheet() {
+  renderProductClientsHeadingGrid();
+
   const tbody   = document.getElementById('productSheetBody');
   const countEl = document.getElementById('productRowCount');
   if (!tbody) return;
 
   const rows = getFilteredSortedProducts();
-  if (countEl) countEl.textContent = `${rows.length} product${rows.length !== 1 ? 's' : ''}`;
+  if (countEl) countEl.textContent = `${rows.length} 件`;
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="sheet-empty">No products match the current filters.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="sheet-empty">条件に一致する商品が見つかりませんでした。</td></tr>';
     return;
   }
 
   tbody.innerHTML = rows.map((p, idx) => {
     const clientName = p.client_name_ja
       ? `<span class="sheet-client">${esc(p.client_name_ja)}</span>${p.client_name_en ? `<span class="sheet-client-en">${esc(p.client_name_en)}</span>` : ''}`
+      : '<span class="sheet-unassigned">—</span>';
+    const { headerRow, headingCols } = _resolveProductClientHeading(p);
+    const headingFormatCell = p.client_id
+      ? `<div class="pm-cell-heading-wrap">
+          ${buildClientHeadingFormatHtml(headerRow, headingCols, 4, 'schema')}
+          <button class="prod-btn prod-btn-headings pm-row-headings-btn" data-client-id="${esc(p.client_id)}" title="取引先見出し設定を開く">⚙</button>
+         </div>`
       : '<span class="sheet-unassigned">—</span>';
     const priceStr = p.unit_price != null ? '¥' + Number(p.unit_price).toLocaleString('ja-JP', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '—';
     const updated = p.updated_at || p.created_at ? (p.updated_at || p.created_at).replace('T', ' ').slice(0, 16) : '—';
@@ -792,15 +1049,25 @@ function renderProductSheet() {
       <td>${esc(p.spec || '—')}</td>
       <td class="prod-price">${priceStr}</td>
       <td>${clientName}</td>
+      <td>${headingFormatCell}</td>
       <td class="col-date">${esc(updated)}</td>
       <td class="prod-actions">
-        <button class="prod-btn prod-btn-edit" data-id="${esc(p.id)}" title="Edit">✎ Edit</button>
-        <button class="prod-btn prod-btn-del" data-id="${esc(p.id)}" title="Delete">🗑</button>
+        <button class="prod-btn prod-btn-edit" data-id="${esc(p.id)}" title="商品情報を編集">✎ 編集</button>
+        <button class="prod-btn prod-btn-del" data-id="${esc(p.id)}" title="商品を削除">🗑</button>
       </td>
     </tr>`;
   }).join('');
 
-  // Wire edit and delete buttons
+  // Wire edit, heading config, and delete buttons
+  tbody.querySelectorAll('.pm-row-headings-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const cid = parseInt(btn.dataset.clientId, 10);
+      const client = _productAllClients.find(x => x.id === cid);
+      if (client) openClientHeadingModal(client);
+    });
+  });
+
   tbody.querySelectorAll('.prod-btn-edit').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
@@ -816,15 +1083,15 @@ function renderProductSheet() {
       const id = parseInt(btn.dataset.id, 10);
       const prod = _productAllRows.find(x => x.id === id);
       const label = prod ? `${prod.product_code} (${prod.name_ja})` : `ID ${id}`;
-      if (!confirm(`Delete product ${label}?`)) return;
+      if (!confirm(`商品「${label}」を削除しますか？`)) return;
       btn.disabled = true;
       try {
         const r = await dbFetch(`/api/db/products/${id}`, { method: 'DELETE' });
         if (!r || !r.ok) {
           const err = r ? await r.json().catch(() => ({})) : {};
-          throw new Error(err.detail || (r ? r.statusText : 'Delete failed'));
+          throw new Error(err.detail || (r ? r.statusText : '削除に失敗しました'));
         }
-        showToast(`Deleted ${label}`);
+        showToast(`商品「${label}」を削除しました`);
         await reloadProductSheet();
       } catch (err) {
         showToast('Delete failed: ' + err.message, true);
@@ -848,8 +1115,10 @@ document.querySelectorAll('#productSheet .sortable').forEach(th => {
   });
 });
 
-['productSearch', 'productClientFilter'].forEach(id => {
-  document.getElementById(id)?.addEventListener('input', () => renderProductSheet());
+document.getElementById('productSearch')?.addEventListener('input', () => renderProductSheet());
+document.getElementById('productClientFilter')?.addEventListener('change', () => {
+  _pmForceShowAllClients = false;
+  renderProductSheet();
 });
 
 document.getElementById('productRefreshBtn')?.addEventListener('click', async () => {
@@ -861,18 +1130,23 @@ document.getElementById('productRefreshBtn')?.addEventListener('click', async ()
 // CSV Export
 document.getElementById('productExportBtn')?.addEventListener('click', () => {
   const rows = getFilteredSortedProducts();
-  const header = ['No.', 'Item Code', 'Product Name (JA)', 'Product Name (EN)', 'Spec', 'Unit Price', 'Client Code', 'Client Name (JA)', 'Updated At'];
-  const lines = [header, ...rows.map((p, i) => [
-    i + 1,
-    p.product_code || '',
-    p.name_ja || '',
-    p.name_en || '',
-    p.spec || '',
-    p.unit_price != null ? p.unit_price : '',
-    p.client_code || '',
-    p.client_name_ja || '',
-    p.updated_at || p.created_at || '',
-  ])].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+  const header = ['No.', 'Item Code', 'Product Name (JA)', 'Product Name (EN)', 'Spec', 'Unit Price', 'Client Code', 'Client Name (JA)', 'Client Header Row', 'Client Heading Columns', 'Updated At'];
+  const lines = [header, ...rows.map((p, i) => {
+    const { headerRow, headingCols } = _resolveProductClientHeading(p);
+    return [
+      i + 1,
+      p.product_code || '',
+      p.name_ja || '',
+      p.name_en || '',
+      p.spec || '',
+      p.unit_price != null ? p.unit_price : '',
+      p.client_code || '',
+      p.client_name_ja || '',
+      p.client_id ? headerRow : '',
+      p.client_id ? headingCols : '',
+      p.updated_at || p.created_at || '',
+    ];
+  })].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
   const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
   const a    = Object.assign(document.createElement('a'), { href: url, download: 'products_' + new Date().toISOString().slice(0, 10) + '.csv' });
@@ -886,6 +1160,7 @@ let _xlsSheets = [];
 let _xlsJobId = null;
 let _xlsResult = null;
 let _xlsDirty = false;
+let _xlsAllClients = [];
 
 function _markXlsDirty(dirty) {
   _xlsDirty = !!dirty;
@@ -900,6 +1175,108 @@ function _colLetter(i) {
   let n = i, s = '';
   do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
   return s;
+}
+
+function _cleanExcelCell(val) {
+  if (val == null) return '';
+  let s = String(val);
+  if (/^Unnamed:\s*\d+$/i.test(s.trim())) return '';
+  s = s.replace(/^(\d{4}-\d{2}-\d{2}) 00:00:00$/, '$1');
+  return s;
+}
+
+function _parseClientHeadingCols(client) {
+  if (!client || !client.heading_columns) return [];
+  return String(client.heading_columns)
+    .split(/[,、\n]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+async function _ensureXlsClientsLoaded(force = false) {
+  if (!force) {
+    if (_xlsAllClients.length) return _xlsAllClients;
+    if (Array.isArray(_clientsAllList) && _clientsAllList.length) {
+      _xlsAllClients = _clientsAllList;
+      return _xlsAllClients;
+    }
+    if (Array.isArray(_productAllClients) && _productAllClients.length) {
+      _xlsAllClients = _productAllClients;
+      return _xlsAllClients;
+    }
+  }
+  try {
+    const res = await dbFetch('/api/db/clients');
+    if (res && res.ok) _xlsAllClients = await res.json();
+  } catch {}
+  return _xlsAllClients;
+}
+
+function _getXlsSelectedClient() {
+  const sel = document.getElementById('xlsClientSelect');
+  const cid = sel?.value ? parseInt(sel.value, 10) : null;
+  return cid ? (_xlsAllClients.find(c => c.id === cid) || null) : null;
+}
+
+function _updateXlsClientBarUI() {
+  const previewEl = document.getElementById('xlsClientColsPreview');
+  const applyBtn  = document.getElementById('xlsApplyClientHeadingBtn');
+  const saveBtn   = document.getElementById('xlsSaveToClientHeadingBtn');
+  const editBtn   = document.getElementById('xlsEditClientHeadingBtn');
+  const client    = _getXlsSelectedClient();
+  const sheet     = _xlsSheets[_xlsActiveSheet] || null;
+
+  if (previewEl) {
+    if (client) {
+      previewEl.innerHTML = buildClientHeadingFormatHtml(client.header_row, client.heading_columns, 0, 'schema');
+    } else {
+      previewEl.innerHTML = '<span class="sheet-unassigned" style="font-size:11px">Select a client to view or apply its heading format</span>';
+    }
+  }
+
+  const isApplied = !!(client && sheet && sheet.clientHeadingId != null && String(sheet.clientHeadingId) === String(client.id));
+  if (applyBtn) {
+    applyBtn.disabled = !client || _parseClientHeadingCols(client).length === 0;
+    applyBtn.classList.toggle('active', isApplied);
+    applyBtn.textContent = isApplied ? '✓ Client Heading Active' : '✓ Apply Client Heading';
+  }
+  if (saveBtn) saveBtn.disabled = !client;
+  if (editBtn) editBtn.disabled = !client;
+}
+
+function _applyClientHeadingToSheet(sheet, client) {
+  if (!sheet || !client) return false;
+  const cols = _parseClientHeadingCols(client);
+  if (!cols.length) {
+    showToast(`${client.name_ja || client.code} has no heading columns configured`, true);
+    return false;
+  }
+  sheet.clientHeaders = cols;
+  sheet.clientHeadingId = client.id;
+  _markXlsDirty(true);
+  _renderXlsGrid(sheet);
+  _updateXlsClientBarUI();
+  return true;
+}
+
+async function _refreshXlsClientsAfterEdit() {
+  await _ensureXlsClientsLoaded(true);
+  const modal = document.getElementById('xlsModal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  const sel = document.getElementById('xlsClientSelect');
+  if (sel) {
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— 取引先を選択 —</option>' +
+      _xlsAllClients.map(c => `<option value="${c.id}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''}</option>`).join('');
+    sel.value = prev;
+  }
+  const sheet = _xlsSheets[_xlsActiveSheet];
+  if (sheet && sheet.clientHeadingId != null) {
+    const c = _xlsAllClients.find(x => String(x.id) === String(sheet.clientHeadingId));
+    if (c) sheet.clientHeaders = _parseClientHeadingCols(c);
+  }
+  _updateXlsClientBarUI();
+  if (sheet) _renderXlsGrid(sheet);
 }
 
 function _parseMdToRows(md) {
@@ -978,27 +1355,31 @@ function _normaliseDataRows(data) {
   // Always return Array<Array<string>> so _renderXlsGrid can safely call r.length.
   if (!data || !data.length) return null;
   const first = data[0];
-  if (Array.isArray(first)) return data; // already cell arrays
+  if (Array.isArray(first)) {
+    return data.map(row => Array.isArray(row) ? row.map(_cleanExcelCell) : [_cleanExcelCell(row)]);
+  }
   if (first === null || typeof first !== 'object') return null;
   const cols = Object.keys(first);
   if (!cols.length) return null;
   const numericKeys = cols.every(c => !isNaN(Number(c)));
   if (numericKeys) {
     // Keys are 0,1,2... — each row's values are the cells; first row may contain header text
-    return data.map(r => cols.map(c => r[c] != null ? String(r[c]) : ''));
+    return data.map(r => cols.map(c => _cleanExcelCell(r[c])));
   }
-  // Named keys — prepend a header row with the column names
-  return [cols, ...data.map(r => cols.map(c => r[c] != null ? String(r[c]) : ''))];
+  // Named keys — prepend a header row with cleaned column names
+  return [cols.map(_cleanExcelCell), ...data.map(r => cols.map(c => _cleanExcelCell(r[c])))];
 }
 
 function _buildSheets(result) {
   if (result.custom_sheets && Array.isArray(result.custom_sheets) && result.custom_sheets.length > 0) {
     return result.custom_sheets.map(s => ({
       name: String(s.name || 'Sheet1'),
-      rows: Array.isArray(s.rows) ? s.rows.map(r => Array.isArray(r) ? [...r] : [String(r ?? '')]) : [['']],
+      rows: Array.isArray(s.rows) ? s.rows.map(r => Array.isArray(r) ? r.map(_cleanExcelCell) : [_cleanExcelCell(r)]) : [['']],
       hasHeader: !!s.hasHeader,
       headerIdx: s.headerIdx != null ? s.headerIdx : -1,
       customHeaders: Array.isArray(s.customHeaders) ? [...s.customHeaders] : [],
+      clientHeaders: Array.isArray(s.clientHeaders) ? [...s.clientHeaders] : [],
+      clientHeadingId: s.clientHeadingId != null ? s.clientHeadingId : null,
     }));
   }
 
@@ -1019,7 +1400,9 @@ function _buildSheets(result) {
         rows,
         hasHeader: detected >= 0,
         headerIdx: detected >= 0 ? detected : 0,
-        customHeaders: []
+        customHeaders: [],
+        clientHeaders: [],
+        clientHeadingId: null,
       });
     }
   });
@@ -1036,7 +1419,9 @@ function _buildSheets(result) {
           rows,
           hasHeader: detected >= 0,
           headerIdx: detected >= 0 ? detected : (recon.headerIdx >= 0 ? recon.headerIdx : 0),
-          customHeaders: []
+          customHeaders: [],
+          clientHeaders: [],
+          clientHeadingId: null,
         });
       }
     }
@@ -1053,7 +1438,9 @@ function _buildSheets(result) {
           rows,
           hasHeader: detected >= 0,
           headerIdx: detected >= 0 ? detected : 0,
-          customHeaders: []
+          customHeaders: [],
+          clientHeaders: [],
+          clientHeadingId: null,
         });
       }
     }
@@ -1062,27 +1449,90 @@ function _buildSheets(result) {
   const text = result.fused_text || result.text || '';
   if (text) {
     const rows = text.split('\n').filter(l => l.trim()).map(l => [l]);
-    sheets.push({ name: 'Full Text', rows, hasHeader: false, headerIdx: -1, customHeaders: [] });
+    sheets.push({ name: 'Full Text', rows, hasHeader: false, headerIdx: -1, customHeaders: [], clientHeaders: [], clientHeadingId: null });
   }
 
-  if (sheets.length === 0) sheets.push({ name: 'Sheet1', rows: [['No data']], hasHeader: false, headerIdx: -1, customHeaders: [] });
+  if (sheets.length === 0) sheets.push({ name: 'Sheet1', rows: [['No data']], hasHeader: false, headerIdx: -1, customHeaders: [], clientHeaders: [], clientHeadingId: null });
   return sheets;
+}
+
+function _resolveSheetColHeading(sheet, ci) {
+  if (!sheet) return '';
+  if (Array.isArray(sheet.clientHeaders) && sheet.clientHeaders.length > 0) {
+    return sheet.clientHeaders[ci] != null ? String(sheet.clientHeaders[ci]).trim() : '';
+  }
+  const rows = sheet.rows || [];
+  if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < rows.length) {
+    const hdrRow = rows[sheet.headerIdx] || [];
+    const raw = hdrRow[ci] != null ? String(hdrRow[ci]).trim() : '';
+    const normCp = s => /^c\s*\/\s*p$/i.test(String(s || '').replace(/\u3000/g, ' ').trim());
+    const hasSlashBelow = colIdx => {
+      for (let r = sheet.headerIdx + 1; r < Math.min(rows.length, sheet.headerIdx + 8); r++) {
+        if (String(rows[r]?.[colIdx] || '').trim() === '/') return true;
+      }
+      return false;
+    };
+    if (raw) {
+      if (normCp(raw) && ci + 1 < hdrRow.length && !String(hdrRow[ci + 1] || '').trim() && hasSlashBelow(ci + 1)) {
+        return 'C / P (C)';
+      }
+      return raw;
+    }
+    const prev1 = ci >= 1 ? (hdrRow[ci - 1] != null ? String(hdrRow[ci - 1]).trim() : '') : '';
+    const prev2 = ci >= 2 ? (hdrRow[ci - 2] != null ? String(hdrRow[ci - 2]).trim() : '') : '';
+    if (normCp(prev1) && hasSlashBelow(ci)) {
+      return '/';
+    }
+    if (normCp(prev2) && !prev1 && hasSlashBelow(ci - 1)) {
+      return 'C / P (P)';
+    }
+    if (sheet.headerIdx > 0) {
+      const above = rows[sheet.headerIdx - 1]?.[ci];
+      if (above != null && String(above).trim()) {
+        return _cleanExcelCell(above).trim();
+      }
+    }
+    return '';
+  }
+  if (Array.isArray(sheet.customHeaders) && sheet.customHeaders[ci] != null) {
+    return String(sheet.customHeaders[ci]).trim();
+  }
+  return '';
 }
 
 function _syncHeaderSelect(sheet) {
   const select = document.getElementById('xlsHeaderSelect');
   if (!select) return;
   const rows = sheet.rows || [];
-  let html = '<option value="-1">Default (A, B, C...)</option>';
+  let html = '<option value="-1">デフォルト (A, B, C...)</option>';
+
+  if (_xlsAllClients && _xlsAllClients.length > 0) {
+    html += '<optgroup label="取引先見出しフォーマット">';
+    _xlsAllClients.forEach(c => {
+      const cols = _parseClientHeadingCols(c);
+      if (!cols.length) return;
+      const colsPreview = cols.slice(0, 4).join(' | ') + (cols.length > 4 ? ` (+${cols.length - 4})` : '');
+      const label = `${c.name_ja || c.code}: ${colsPreview}`;
+      const isSel = sheet.clientHeadingId != null && String(sheet.clientHeadingId) === String(c.id);
+      html += `<option value="client:${esc(c.id)}" ${isSel ? 'selected' : ''}>${esc(label)}</option>`;
+    });
+    html += '</optgroup>';
+  }
+
+  html += '<optgroup label="シート内の行">';
   rows.forEach((r, idx) => {
     const preview = r.filter(c => c != null && String(c).trim()).slice(0, 4).join(' | ');
     const previewTrimmed = preview.length > 32 ? preview.substring(0, 32) + '…' : preview;
-    const label = `Row ${idx + 1}` + (previewTrimmed ? `: ${previewTrimmed}` : '');
-    const isSelected = sheet.hasHeader && sheet.headerIdx === idx;
+    const label = `${idx + 1} 行目` + (previewTrimmed ? `: ${previewTrimmed}` : '');
+    const isSelected = !sheet.clientHeadingId && sheet.hasHeader && sheet.headerIdx === idx;
     html += `<option value="${idx}" ${isSelected ? 'selected' : ''}>${esc(label)}</option>`;
   });
+  html += '</optgroup>';
+
   select.innerHTML = html;
-  if (!sheet.hasHeader || sheet.headerIdx < 0) {
+  if (sheet.clientHeadingId != null && _xlsAllClients.some(c => String(c.id) === String(sheet.clientHeadingId))) {
+    select.value = `client:${sheet.clientHeadingId}`;
+  } else if (!sheet.hasHeader || sheet.headerIdx < 0) {
     select.value = "-1";
   } else {
     select.value = String(sheet.headerIdx);
@@ -1127,7 +1577,7 @@ function _renderXlsGrid(sheet) {
   _syncHeaderSelect(sheet);
   gridWrap.tabIndex = 0;
 
-  const maxCols = Math.max(1, ...rows.map(r => r.length), (sheet.customHeaders || []).length);
+  const maxCols = Math.max(1, ...rows.map(r => r.length), (sheet.customHeaders || []).length, (sheet.clientHeaders || []).length);
   const colLetters = Array.from({ length: maxCols }, (_, i) => _colLetter(i));
 
   let selectedTd = null, selectedColIdx = -1, selectedRowIdx = -1;
@@ -1153,17 +1603,15 @@ function _renderXlsGrid(sheet) {
   function refreshColHeader(ci) {
     const th = colHeaders[ci];
     if (!th) return;
-    let headingVal = '';
-    if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < rows.length) {
-      const raw = rows[sheet.headerIdx][ci];
-      if (raw != null && String(raw).trim()) {
-        headingVal = String(raw).trim();
-      }
-    } else if (sheet.customHeaders && sheet.customHeaders[ci] != null && String(sheet.customHeaders[ci]).trim()) {
-      headingVal = String(sheet.customHeaders[ci]).trim();
-    }
+    const headingVal = _resolveSheetColHeading(sheet, ci);
+    const hasActiveSpan = !!(
+      (sheet.hasHeader && sheet.headerIdx >= 0) ||
+      (Array.isArray(sheet.clientHeaders) && sheet.clientHeaders.length > 0) ||
+      !!headingVal
+    );
 
     th.classList.toggle('has-heading', !!headingVal);
+    th.classList.toggle('in-header-span', hasActiveSpan);
     if (headingVal) {
       th.innerHTML = `<div class="xls-th-letter">${colLetters[ci]}</div><div class="xls-th-title" title="${esc(headingVal)}">${formatHeaderHtml(headingVal)}</div>`;
     } else {
@@ -1177,8 +1625,10 @@ function _renderXlsGrid(sheet) {
       e.stopPropagation();
       if (th.querySelector('.xls-th-input')) return;
       let curVal = '';
-      if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < rows.length) {
-        curVal = rows[sheet.headerIdx][ci] != null ? String(rows[sheet.headerIdx][ci]) : '';
+      if (Array.isArray(sheet.clientHeaders) && sheet.clientHeaders.length > 0) {
+        curVal = sheet.clientHeaders[ci] != null ? String(sheet.clientHeaders[ci]) : '';
+      } else if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < rows.length) {
+        curVal = _resolveSheetColHeading(sheet, ci);
       } else if (sheet.customHeaders && sheet.customHeaders[ci] != null) {
         curVal = String(sheet.customHeaders[ci]);
       }
@@ -1197,7 +1647,10 @@ function _renderXlsGrid(sheet) {
         finished = true;
         if (save) {
           const newHeading = input.value;
-          if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < rows.length) {
+          if (Array.isArray(sheet.clientHeaders) && sheet.clientHeaders.length > 0) {
+            while (sheet.clientHeaders.length <= ci) sheet.clientHeaders.push('');
+            sheet.clientHeaders[ci] = newHeading;
+          } else if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < rows.length) {
             while (rows[sheet.headerIdx].length <= ci) rows[sheet.headerIdx].push('');
             rows[sheet.headerIdx][ci] = newHeading;
           } else {
@@ -1356,6 +1809,8 @@ function _renderXlsGrid(sheet) {
 
     rowNum.addEventListener('click', (e) => {
       e.stopPropagation();
+      sheet.clientHeaders = [];
+      sheet.clientHeadingId = null;
       if (sheet.hasHeader && sheet.headerIdx === ri) {
         sheet.hasHeader = false;
         sheet.headerIdx = -1;
@@ -1367,6 +1822,7 @@ function _renderXlsGrid(sheet) {
       }
       _markXlsDirty(true);
       _renderXlsGrid(sheet);
+      _updateXlsClientBarUI();
     });
 
     tr.appendChild(rowNum);
@@ -1462,7 +1918,10 @@ function _renderXlsGrid(sheet) {
   selectCell(sheet._selRow || 0, sheet._selCol || 0, false);
 
   const dataRows = (hasHeader && headerIdx >= 0) ? Math.max(0, rows.length - 1) : rows.length;
-  const headerNote = (hasHeader && headerIdx >= 0) ? ` · Heading: Row ${headerIdx + 1}` : '';
+  const activeClientObj = sheet.clientHeadingId != null ? _xlsAllClients.find(c => String(c.id) === String(sheet.clientHeadingId)) : null;
+  const headerNote = activeClientObj
+    ? ` · Heading: Client (${activeClientObj.name_ja || activeClientObj.code})`
+    : ((hasHeader && headerIdx >= 0) ? ` · Heading: Row ${headerIdx + 1}` : '');
   statusEl.textContent = `${dataRows} data rows × ${maxCols} cols${headerNote}`;
 }
 
@@ -1482,6 +1941,10 @@ async function openOrderPreview(jobId, filename) {
   document.getElementById('xlsCellRef').textContent = 'A1';
   document.getElementById('xlsCellVal').value = '';
   document.getElementById('xlsStatusBar').textContent = '';
+  const clientSelectEl = document.getElementById('xlsClientSelect');
+  const clientColsEl   = document.getElementById('xlsClientColsPreview');
+  if (clientSelectEl) clientSelectEl.innerHTML = '<option value="">取引先を読み込み中…</option>';
+  if (clientColsEl) clientColsEl.innerHTML = '';
   _xlsJobId = jobId;
   _xlsResult = null;
   _markXlsDirty(false);
@@ -1489,7 +1952,10 @@ async function openOrderPreview(jobId, filename) {
 
   let result = null;
   try {
-    const r = await dbFetch('/api/ocr/result/' + encodeURIComponent(jobId));
+    const [r] = await Promise.all([
+      dbFetch('/api/ocr/result/' + encodeURIComponent(jobId)),
+      _ensureXlsClientsLoaded(),
+    ]);
     if (r && r.ok) result = await r.json();
   } catch {}
 
@@ -1499,6 +1965,28 @@ async function openOrderPreview(jobId, filename) {
   _xlsSheets = _buildSheets(result);
   _xlsActiveSheet = 0;
 
+  // Populate Client Format dropdown & detect matched client
+  if (clientSelectEl) {
+    clientSelectEl.innerHTML = '<option value="">— Select Client —</option>' +
+      _xlsAllClients.map(c => `<option value="${c.id}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''}</option>`).join('');
+
+    const jobMeta = Array.isArray(_orderAllJobs) ? _orderAllJobs.find(j => j.job_id === jobId) : null;
+    let initialClientId = result.client?.id || jobMeta?.client_id || null;
+    if (!initialClientId && _xlsSheets[0]?.clientHeadingId != null) {
+      initialClientId = _xlsSheets[0].clientHeadingId;
+    }
+    if (!initialClientId && _xlsAllClients.length) {
+      const haystack = `${filename || ''} ${result.fused_text || ''}`.toLowerCase();
+      const matched = _xlsAllClients.find(c =>
+        (c.name_ja && haystack.includes(c.name_ja.toLowerCase())) ||
+        (c.code && haystack.includes(c.code.toLowerCase()))
+      );
+      if (matched) initialClientId = matched.id;
+    }
+    clientSelectEl.value = initialClientId ? String(initialClientId) : '';
+    clientSelectEl.onchange = () => _updateXlsClientBarUI();
+  }
+
   _xlsSheets.forEach((sheet, i) => {
     const tab = document.createElement('div');
     tab.className = 'xls-sheet-tab' + (i === 0 ? ' active' : '');
@@ -1507,9 +1995,94 @@ async function openOrderPreview(jobId, filename) {
       _xlsActiveSheet = i;
       sheetTabsEl.querySelectorAll('.xls-sheet-tab').forEach((t, j) => t.classList.toggle('active', j === i));
       _renderXlsGrid(_xlsSheets[i]);
+      _updateXlsClientBarUI();
     });
     sheetTabsEl.appendChild(tab);
   });
+
+  // Wire Client Heading Format bar actions
+  const applyClientBtn = document.getElementById('xlsApplyClientHeadingBtn');
+  if (applyClientBtn) {
+    applyClientBtn.onclick = () => {
+      const sheet = _xlsSheets[_xlsActiveSheet];
+      const client = _getXlsSelectedClient();
+      if (!client) { showToast('Please select a client first', true); return; }
+      if (sheet.clientHeadingId != null && String(sheet.clientHeadingId) === String(client.id)) {
+        sheet.clientHeaders = [];
+        sheet.clientHeadingId = null;
+        _markXlsDirty(true);
+        _renderXlsGrid(sheet);
+        _updateXlsClientBarUI();
+        showToast('Reverted to sheet row heading');
+        return;
+      }
+      if (_applyClientHeadingToSheet(sheet, client)) {
+        const cols = _parseClientHeadingCols(client);
+        showToast(`Applied ${client.name_ja} heading format (${cols.length} cols)`);
+      }
+    };
+  }
+
+  const saveToClientBtn = document.getElementById('xlsSaveToClientHeadingBtn');
+  if (saveToClientBtn) {
+    saveToClientBtn.onclick = async () => {
+      const sheet = _xlsSheets[_xlsActiveSheet];
+      const client = _getXlsSelectedClient();
+      if (!client) { showToast('Please select a client first', true); return; }
+      if (!sheet) return;
+
+      const maxCols = Math.max(
+        1,
+        ...(sheet.rows || []).map(r => r.length),
+        (sheet.customHeaders || []).length,
+        (sheet.clientHeaders || []).length
+      );
+      const resolvedCols = Array.from({ length: maxCols }, (_, ci) => _resolveSheetColHeading(sheet, ci).trim());
+      while (resolvedCols.length && !resolvedCols[resolvedCols.length - 1]) resolvedCols.pop();
+      const nonEmptyCols = resolvedCols.filter(Boolean);
+      if (!nonEmptyCols.length) {
+        showToast('No column headings found in current sheet', true);
+        return;
+      }
+      const headerRowNum = (sheet.hasHeader && sheet.headerIdx >= 0) ? (sheet.headerIdx + 1) : (client.header_row || 1);
+      saveToClientBtn.disabled = true;
+      saveToClientBtn.textContent = 'Saving…';
+      try {
+        const r = await dbFetch(`/api/db/clients/${client.id}/heading-format`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            header_row: headerRowNum,
+            heading_columns: nonEmptyCols.join(', '),
+          }),
+        });
+        if (!r || !r.ok) {
+          const err = r ? await r.json().catch(() => ({})) : {};
+          throw new Error(err.detail || 'Save failed');
+        }
+        await _ensureXlsClientsLoaded(true);
+        _updateXlsClientBarUI();
+        _syncHeaderSelect(sheet);
+        if (typeof reloadClientsSheet === 'function' && _clientsViewLoaded) await reloadClientsSheet();
+        if (typeof reloadProductSheet === 'function' && _productsLoaded) await reloadProductSheet();
+        showToast(`Saved Row ${headerRowNum} headings (${nonEmptyCols.length} cols) to ${client.name_ja}`);
+      } catch (e) {
+        showToast('Failed to save to client: ' + e.message, true);
+      } finally {
+        saveToClientBtn.disabled = false;
+        saveToClientBtn.textContent = '📌 Save Header to Client';
+      }
+    };
+  }
+
+  const editClientBtn = document.getElementById('xlsEditClientHeadingBtn');
+  if (editClientBtn) {
+    editClientBtn.onclick = () => {
+      const client = _getXlsSelectedClient();
+      if (!client) { showToast('Please select a client first', true); return; }
+      openClientHeadingModal(client);
+    };
+  }
 
   // Wire header controls
   const headerSelect = document.getElementById('xlsHeaderSelect');
@@ -1517,7 +2090,21 @@ async function openOrderPreview(jobId, filename) {
     headerSelect.onchange = () => {
       const sheet = _xlsSheets[_xlsActiveSheet];
       if (!sheet) return;
-      const val = parseInt(headerSelect.value, 10);
+      const rawVal = headerSelect.value;
+      if (rawVal && rawVal.startsWith('client:')) {
+        const cid = rawVal.slice(7);
+        const client = _xlsAllClients.find(c => String(c.id) === cid);
+        if (client) {
+          if (clientSelectEl) clientSelectEl.value = String(client.id);
+          if (_applyClientHeadingToSheet(sheet, client)) {
+            showToast(`Applied ${client.name_ja} heading format`);
+          }
+        }
+        return;
+      }
+      const val = parseInt(rawVal, 10);
+      sheet.clientHeaders = [];
+      sheet.clientHeadingId = null;
       if (val >= 0) {
         sheet.hasHeader = true;
         sheet.headerIdx = val;
@@ -1529,6 +2116,7 @@ async function openOrderPreview(jobId, filename) {
       }
       _markXlsDirty(true);
       _renderXlsGrid(sheet);
+      _updateXlsClientBarUI();
     };
   }
 
@@ -1541,10 +2129,13 @@ async function openOrderPreview(jobId, filename) {
       const match = (document.getElementById('xlsCellRef').textContent || '').match(/\d+/);
       const rowNum = match ? parseInt(match[0], 10) - 1 : 0;
       if (rowNum >= 0 && rowNum < (sheet.rows || []).length) {
+        sheet.clientHeaders = [];
+        sheet.clientHeadingId = null;
         sheet.hasHeader = true;
         sheet.headerIdx = rowNum;
         _markXlsDirty(true);
         _renderXlsGrid(sheet);
+        _updateXlsClientBarUI();
         showToast(`Row ${rowNum + 1} set as table heading`);
       }
     };
@@ -1558,8 +2149,11 @@ async function openOrderPreview(jobId, filename) {
       sheet.hasHeader = false;
       sheet.headerIdx = -1;
       sheet.customHeaders = [];
+      sheet.clientHeaders = [];
+      sheet.clientHeadingId = null;
       _markXlsDirty(true);
       _renderXlsGrid(sheet);
+      _updateXlsClientBarUI();
       showToast('Headers reset to default (A, B, C...)');
     };
   }
@@ -1569,7 +2163,7 @@ async function openOrderPreview(jobId, filename) {
     addRowBtn.onclick = () => {
       const sheet = _xlsSheets[_xlsActiveSheet];
       if (!sheet) return;
-      const maxCols = Math.max(1, ...(sheet.rows || []).map(r => r.length), (sheet.customHeaders || []).length);
+      const maxCols = Math.max(1, ...(sheet.rows || []).map(r => r.length), (sheet.customHeaders || []).length, (sheet.clientHeaders || []).length);
       sheet.rows = sheet.rows || [];
       sheet.rows.push(Array(maxCols).fill(''));
       sheet._selRow = sheet.rows.length - 1;
@@ -1586,7 +2180,7 @@ async function openOrderPreview(jobId, filename) {
       const sheet = _xlsSheets[_xlsActiveSheet];
       if (!sheet) return;
       sheet.rows = sheet.rows || [[]];
-      const maxCols = Math.max(1, ...sheet.rows.map(r => r.length), (sheet.customHeaders || []).length);
+      const maxCols = Math.max(1, ...sheet.rows.map(r => r.length), (sheet.customHeaders || []).length, (sheet.clientHeaders || []).length);
       sheet.rows.forEach(r => { while (r.length <= maxCols) r.push(''); });
       sheet._selCol = maxCols;
       _markXlsDirty(true);
@@ -1608,6 +2202,8 @@ async function openOrderPreview(jobId, filename) {
           hasHeader: !!s.hasHeader,
           headerIdx: s.headerIdx != null ? s.headerIdx : -1,
           customHeaders: Array.isArray(s.customHeaders) ? s.customHeaders : [],
+          clientHeaders: Array.isArray(s.clientHeaders) ? s.clientHeaders : [],
+          clientHeadingId: s.clientHeadingId != null ? s.clientHeadingId : null,
         }));
         _xlsResult.custom_sheets = cleanSheets;
 
@@ -1657,13 +2253,22 @@ async function openOrderPreview(jobId, filename) {
   loading.classList.add('hidden');
   gridWrap.classList.remove('hidden');
   _renderXlsGrid(_xlsSheets[0]);
+  _updateXlsClientBarUI();
 
   document.getElementById('xlsCsvBtn').onclick = () => {
     const sheet = _xlsSheets[_xlsActiveSheet];
     if (!sheet || !sheet.rows) return;
 
     let exportRows = [];
-    if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < sheet.rows.length) {
+    if (Array.isArray(sheet.clientHeaders) && sheet.clientHeaders.length > 0) {
+      const maxCols = Math.max(1, ...sheet.rows.map(r => r.length), sheet.clientHeaders.length);
+      const hdrRow = Array.from({ length: maxCols }, (_, ci) => sheet.clientHeaders[ci] ?? '');
+      exportRows.push(hdrRow);
+      const startRow = (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < sheet.rows.length) ? sheet.headerIdx + 1 : 0;
+      for (let d = startRow; d < sheet.rows.length; d++) {
+        exportRows.push(sheet.rows[d]);
+      }
+    } else if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < sheet.rows.length) {
       for (let m = 0; m < sheet.headerIdx; m++) {
         const line = sheet.rows[m].filter(c => c != null && String(c).trim()).join(' | ');
         if (line) exportRows.push(['# ' + line]);
@@ -1694,6 +2299,11 @@ function closeXlsModal() { document.getElementById('xlsModal')?.classList.add('h
 document.getElementById('xlsClose')?.addEventListener('click', closeXlsModal);
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    const chModal = document.getElementById('clientHeadingModalBackdrop');
+    if (chModal && !chModal.classList.contains('hidden')) {
+      closeClientHeadingModal();
+      return;
+    }
     const active = document.activeElement;
     if (active && (active.classList.contains('xls-cell-input') || active.classList.contains('xls-th-input') || active.id === 'xlsCellVal')) {
       return;
@@ -2431,24 +3041,26 @@ async function dbFetch(path, opts) {
       }
       const rows = await r.json();
       if (!rows.length) {
-        bodyEl.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No jobs yet</td></tr>';
+        bodyEl.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">解析履歴はありません</td></tr>';
         return;
       }
+      const histStatusLabels = { done: '完了', error: 'エラー', processing: '処理中', queued: '待機中' };
       bodyEl.innerHTML = rows.map(j => {
         const clientLabel = j.client_name_ja
-          ? `${esc(j.client_name_ja)} (${esc(j.client_name_en)})`
+          ? `${esc(j.client_name_ja)}${j.client_name_en ? ` (${esc(j.client_name_en)})` : ''}`
           : '—';
+        const stLabel = histStatusLabels[j.status] || esc(j.status);
         return `
         <tr data-job-id="${esc(j.job_id)}">
           <td style="text-align:center"><input type="checkbox" class="job-chk" data-job-id="${esc(j.job_id)}"></td>
           <td title="${esc(j.filename)}">${esc(j.filename)}</td>
           <td title="${clientLabel}">${clientLabel}</td>
           <td>${esc(j.engine_requested)}</td>
-          <td><span class="status-${esc(j.status)}">${esc(j.status)}</span></td>
+          <td><span class="status-${esc(j.status)}">${stLabel}</span></td>
           <td>${j.confidence_avg != null ? (j.confidence_avg * 100).toFixed(1) + '%' : '—'}</td>
           <td>${j.processing_time_s != null ? j.processing_time_s : '—'}</td>
           <td>${j.created_at ? esc(j.created_at.replace('T',' ').slice(0,19)) : '—'}</td>
-          <td><button class="del-job-btn" data-job-id="${esc(j.job_id)}" title="Delete this job">🗑</button></td>
+          <td><button class="del-job-btn" data-job-id="${esc(j.job_id)}" title="この履歴を削除">🗑</button></td>
         </tr>`;
       }).join('');
 
@@ -2471,7 +3083,7 @@ async function dbFetch(path, opts) {
       bodyEl.querySelectorAll('.del-job-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           const jobId = btn.dataset.jobId;
-          if (!confirm('Delete this job record? This cannot be undone.')) return;
+          if (!confirm('この解析履歴を削除しますか？')) return;
           btn.disabled = true;
           try {
             const r = await dbFetch(`/api/db/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
@@ -2479,18 +3091,18 @@ async function dbFetch(path, opts) {
             const row = btn.closest('tr');
             if (row) row.remove();
             if (!bodyEl.querySelector('tr[data-job-id]')) {
-              bodyEl.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted)">No jobs yet</td></tr>';
+              bodyEl.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted)">解析履歴はありません</td></tr>';
             }
             updateBulkBar();
-            showToast('Job deleted.');
+            showToast('解析履歴を削除しました');
           } catch (e) {
             btn.disabled = false;
-            showToast('Delete failed: ' + e.message, true);
+            showToast('削除に失敗しました: ' + e.message, true);
           }
         });
       });
     } catch (e) {
-      bodyEl.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#cb2431">Error: ${esc(e.message)}</td></tr>`;
+      bodyEl.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#cb2431">エラー: ${esc(e.message)}</td></tr>`;
     }
   }
 
@@ -2515,7 +3127,7 @@ async function dbFetch(path, opts) {
     if (!bulkBar) return;
     if (ids.length > 0) {
       bulkBar.classList.remove('hidden');
-      if (bulkCount) bulkCount.textContent = ids.length + ' selected';
+      if (bulkCount) bulkCount.textContent = ids.length + ' 件選択中';
     } else {
       bulkBar.classList.add('hidden');
     }

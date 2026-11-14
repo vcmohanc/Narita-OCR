@@ -9,6 +9,7 @@ Strategy:
 """
 
 import io
+import re
 import sys
 import os
 import time
@@ -593,6 +594,22 @@ SUPPORTED_EXCEL_EXTS = {".xlsx", ".xls", ".xlsm"}
 SUPPORTED_DOC_EXTS   = {".pdf", ".docx", ".pptx", ".html", ".xlsx"}
 
 
+def _clean_excel_val(val) -> str:
+    """Clean cell values from pandas Excel parsing (remove Unnamed headers and 00:00:00 time suffixes)."""
+    if val is None:
+        return ""
+    if hasattr(val, "hour") and hasattr(val, "minute") and hasattr(val, "second"):
+        if getattr(val, "hour", 0) == 0 and getattr(val, "minute", 0) == 0 and getattr(val, "second", 0) == 0:
+            try:
+                return val.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+    s = str(val)
+    if re.match(r"^Unnamed:\s*\d+$", s.strip(), re.IGNORECASE):
+        return ""
+    return re.sub(r"^(\d{4}-\d{2}-\d{2}) 00:00:00$", r"\1", s)
+
+
 def _excel_process(file_path: str) -> dict:
     """Read every sheet of an Excel file; return tables + fused text."""
     t0 = time.time()
@@ -602,27 +619,33 @@ def _excel_process(file_path: str) -> dict:
         tables, text_parts = [], []
 
         for sheet in xl.sheet_names:
-            df = xl.parse(sheet, header=0)
+            df = xl.parse(sheet, header=None)
             df = df.dropna(how="all").fillna("")
             if df.empty:
                 continue
 
-            # Normalise column names to strings
-            df.columns = [str(c) for c in df.columns]
-            data = df.astype(str).to_dict(orient="records")
+            col_keys = [str(i) for i in range(df.shape[1])]
+            cleaned_rows = [[_clean_excel_val(v) for v in row] for row in df.values.tolist()]
+            df_clean = pd.DataFrame(cleaned_rows, columns=col_keys)
+            data = df_clean.to_dict(orient="records")
 
-            md_lines = ["| " + " | ".join(df.columns) + " |",
-                        "| " + " | ".join(["---"] * len(df.columns)) + " |"]
-            for row in data:
-                md_lines.append("| " + " | ".join(row[c] for c in df.columns) + " |")
+            hdr_cells = cleaned_rows[0] if cleaned_rows else col_keys
+            md_lines = [
+                "| " + " | ".join(hdr_cells) + " |",
+                "| " + " | ".join(["---"] * len(col_keys)) + " |",
+            ]
+            for row in cleaned_rows[1:]:
+                md_lines.append("| " + " | ".join(row) + " |")
             md = "\n".join(md_lines)
 
-            text_parts.append(f"=== {sheet} ===\n" + df.to_string(index=False))
+            text_parts.append(
+                f"=== {sheet} ===\n" + "\n".join("\t".join(r).rstrip() for r in cleaned_rows if any(c.strip() for c in r))
+            )
             tables.append({
                 "caption":  sheet,
                 "markdown": md,
                 "data":     data,
-                "shape":    list(df.shape),
+                "shape":    list(df_clean.shape),
                 "source":   "Excel",
             })
 

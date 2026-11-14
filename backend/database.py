@@ -1102,6 +1102,7 @@ def list_products(limit: int = 500, offset: int = 0, client_id: Optional[int] = 
             sql = """
                 SELECT p.id, p.product_code, p.name_ja, p.name_en, p.spec, p.unit_price,
                        p.client_id, c.code AS client_code, c.name_ja AS client_name_ja, c.name_en AS client_name_en,
+                       c.header_row AS client_header_row, c.heading_columns AS client_heading_columns,
                        p.created_at, p.updated_at
                   FROM ocr_products p
              LEFT JOIN ocr_clients c ON p.client_id = c.id
@@ -1140,6 +1141,7 @@ def get_product(product_id: int) -> Optional[dict]:
                 """
                 SELECT p.id, p.product_code, p.name_ja, p.name_en, p.spec, p.unit_price,
                        p.client_id, c.code AS client_code, c.name_ja AS client_name_ja, c.name_en AS client_name_en,
+                       c.header_row AS client_header_row, c.heading_columns AS client_heading_columns,
                        p.created_at, p.updated_at
                   FROM ocr_products p
              LEFT JOIN ocr_clients c ON p.client_id = c.id

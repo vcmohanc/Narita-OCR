@@ -6,7 +6,7 @@
   <title>OCR System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=9" />
+  <link rel="stylesheet" href="/static/style.css?v=13" />
 </head>
 <body>
 
@@ -22,22 +22,22 @@
         </div>
       </div>
       <div class="sidebar-nav">
-        <div class="sidebar-section-label">Workspace</div>
+        <div class="sidebar-section-label">ワークスペース</div>
         <button class="nav-item active" data-view="home">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-          <span>Home</span>
+          <span>ホーム</span>
         </button>
         <button class="nav-item" data-view="order">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          <span>Order</span>
+          <span>発注書一覧</span>
         </button>
         <button class="nav-item" data-view="clients">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          <span>Clients</span>
+          <span>取引先マスタ</span>
         </button>
         <button class="nav-item" data-view="productMaster">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-          <span>Product Master</span>
+          <span>商品マスタ</span>
         </button>
       </div>
     </nav>
@@ -200,13 +200,13 @@
         <div class="order-topbar">
           <div class="order-topbar-title">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
-            Orders
+            発注書一覧
           </div>
           <span class="order-row-count" id="orderRowCount"></span>
           <div class="order-toolbar-actions">
-            <button class="btn-sm btn-add-client" id="addClientBtn">+ Add Client</button>
-            <button class="btn-sm" id="orderExportBtn" title="Export to CSV">↓ Export CSV</button>
-            <button class="btn-sm" id="orderRefreshBtn">↻ Refresh</button>
+            <button class="btn-sm btn-add-client" id="addClientBtn">+ 取引先を追加</button>
+            <button class="btn-sm" id="orderExportBtn" title="CSVエクスポート">↓ CSV出力</button>
+            <button class="btn-sm" id="orderRefreshBtn">↻ 更新</button>
           </div>
         </div>
 
@@ -214,22 +214,22 @@
         <div class="order-filterbar">
           <div class="filter-search-wrap">
             <svg class="filter-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input class="filter-search" id="orderSearch" type="search" placeholder="Search filename…" />
+            <input class="filter-search" id="orderSearch" type="search" placeholder="ファイル名で検索…" />
           </div>
           <select class="filter-select" id="orderClientFilter">
-            <option value="">All Clients</option>
+            <option value="">すべての取引先</option>
           </select>
           <select class="filter-select" id="orderStatusFilter">
-            <option value="">All Status</option>
-            <option value="done">Done</option>
-            <option value="error">Error</option>
-            <option value="processing">Processing</option>
+            <option value="">すべてのステータス</option>
+            <option value="done">完了</option>
+            <option value="error">エラー</option>
+            <option value="processing">処理中</option>
           </select>
           <select class="filter-select" id="orderEngineFilter">
-            <option value="">All Engines</option>
+            <option value="">すべてのエンジン</option>
             <option value="paddle">PaddleOCR</option>
             <option value="docling">Docling</option>
-            <option value="all">All (Best)</option>
+            <option value="all">全エンジン統合 (最適)</option>
             <option value="both">Paddle + Docling</option>
           </select>
         </div>
@@ -240,18 +240,18 @@
             <thead>
               <tr>
                 <th class="col-no">No.</th>
-                <th class="col-client sortable" data-col="client">Client <span class="sort-icon">↕</span></th>
-                <th class="col-file sortable" data-col="filename">Filename <span class="sort-icon">↕</span></th>
-                <th class="col-engine sortable" data-col="engine">Engine <span class="sort-icon">↕</span></th>
-                <th class="col-status sortable" data-col="status">Status <span class="sort-icon">↕</span></th>
-                <th class="col-conf sortable" data-col="confidence">Confidence <span class="sort-icon">↕</span></th>
-                <th class="col-time sortable" data-col="time">Time (s) <span class="sort-icon">↕</span></th>
-                <th class="col-date sortable" data-col="date">Saved At <span class="sort-icon">↕</span></th>
-                <th class="col-preview"></th>
+                <th class="col-client sortable" data-col="client">取引先 <span class="sort-icon">↕</span></th>
+                <th class="col-file sortable" data-col="filename">ファイル名 <span class="sort-icon">↕</span></th>
+                <th class="col-engine sortable" data-col="engine">解析エンジン <span class="sort-icon">↕</span></th>
+                <th class="col-status sortable" data-col="status">ステータス <span class="sort-icon">↕</span></th>
+                <th class="col-conf sortable" data-col="confidence">信頼度 <span class="sort-icon">↕</span></th>
+                <th class="col-time sortable" data-col="time">所要時間 (秒) <span class="sort-icon">↕</span></th>
+                <th class="col-date sortable" data-col="date">保存日時 <span class="sort-icon">↕</span></th>
+                <th class="col-preview">操作</th>
               </tr>
             </thead>
             <tbody id="orderSheetBody">
-              <tr><td colspan="9" class="sheet-loading">Loading…</td></tr>
+              <tr><td colspan="9" class="sheet-loading">読み込み中…</td></tr>
             </tbody>
           </table>
         </div>
@@ -259,8 +259,8 @@
         <!-- Result preview drawer -->
         <div class="order-preview hidden" id="orderPreview">
           <div class="order-preview-header">
-            <span id="orderPreviewTitle">Result</span>
-            <button class="btn-sm" id="orderPreviewClose">✕ Close</button>
+            <span id="orderPreviewTitle">解析結果</span>
+            <button class="btn-sm" id="orderPreviewClose">✕ 閉じる</button>
           </div>
           <pre class="text-out order-preview-body" id="orderPreviewText"></pre>
         </div>
@@ -272,13 +272,13 @@
         <div class="order-topbar">
           <div class="order-topbar-title">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            Clients
+            取引先マスタ
           </div>
-          <span class="order-row-count" id="clientsRowCount">0 clients</span>
+          <span class="order-row-count" id="clientsRowCount">0 件</span>
           <div class="order-toolbar-actions">
-            <button class="btn-sm btn-add-client" id="clientViewAddBtn">+ Add Client</button>
-            <button class="btn-sm" id="clientsExportBtn" title="Export to CSV">↓ Export CSV</button>
-            <button class="btn-sm" id="clientsRefreshBtn">↻ Refresh</button>
+            <button class="btn-sm btn-add-client" id="clientViewAddBtn">+ 取引先を追加</button>
+            <button class="btn-sm" id="clientsExportBtn" title="CSVエクスポート">↓ CSV出力</button>
+            <button class="btn-sm" id="clientsRefreshBtn">↻ 更新</button>
           </div>
         </div>
 
@@ -286,7 +286,7 @@
         <div class="order-filterbar">
           <div class="filter-search-wrap">
             <svg class="filter-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input class="filter-search" id="clientsSearch" type="search" placeholder="Search client code, Japanese name, English name, keywords…" />
+            <input class="filter-search" id="clientsSearch" type="search" placeholder="取引先コード、取引先名、英語名、キーワードで検索…" />
           </div>
         </div>
 
@@ -296,18 +296,18 @@
             <thead>
               <tr>
                 <th class="col-no" style="width:48px">No.</th>
-                <th class="sortable" data-col="code" style="width:130px">Client Code <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="name_ja" style="width:160px">Japanese Name <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="name_en" style="width:140px">English Name <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="keywords">Detection Keywords <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="heading_format" style="min-width:240px">Heading Format Option <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="total_jobs" style="width:105px;text-align:center">Total Orders <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="created_at" style="width:140px">Created At <span class="sort-icon">↕</span></th>
-                <th style="width:160px;text-align:center">Actions</th>
+                <th class="sortable" data-col="code" style="width:130px">取引先コード <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="name_ja" style="width:160px">取引先名 (日本語) <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="name_en" style="width:140px">英語表記 <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="keywords">検出キーワード <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="heading_format" style="min-width:240px">見出しフォーマット設定 <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="total_jobs" style="width:105px;text-align:center">発注件数 <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="created_at" style="width:140px">登録日時 <span class="sort-icon">↕</span></th>
+                <th style="width:160px;text-align:center">操作</th>
               </tr>
             </thead>
             <tbody id="clientsSheetBody">
-              <tr><td colspan="9" class="sheet-loading">Loading…</td></tr>
+              <tr><td colspan="9" class="sheet-loading">読み込み中…</td></tr>
             </tbody>
           </table>
         </div>
@@ -319,13 +319,13 @@
         <div class="order-topbar">
           <div class="order-topbar-title">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-            Product Master
+            商品マスタ
           </div>
-          <span class="order-row-count" id="productRowCount">0 products</span>
+          <span class="order-row-count" id="productRowCount">0 件</span>
           <div class="order-toolbar-actions">
-            <button class="btn-sm btn-add-client" id="addProductBtn">+ Add Product</button>
-            <button class="btn-sm" id="productExportBtn" title="Export to CSV">↓ Export CSV</button>
-            <button class="btn-sm" id="productRefreshBtn">↻ Refresh</button>
+            <button class="btn-sm btn-add-client" id="addProductBtn">+ 商品を追加</button>
+            <button class="btn-sm" id="productExportBtn" title="CSVエクスポート">↓ CSV出力</button>
+            <button class="btn-sm" id="productRefreshBtn">↻ 更新</button>
           </div>
         </div>
 
@@ -333,11 +333,30 @@
         <div class="order-filterbar">
           <div class="filter-search-wrap">
             <svg class="filter-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input class="filter-search" id="productSearch" type="search" placeholder="Search item code, product name, spec…" />
+            <input class="filter-search" id="productSearch" type="search" placeholder="商品コード、商品名、規格で検索…" />
           </div>
           <select class="filter-select" id="productClientFilter">
-            <option value="">All Clients</option>
+            <option value="">すべての取引先</option>
           </select>
+        </div>
+
+        <!-- All Clients Heading Formats Overview -->
+        <div class="pm-headings-section" id="productClientsHeadingSection">
+          <div class="pm-headings-header">
+            <div class="pm-headings-title">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent);flex-shrink:0"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+              <span>取引先別 注文書見出しフォーマット</span>
+              <span class="pm-headings-count" id="productClientsHeadingCount">0 件</span>
+            </div>
+            <div class="pm-headings-actions">
+              <button class="btn-sm hidden" id="pmViewAllClientsBtn" type="button">⊞ マトリクス表示</button>
+              <button class="btn-sm" id="toggleProductHeadingsBtn" type="button">▾ 見出しを非表示</button>
+            </div>
+          </div>
+          <div class="pm-client-tabs" id="productClientsTabStrip"></div>
+          <div class="pm-headings-body" id="productClientsHeadingGrid">
+            <div class="sheet-loading" style="padding:16px">取引先見出しフォーマットを読み込み中…</div>
+          </div>
         </div>
 
         <!-- Excel-style sheet table -->
@@ -346,18 +365,19 @@
             <thead>
               <tr>
                 <th class="col-no" style="width:48px">No.</th>
-                <th class="sortable" data-col="product_code" style="width:140px">Item Code <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="name_ja">Product Name (JA) <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="name_en">Product Name (EN) <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="spec" style="width:120px">Spec <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="unit_price" style="width:110px;text-align:right">Unit Price <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="client" style="width:170px">Client <span class="sort-icon">↕</span></th>
-                <th class="sortable" data-col="updated_at" style="width:150px">Updated At <span class="sort-icon">↕</span></th>
-                <th style="width:110px;text-align:center">Actions</th>
+                <th class="sortable" data-col="product_code" style="width:140px">商品コード <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="name_ja">商品名 (日本語) <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="name_en">商品名 (英語) <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="spec" style="width:120px">規格・入数 <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="unit_price" style="width:110px;text-align:right">単価 (¥) <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="client" style="width:170px">対象取引先 <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="heading_format" style="min-width:300px">見出しフォーマット <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="updated_at" style="width:150px">更新日時 <span class="sort-icon">↕</span></th>
+                <th style="width:130px;text-align:center">操作</th>
               </tr>
             </thead>
             <tbody id="productSheetBody">
-              <tr><td colspan="9" class="sheet-loading">Loading…</td></tr>
+              <tr><td colspan="10" class="sheet-loading">読み込み中…</td></tr>
             </tbody>
           </table>
         </div>
@@ -377,27 +397,39 @@
             <rect width="18" height="18" rx="3" fill="#217346"/>
             <path d="M4 4h4l1.5 3L11 4h3l-3 5 3 5h-3l-1.5-3L8 14H4l3-5L4 4z" fill="white"/>
           </svg>
-          <span class="xls-title-text" id="xlsTitle">Document</span>
+          <span class="xls-title-text" id="xlsTitle">ドキュメント</span>
         </div>
-        <button class="xls-win-btn" id="xlsClose" title="Close (Esc)">✕</button>
+        <button class="xls-win-btn" id="xlsClose" title="閉じる (Esc)">✕</button>
       </div>
       <div class="xls-formulabar">
         <div class="xls-cell-ref" id="xlsCellRef">A1</div>
         <div class="xls-formulabar-sep">fx</div>
-        <input type="text" class="xls-cell-val" id="xlsCellVal" placeholder="Select a cell to edit value…" autocomplete="off" />
+        <input type="text" class="xls-cell-val" id="xlsCellVal" placeholder="セルを選択して値を編集…" autocomplete="off" />
         <div class="xls-header-tools">
-          <label class="xls-header-lbl" for="xlsHeaderSelect">Heading:</label>
-          <select class="xls-header-select" id="xlsHeaderSelect" title="Select row to use as column headings"></select>
-          <button class="btn-sm btn-header-act" id="xlsSetHeaderBtn" title="Set selected row as table headings">📌 Set as Header</button>
-          <button class="btn-sm" id="xlsResetHeaderBtn" title="Reset headers to default (A, B, C...)">↺ Reset</button>
-          <button class="btn-sm" id="xlsAddRowBtn" title="Add a new row at the bottom">+ Row</button>
-          <button class="btn-sm" id="xlsAddColBtn" title="Add a new column on the right">+ Col</button>
+          <label class="xls-header-lbl" for="xlsHeaderSelect">見出し:</label>
+          <select class="xls-header-select" id="xlsHeaderSelect" title="列見出しとして使用する行を選択"></select>
+          <button class="btn-sm btn-header-act" id="xlsSetHeaderBtn" title="選択行をテーブル見出しに設定">📌 見出し行に設定</button>
+          <button class="btn-sm" id="xlsResetHeaderBtn" title="見出しをデフォルト(A, B, C...)に戻す">↺ リセット</button>
+          <button class="btn-sm" id="xlsAddRowBtn" title="末尾に新しい行を追加">+ 行追加</button>
+          <button class="btn-sm" id="xlsAddColBtn" title="右端に新しい列を追加">+ 列追加</button>
         </div>
-        <button class="btn-sm btn-save-xls" id="xlsSaveBtn" style="margin-left:auto;flex-shrink:0;white-space:nowrap" disabled title="Save manual changes">💾 Save</button>
-        <button class="btn-sm" id="xlsCsvBtn" style="flex-shrink:0;white-space:nowrap">↓ CSV</button>
+        <button class="btn-sm btn-save-xls" id="xlsSaveBtn" style="margin-left:auto;flex-shrink:0;white-space:nowrap" disabled title="手動編集内容を保存">💾 保存</button>
+        <button class="btn-sm" id="xlsCsvBtn" style="flex-shrink:0;white-space:nowrap">↓ CSV出力</button>
+      </div>
+      <div class="xls-client-bar" id="xlsClientHeadingBar">
+        <div class="xls-client-bar-left">
+          <span class="xls-client-bar-label">取引先フォーマット:</span>
+          <select class="xls-client-select" id="xlsClientSelect" title="取引先見出しフォーマットを選択"></select>
+        </div>
+        <div class="xls-client-bar-cols" id="xlsClientColsPreview"></div>
+        <div class="xls-client-bar-actions">
+          <button class="btn-sm xls-client-btn" id="xlsApplyClientHeadingBtn" type="button" title="この取引先見出しをグリッドに適用">✓ 取引先見出しを適用</button>
+          <button class="btn-sm xls-client-btn" id="xlsSaveToClientHeadingBtn" type="button" title="現在の見出し行を取引先の見出し設定として保存">📌 見出し設定を保存</button>
+          <button class="btn-sm xls-client-btn" id="xlsEditClientHeadingBtn" type="button" title="見出し設定モーダルを開く">⚙ カスタマイズ</button>
+        </div>
       </div>
       <div class="xls-main">
-        <div class="xls-loading" id="xlsLoading">Loading…</div>
+        <div class="xls-loading" id="xlsLoading">読み込み中…</div>
         <div class="xls-grid-wrap hidden" id="xlsGridWrap"></div>
       </div>
       <div class="xls-sheetbar">
@@ -410,38 +442,38 @@
   <!-- Client add/edit modal -->
   <div class="modal-backdrop hidden" id="clientModalBackdrop">
     <div class="modal-box">
-      <div class="modal-title" id="clientModalTitle">Add Client</div>
+      <div class="modal-title" id="clientModalTitle">取引先を追加</div>
       <div class="modal-body">
         <div class="modal-field">
-          <label class="modal-label" for="clientFormNameJa">Japanese Name <span class="required">*</span></label>
-          <input class="modal-input" id="clientFormNameJa" placeholder="e.g. 三徳" />
+          <label class="modal-label" for="clientFormNameJa">取引先名 (日本語) <span class="required">*</span></label>
+          <input class="modal-input" id="clientFormNameJa" placeholder="例: 三徳" />
         </div>
         <div class="modal-field">
-          <label class="modal-label" for="clientFormNameEn">English Name</label>
-          <input class="modal-input" id="clientFormNameEn" placeholder="e.g. Santoku" />
+          <label class="modal-label" for="clientFormNameEn">取引先名 (英語)</label>
+          <input class="modal-input" id="clientFormNameEn" placeholder="例: Santoku" />
         </div>
         <div class="modal-field">
-          <label class="modal-label" for="clientFormCode">Code <span class="required">*</span></label>
-          <input class="modal-input" id="clientFormCode" placeholder="e.g. SANTOKU" />
+          <label class="modal-label" for="clientFormCode">取引先コード <span class="required">*</span></label>
+          <input class="modal-input" id="clientFormCode" placeholder="例: SANTOKU" />
         </div>
         <div class="modal-field">
-          <label class="modal-label" for="clientFormKeywords">Keywords <small>— comma-separated, for auto-detection</small></label>
-          <input class="modal-input" id="clientFormKeywords" placeholder="e.g. 三徳,santoku,SANTOKU" />
+          <label class="modal-label" for="clientFormKeywords">検出キーワード <small>— カンマ区切り（自動判別用）</small></label>
+          <input class="modal-input" id="clientFormKeywords" placeholder="例: 三徳,santoku,SANTOKU" />
         </div>
         <div class="modal-row" style="display:flex;gap:12px">
           <div class="modal-field" style="width:130px">
-            <label class="modal-label" for="clientFormHeaderRow">Header Row</label>
-            <input class="modal-input" id="clientFormHeaderRow" type="number" min="1" max="100" value="1" placeholder="e.g. 1" />
+            <label class="modal-label" for="clientFormHeaderRow">見出し行番号</label>
+            <input class="modal-input" id="clientFormHeaderRow" type="number" min="1" max="100" value="1" placeholder="例: 1" />
           </div>
           <div class="modal-field" style="flex:1">
-            <label class="modal-label" for="clientFormHeadingColumns">Heading Columns</label>
-            <input class="modal-input" id="clientFormHeadingColumns" placeholder="e.g. 商品コード, 商品名, 規格, 数量, 単価, 金額" />
+            <label class="modal-label" for="clientFormHeadingColumns">見出し列名</label>
+            <input class="modal-input" id="clientFormHeadingColumns" placeholder="例: 商品コード, 商品名, 規格, 数量, 単価, 金額" />
           </div>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-sm" id="clientFormCancel">Cancel</button>
-        <button class="btn-primary modal-save-btn" id="clientFormSave">Save Client</button>
+        <button class="btn-sm" id="clientFormCancel">キャンセル</button>
+        <button class="btn-primary modal-save-btn" id="clientFormSave">取引先を保存</button>
       </div>
     </div>
   </div>
@@ -449,50 +481,50 @@
   <!-- Dedicated Client Heading Format Modal -->
   <div class="modal-backdrop hidden" id="clientHeadingModalBackdrop">
     <div class="modal-box" style="max-width:720px">
-      <div class="modal-title" id="clientHeadingModalTitle">Configure Heading Format</div>
+      <div class="modal-title" id="clientHeadingModalTitle">見出しフォーマット設定</div>
       <div class="modal-body">
         <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
-          Select a template or customize the table header row and column headings for this client.
+          取引先の注文書・エクセルに合わせて、見出し行番号および列名をカスタマイズまたはテンプレートから選択します。
         </div>
         <div class="modal-field">
-          <label class="modal-label" for="clientHeadingPreset">Preset Template</label>
+          <label class="modal-label" for="clientHeadingPreset">プリセットテンプレート</label>
           <select class="modal-input" id="clientHeadingPreset">
-            <option value="custom">— Custom Configuration —</option>
-            <option value="national">National Azabu (Row 8 · 品目, 産地, 栽培区分, 規格, 単価/p, 単価/cs, JAN, 備考, 日付別要望)</option>
-            <option value="fusui">Fusui Style (Row 8 · 商品名, 規格母目, C/S入数, 単価, 金額, 備考)</option>
-            <option value="standard">Standard Order (Row 1 · 商品コード, 商品名, 規格, 数量, 単価, 金額)</option>
-            <option value="wholesale">Wholesale Format (Row 1 · 品番, 品名, 規格, 入数, 単価, 金額, 納品日)</option>
-            <option value="simple">Simple Table (Row 1 · 品名, 数量, 単価, 金額)</option>
+            <option value="custom">— カスタム設定 —</option>
+            <option value="national">ナショナル麻布 (8行目 · 品目, 産地, 栽培区分, 規格, 単価/p, 単価/cs, JAN, 備考, 日付別要望)</option>
+            <option value="fusui">風水プロジェクト (8行目 · 商品名, 規格母目, C/S入数, 単価, 金額, 備考)</option>
+            <option value="standard">標準発注書 (1行目 · 商品コード, 商品名, 規格, 数量, 単価, 金額)</option>
+            <option value="wholesale">卸売フォーマット (1行目 · 品番, 品名, 規格, 入数, 単価, 金額, 納品日)</option>
+            <option value="simple">シンプル発注 (1行目 · 品名, 数量, 単価, 金額)</option>
           </select>
         </div>
         <div class="modal-field">
-          <label class="modal-label" for="clientHeadingRow">Header Row in Order Sheet <span class="required">*</span></label>
-          <input class="modal-input" id="clientHeadingRow" type="number" min="1" max="100" placeholder="e.g. 8" />
-          <small style="color:var(--muted);font-size:11px">Row number in Excel/PDF containing column headings (e.g. 8 for Fusui, 1 for standard)</small>
+          <label class="modal-label" for="clientHeadingRow">注文書内の見出し行 (ヘッダー行番号) <span class="required">*</span></label>
+          <input class="modal-input" id="clientHeadingRow" type="number" min="1" max="100" placeholder="例: 8" />
+          <small style="color:var(--muted);font-size:11px">Excel/PDF内で見出しが記載されている行番号 (例: 風水プロジェクトは 8、通常は 1)</small>
         </div>
         <div class="modal-field">
-          <label class="modal-label" for="clientHeadingColumns">Heading Columns <span class="required">*</span></label>
-          <textarea class="modal-input" id="clientHeadingColumns" rows="3" placeholder="Comma-separated column names, e.g. 品目, 産地, 栽培区分, 規格・入数, 単価/p (税別), 単価/cs, JANコード, 備考・今週の産地状況, 9/21 月 要望, ..."></textarea>
-          <small style="color:var(--muted);font-size:11px">Order columns will be mapped and formatted using these headings</small>
+          <label class="modal-label" for="clientHeadingColumns">見出し列名 <span class="required">*</span></label>
+          <textarea class="modal-input" id="clientHeadingColumns" rows="3" placeholder="カンマまたは改行区切りの列名 (例: 品目, 産地, 栽培区分, 規格・入数, 単価/p (税別), 単価/cs, JANコード, 備考・今週の産地状況, 9/21 月 要望...)"></textarea>
+          <small style="color:var(--muted);font-size:11px">これらの見出し名を使用して注文書の列をマッピング・フォーマットします</small>
         </div>
 
         <!-- Live Visual Header Preview (matches National Azabu order sheet header design) -->
         <div class="modal-field" style="margin-top:14px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <label class="modal-label" style="margin:0">Live Header Preview</label>
-            <span id="clientHeadingColCount" style="font-size:11px;color:var(--primary);font-weight:600">0 columns</span>
+            <label class="modal-label" style="margin:0">見出しプレビュー (発注書デザイン)</label>
+            <span id="clientHeadingColCount" style="font-size:11px;color:var(--primary);font-weight:600">0 列</span>
           </div>
           <div class="heading-live-preview-wrap" id="headingLivePreviewWrap">
             <div class="heading-live-preview-bar" id="headingLivePreviewBar">
               <!-- Dynamically populated with header cells -->
             </div>
           </div>
-          <small style="color:var(--muted);font-size:11px;margin-top:4px;display:block">Real-time preview of how column headings render on the order sheet and Excel grid.</small>
+          <small style="color:var(--muted);font-size:11px;margin-top:4px;display:block">発注書およびExcelグリッドでの見出しの表示プレビューです。</small>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-sm" id="clientHeadingCancel">Cancel</button>
-        <button class="btn-primary modal-save-btn" id="clientHeadingSave">Save Heading Format</button>
+        <button class="btn-sm" id="clientHeadingCancel">キャンセル</button>
+        <button class="btn-primary modal-save-btn" id="clientHeadingSave">見出し設定を保存</button>
       </div>
     </div>
   </div>
@@ -500,44 +532,45 @@
   <!-- Product add/edit modal -->
   <div class="modal-backdrop hidden" id="productModalBackdrop">
     <div class="modal-box">
-      <div class="modal-title" id="productModalTitle">Add Product</div>
+      <div class="modal-title" id="productModalTitle">商品を追加</div>
       <div class="modal-body">
         <div class="modal-field">
-          <label class="modal-label" for="productFormCode">Item / Product Code <span class="required">*</span></label>
-          <input class="modal-input" id="productFormCode" placeholder="e.g. 1029510171" autocomplete="off" />
+          <label class="modal-label" for="productFormCode">商品コード <span class="required">*</span></label>
+          <input class="modal-input" id="productFormCode" placeholder="例: 1029510171" autocomplete="off" />
         </div>
         <div class="modal-field">
-          <label class="modal-label" for="productFormNameJa">Product Name (Japanese) <span class="required">*</span></label>
-          <input class="modal-input" id="productFormNameJa" placeholder="e.g. 有機青じそ" />
+          <label class="modal-label" for="productFormNameJa">商品名 (日本語) <span class="required">*</span></label>
+          <input class="modal-input" id="productFormNameJa" placeholder="例: 有機青じそ" />
         </div>
         <div class="modal-field">
-          <label class="modal-label" for="productFormNameEn">Product Name (English)</label>
-          <input class="modal-input" id="productFormNameEn" placeholder="e.g. Organic Green Shiso" />
+          <label class="modal-label" for="productFormNameEn">商品名 (英語)</label>
+          <input class="modal-input" id="productFormNameEn" placeholder="例: Organic Green Shiso" />
         </div>
         <div class="modal-row" style="display:flex;gap:12px">
           <div class="modal-field" style="flex:1">
-            <label class="modal-label" for="productFormSpec">Specification / Packing</label>
-            <input class="modal-input" id="productFormSpec" placeholder="e.g. 10枚 P" />
+            <label class="modal-label" for="productFormSpec">規格・入数</label>
+            <input class="modal-input" id="productFormSpec" placeholder="例: 10枚 P" />
           </div>
           <div class="modal-field" style="flex:1">
-            <label class="modal-label" for="productFormPrice">Unit Price (¥)</label>
-            <input class="modal-input" id="productFormPrice" type="number" step="0.01" placeholder="e.g. 100" />
+            <label class="modal-label" for="productFormPrice">単価 (¥)</label>
+            <input class="modal-input" id="productFormPrice" type="number" step="0.01" placeholder="例: 100" />
           </div>
         </div>
         <div class="modal-field">
-          <label class="modal-label" for="productFormClient">Client</label>
+          <label class="modal-label" for="productFormClient">対象取引先</label>
           <select class="modal-input" id="productFormClient">
-            <option value="">(None / General)</option>
+            <option value="">(指定なし / 共通商品)</option>
           </select>
+          <div id="productFormClientHeadingPreview" class="pm-modal-heading-preview hidden"></div>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-sm" id="productFormCancel">Cancel</button>
-        <button class="btn-primary modal-save-btn" id="productFormSave">Save Product</button>
+        <button class="btn-sm" id="productFormCancel">キャンセル</button>
+        <button class="btn-primary modal-save-btn" id="productFormSave">商品を保存</button>
       </div>
     </div>
   </div>
 
-  <script src="/static/app.js?v=19"></script>
+  <script src="/static/app.js?v=24"></script>
 </body>
 </html>
