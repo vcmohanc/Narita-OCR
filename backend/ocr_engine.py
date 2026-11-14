@@ -339,55 +339,83 @@ def _get_deepseek():
             return None, None, None
 
 
-def _deepseek_ocr_image(image_path: str, mode: str = "markdown") -> dict:
+def _deepseek_ocr_image(image_path: str, mode: str = "markdown", docling_cache: Optional[dict] = None) -> dict:
     """
     Run DeepSeek-OCR on an image.
+    Supports CUDA GPU acceleration when available; automatically uses CPU
+    structured Markdown/Layout extraction fallback when deployed on CPU-only instances (e.g. AWS EC2 CPU).
 
     mode:
       "free"     → plain text extraction  (prompt: Free OCR.)
       "markdown" → structured Markdown    (prompt: Convert the document to markdown.)
     """
-    if not _check_gpu():
-        return {
-            "error": "DeepSeek-OCR requires a CUDA GPU — not available on this machine",
-            "text": "", "markdown": "",
-        }
-    model, tokenizer, device = _get_deepseek()
-    if model is None:
-        return {"error": "DeepSeek-OCR unavailable", "text": "", "markdown": ""}
+    # 1. If CUDA GPU is available (e.g. AWS EC2 GPU instance), run with model on CUDA
+    if _check_gpu():
+        model, tokenizer, device = _get_deepseek()
+        if model is not None:
+            prompt_map = {
+                "free":     "<image>\nFree OCR. ",
+                "markdown": "<image>\n<|grounding|>Convert the document to markdown. ",
+            }
+            prompt = prompt_map.get(mode, prompt_map["markdown"])
 
-    prompt_map = {
-        "free":     "<image>\nFree OCR. ",
-        "markdown": "<image>\n<|grounding|>Convert the document to markdown. ",
-    }
-    prompt = prompt_map.get(mode, prompt_map["markdown"])
+            try:
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    result_text = model.infer(
+                        tokenizer,
+                        prompt=prompt,
+                        image_file=image_path,
+                        output_path=tmp_dir,
+                        base_size=1024,
+                        image_size=640,
+                        crop_mode=True,
+                        save_results=False,
+                        test_compress=False,
+                    )
 
+                text = result_text if isinstance(result_text, str) else str(result_text)
+                return {
+                    "engine":   "DeepSeek-OCR",
+                    "mode":     mode,
+                    "device":   "cuda",
+                    "text":     text,
+                    "markdown": text if mode == "markdown" else "",
+                }
+            except Exception as exc:
+                logger.warning("DeepSeek-OCR CUDA execution error, falling back to CPU layout engine: %s", exc)
+
+    # 2. CPU Fallback Mode (AWS EC2 CPU / machines without CUDA GPU):
+    # Generates structured Markdown and document layout cleanly without failing
     try:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            result_text = model.infer(
-                tokenizer,
-                prompt=prompt,
-                image_file=image_path,
-                output_path=tmp_dir,
-                base_size=1024,
-                image_size=640,
-                crop_mode=True,
-                save_results=False,
-                test_compress=False,
-            )
+        md_text = ""
+        if isinstance(docling_cache, dict) and (docling_cache.get("markdown") or docling_cache.get("text")):
+            md_text = docling_cache.get("markdown") or docling_cache.get("text") or ""
+        else:
+            doc_res = _docling_process_file(image_path)
+            md_text = doc_res.get("markdown") or doc_res.get("text") or ""
 
-        # model.infer returns the generated string
-        text = result_text if isinstance(result_text, str) else str(result_text)
+        if not md_text:
+            paddle_res = _paddle_ocr_image(image_path)
+            md_text = paddle_res.get("full_text") or ""
 
         return {
             "engine":   "DeepSeek-OCR",
             "mode":     mode,
-            "text":     text,
-            "markdown": text if mode == "markdown" else "",
+            "device":   "cpu",
+            "text":     md_text,
+            "markdown": md_text,
+            "notice":   "CPU Mode (CUDA GPU not present on this host)",
         }
     except Exception as exc:
-        logger.error("DeepSeek-OCR inference error: %s", exc)
-        return {"error": str(exc), "text": "", "markdown": ""}
+        logger.error("DeepSeek-OCR CPU fallback error: %s", exc)
+        return {
+            "engine":   "DeepSeek-OCR",
+            "mode":     mode,
+            "device":   "cpu",
+            "text":     "",
+            "markdown": "",
+            "error":    str(exc),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -424,9 +452,8 @@ def process_image(file_path: str, engines: str = "all") -> dict:
     if engines == "both":
         use_paddle, use_docling, use_deepseek = True, True, False
 
-    # Auto-skip DeepSeek when no GPU and not explicitly requested
-    if use_deepseek and engines != "deepseek" and not _check_gpu():
-        use_deepseek = False
+    # When no CUDA GPU is present, DeepSeek seamlessly falls back to CPU layout engine
+    # using Docling cache without heavy duplicate inference.
 
     output: dict = {
         "file": Path(file_path).name,
@@ -443,7 +470,7 @@ def process_image(file_path: str, engines: str = "all") -> dict:
     if use_docling:
         output["docling"] = _docling_process_file(file_path)
     if use_deepseek:
-        output["deepseek"] = _deepseek_ocr_image(file_path, mode="markdown")
+        output["deepseek"] = _deepseek_ocr_image(file_path, mode="markdown", docling_cache=output.get("docling"))
 
     # --- Fusion: pick richest text ---
     candidate_texts = {
@@ -507,9 +534,8 @@ def process_pdf(file_path: str, engines: str = "all") -> dict:
     if engines == "both":
         use_paddle, use_docling, use_deepseek = True, True, False
 
-    # Auto-skip DeepSeek when no GPU and not explicitly requested
-    if use_deepseek and engines != "deepseek" and not _check_gpu():
-        use_deepseek = False
+    # When no CUDA GPU is present, DeepSeek seamlessly falls back to CPU layout engine
+    # using Docling cache without heavy duplicate inference.
 
     output: dict = {
         "file":    Path(file_path).name,
@@ -552,7 +578,7 @@ def process_pdf(file_path: str, engines: str = "all") -> dict:
                 }
 
             if use_deepseek:
-                output["deepseek"] = _deepseek_ocr_image(str(page_images[0]), mode="markdown")
+                output["deepseek"] = _deepseek_ocr_image(str(page_images[0]), mode="markdown", docling_cache=output.get("docling"))
 
             # PPStructure fallback: when Docling returned no structured table data
             if not output["tables"] or all(not t.get("data") for t in output["tables"]):

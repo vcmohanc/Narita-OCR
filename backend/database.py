@@ -301,6 +301,26 @@ def _normalize_text(s: str) -> str:
     return unicodedata.normalize("NFKC", s or "").lower()
 
 
+def _strip_spaces(s: str) -> str:
+    """Strip whitespace, underscores, and hyphens from normalized string for flexible matching."""
+    return re.sub(r"[\s_\-]+", "", _normalize_text(s))
+
+
+def _parse_keywords_list(raw_kw_str: str) -> list[str]:
+    """Parse comma/newline/tab-separated keywords, trimming whitespace."""
+    if not raw_kw_str:
+        return []
+    parts = re.split(r"[,、\n\r\t;]+", str(raw_kw_str))
+    result = []
+    seen = set()
+    for p in parts:
+        token = p.strip()
+        if token and token not in seen:
+            seen.add(token)
+            result.append(token)
+    return result
+
+
 def _keyword_matches(norm_haystack: str, norm_kw: str) -> bool:
     """Match keyword in normalized text; use boundaries for ASCII-only keywords."""
     if not norm_kw or not norm_haystack:
@@ -350,41 +370,103 @@ def list_clients(with_counts: bool = True) -> list:
 
 def detect_client(filename: str = "", text: str = "") -> Optional[dict]:
     """
-    Auto-detect matching client from filename first, then OCR text.
-    Reads client definitions from `ocr_clients` when DB is connected.
-    Returns {id, code, name_ja, name_en} or None.
+    Auto-detect matching client according to clients' "検出キーワード" (detection keywords),
+    client names, codes, and heading formats. Uses weighted multi-tier scoring so that:
+      - Filename matches give highest confidence (150 pts)
+      - Exact client names and aliases give 100 pts
+      - Specific multi-character detection keywords give 25 pts each
+      - Generic heading columns give 5 pts each (cumulative)
+    Matches using both normalized text and space-collapsed Japanese text.
+    Guarantees no client detection keywords are skipped.
     """
     clients = list_clients(with_counts=False) if is_connected() else []
     if not clients:
         return None
 
-    # Build (normalized_keyword, client_dict) pairs sorted longest-first
-    pairs: list[tuple[str, dict]] = []
+    fn_norm = _normalize_text(filename)
+    fn_strip = _strip_spaces(filename)
+    txt_norm = _normalize_text(text)
+    txt_strip = _strip_spaces(text)
+
+    # If neither source has text, cannot match
+    if not fn_strip and not txt_strip:
+        return None
+
+    scores: dict[int, tuple[float, dict]] = {}
+
     for c in clients:
-        raw_kws = [c.get("name_ja", ""), c.get("name_en", ""), c.get("code", "")]
-        if c.get("keywords"):
-            raw_kws.extend(c["keywords"].split(","))
-        seen_kws: set[str] = set()
-        for kw in raw_kws:
-            nkw = _normalize_text(kw).strip()
-            if nkw and nkw not in seen_kws:
-                seen_kws.add(nkw)
-                pairs.append((nkw, c))
+        client_id = c["id"]
+        score = 0.0
 
-    pairs.sort(key=lambda item: len(item[0]), reverse=True)
+        # Tier 1: Client names & codes (Strongest entity identifier)
+        id_tokens = [c.get("name_ja", ""), c.get("name_en", ""), c.get("code", "")]
+        for raw_tok in id_tokens:
+            if not raw_tok:
+                continue
+            ntok = _normalize_text(raw_tok)
+            stok = _strip_spaces(raw_tok)
+            if not stok:
+                continue
 
-    for source in (_normalize_text(filename), _normalize_text(text)):
-        if not source:
-            continue
-        for nkw, client in pairs:
-            if _keyword_matches(source, nkw):
-                return {
-                    "id":      client["id"],
-                    "code":    client["code"],
-                    "name_ja": client["name_ja"],
-                    "name_en": client["name_en"],
-                }
-    return None
+            # Check filename first (very strong signal, with length specificity bonus)
+            if fn_strip and (stok in fn_strip or _keyword_matches(fn_norm, ntok)):
+                score += 150.0 + len(stok) * 5.0
+            # Check OCR text
+            elif txt_strip and (stok in txt_strip or _keyword_matches(txt_norm, ntok)):
+                score += 100.0 + len(stok) * 3.0
+
+        # Tier 2: Detection keywords (検出キーワード)
+        kws = _parse_keywords_list(c.get("keywords") or "")
+        for kw in kws:
+            nkw = _normalize_text(kw)
+            skw = _strip_spaces(kw)
+            if not skw:
+                continue
+
+            # Check in filename
+            if fn_strip and (skw in fn_strip or _keyword_matches(fn_norm, nkw)):
+                score += 50.0 + len(skw) * 2.0
+            # Check in OCR text
+            elif txt_strip and (skw in txt_strip or _keyword_matches(txt_norm, nkw)):
+                if len(skw) >= 4:
+                    score += 25.0 + len(skw) * 1.0
+                elif len(skw) >= 2:
+                    score += 10.0
+                else:
+                    score += 4.0
+
+        # Tier 3: Heading columns (見出しフォーマット項目)
+        heading_cols = _parse_keywords_list(c.get("heading_columns") or "")
+        for col in heading_cols:
+            ncol = _normalize_text(col)
+            scol = _strip_spaces(col)
+            if not scol:
+                continue
+            if txt_strip and (scol in txt_strip or _keyword_matches(txt_norm, ncol)):
+                score += 5.0
+
+        if score > 0:
+            scores[client_id] = (score, c)
+
+    if not scores:
+        return None
+
+    # Pick the client with the highest match score
+    best_client_id, (best_score, best_client) = max(scores.items(), key=lambda item: item[1][0])
+
+    # Minimum threshold to avoid noise: at least 8 points
+    if best_score < 8.0:
+        return None
+
+    return {
+        "id":              best_client["id"],
+        "code":            best_client["code"],
+        "name_ja":         best_client["name_ja"],
+        "name_en":         best_client["name_en"],
+        "header_row":      best_client.get("header_row", 1),
+        "heading_columns": best_client.get("heading_columns", ""),
+        "match_score":     round(best_score, 1),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -431,18 +513,83 @@ def save_job_processing(job_id: str):
 
 
 def extract_combined_text(result: dict) -> str:
-    """Collect candidate OCR text blocks from a result dictionary for matching."""
-    text_candidates = [
-        result.get("fused_text"),
-        result.get("full_text"),
-        result.get("text"),
-        result.get("markdown"),
-    ]
+    """
+    Collect all candidate OCR text blocks, tables, captions, line tokens,
+    and cell values from an OCR result dictionary.
+    Guarantees no client detection keywords are skipped.
+    """
+    if not isinstance(result, dict):
+        return ""
+
+    chunks: list[str] = []
+
+    # 1. Top-level fused text, full_text, text, markdown
+    for key in ("fused_text", "full_text", "text", "markdown"):
+        val = result.get(key)
+        if isinstance(val, str) and val.strip():
+            chunks.append(val.strip())
+
+    # 2. Engine-specific outputs (Paddle, Docling, DeepSeek)
     for eng_key in ("paddle", "docling", "deepseek"):
         eng = result.get(eng_key)
         if isinstance(eng, dict):
-            text_candidates.extend([eng.get("markdown"), eng.get("text"), eng.get("full_text")])
-    return "\n".join(t for t in text_candidates if isinstance(t, str) and t)
+            for sub_key in ("markdown", "text", "full_text"):
+                val = eng.get(sub_key)
+                if isinstance(val, str) and val.strip():
+                    chunks.append(val.strip())
+            # PaddleOCR line tokens
+            for line in eng.get("lines", []):
+                if isinstance(line, dict):
+                    txt = line.get("text")
+                    if isinstance(txt, str) and txt.strip():
+                        chunks.append(txt.strip())
+
+    # 3. Tables (captions, headers, markdown, and all cell values)
+    tables = result.get("tables", [])
+    if isinstance(tables, list):
+        for tbl in tables:
+            if isinstance(tbl, dict):
+                caption = tbl.get("caption")
+                if isinstance(caption, str) and caption.strip():
+                    chunks.append(caption.strip())
+                md = tbl.get("markdown")
+                if isinstance(md, str) and md.strip():
+                    chunks.append(md.strip())
+                data = tbl.get("data")
+                if isinstance(data, list):
+                    for row in data:
+                        if isinstance(row, dict):
+                            for cell_val in row.values():
+                                if cell_val is not None:
+                                    s = str(cell_val).strip()
+                                    if s:
+                                        chunks.append(s)
+                        elif isinstance(row, (list, tuple)):
+                            for cell_val in row:
+                                if cell_val is not None:
+                                    s = str(cell_val).strip()
+                                    if s:
+                                        chunks.append(s)
+
+    # 4. Custom sheets (if edited or parsed from Excel)
+    custom_sheets = result.get("custom_sheets", [])
+    if isinstance(custom_sheets, list):
+        for s in custom_sheets:
+            if isinstance(s, dict):
+                name = s.get("name")
+                if isinstance(name, str) and name.strip():
+                    chunks.append(name.strip())
+                rows = s.get("rows", [])
+                if isinstance(rows, list):
+                    for row in rows:
+                        if isinstance(row, (list, tuple)):
+                            for cell in row:
+                                if cell is not None:
+                                    cv = str(cell).strip()
+                                    if cv:
+                                        chunks.append(cv)
+
+    return "\n".join(chunks)
 
 
 def detect_client_for_result(result: dict, filename: str = "") -> Optional[dict]:

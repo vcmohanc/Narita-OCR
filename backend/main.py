@@ -53,11 +53,11 @@ MAX_QUEUED_JOBS = int(os.getenv("MAX_QUEUED_JOBS", "20"))
 OCR_API_KEY = os.getenv("OCR_API_KEY", "").strip()
 
 _default_origins = "http://localhost:8080,http://127.0.0.1:8080"
-CORS_ORIGINS = [
-    o.strip()
-    for o in os.getenv("CORS_ORIGINS", _default_origins).split(",")
-    if o.strip()
-]
+_raw_origins = os.getenv("CORS_ORIGINS", _default_origins).strip()
+if _raw_origins == "*":
+    CORS_ORIGINS = ["*"]
+else:
+    CORS_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app = FastAPI(
     title="Dual-Engine OCR API",

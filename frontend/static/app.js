@@ -9,6 +9,28 @@ const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
 // Sidebar navigation
 // ============================================================
 (function initSidebar() {
+  const appShell = document.querySelector('.app-shell');
+  const toggleBtn = document.getElementById('sidebarToggleBtn');
+  const mainArea = document.querySelector('.main-area');
+
+  if (appShell) {
+    try {
+      if (window.innerWidth > 1024 && localStorage.getItem('ocr_sidebar_collapsed') === '1') {
+        appShell.classList.add('sidebar-collapsed');
+      }
+    } catch {}
+  }
+
+  toggleBtn?.addEventListener('click', () => {
+    if (!appShell) return;
+    if (window.innerWidth <= 1024 && window.innerWidth > 768) {
+      appShell.classList.toggle('sidebar-expanded');
+    } else {
+      const collapsed = appShell.classList.toggle('sidebar-collapsed');
+      try { localStorage.setItem('ocr_sidebar_collapsed', collapsed ? '1' : '0'); } catch {}
+    }
+  });
+
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
       const target = btn.dataset.view;
@@ -17,6 +39,8 @@ const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
       document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
       const view = document.getElementById('view' + target.charAt(0).toUpperCase() + target.slice(1));
       if (view) view.classList.remove('hidden');
+      appShell?.classList.remove('sidebar-expanded');
+      if (mainArea) mainArea.scrollTop = 0;
       if (target === 'order') initOrderView();
       if (target === 'clients') initClientsView();
       if (target === 'productMaster') initProductMasterView();
@@ -27,9 +51,10 @@ const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
 // ============================================================
 // Order view — Excel-style spreadsheet (all clients)
 // ============================================================
-let _orderLoaded  = false;
-let _orderAllJobs = [];           // full data set
-let _orderSort    = { col: 'date', dir: -1 }; // default: newest first
+let _orderLoaded      = false;
+let _orderAllJobs     = [];           // full data set
+let _orderSelectedIds = new Set();    // selected job_ids for bulk delete
+let _orderSort        = { col: 'date', dir: -1 }; // default: newest first
 let _clientModalEditId = null;
 
 // ── Client modal ──────────────────────────────────────────────
@@ -99,7 +124,7 @@ async function initOrderView() {
 async function reloadOrderSheet() {
   const tbody = document.getElementById('orderSheetBody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="9" class="sheet-loading">Loading…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="10" class="sheet-loading">読み込み中…</td></tr>';
 
   try {
     // Fetch all jobs + client list in parallel (dbFetch falls back to :8081 if primary has no DB)
@@ -109,20 +134,95 @@ async function reloadOrderSheet() {
     ]);
     if (!jobsRes || !jobsRes.ok) throw new Error('Database not connected');
     _orderAllJobs = await jobsRes.json();
+    const validIds = new Set(_orderAllJobs.map(j => j.job_id));
+    for (const id of Array.from(_orderSelectedIds)) {
+      if (!validIds.has(id)) _orderSelectedIds.delete(id);
+    }
     const clients = clientsRes.ok ? await clientsRes.json() : [];
 
     // Populate client filter
     const cf = document.getElementById('orderClientFilter');
     if (cf) {
       const prev = cf.value;
-      cf.innerHTML = '<option value="">All Clients</option>' +
+      cf.innerHTML = '<option value="">すべての取引先</option>' +
         clients.map(c => `<option value="${c.id}">${esc(c.name_ja)}${c.name_en ? ' / '+esc(c.name_en) : ''}</option>`).join('');
       cf.value = prev;
     }
 
     renderOrderSheet();
   } catch (e) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="sheet-loading" style="color:var(--danger)">Error: ${esc(e.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="sheet-loading" style="color:var(--danger)">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function syncHomeHistoryRemoved(deletedIds) {
+  const bodyEl = document.getElementById('historyBody');
+  if (!bodyEl) return;
+  const deletedSet = new Set(deletedIds);
+  bodyEl.querySelectorAll('tr[data-job-id]').forEach(row => {
+    if (deletedSet.has(row.dataset.jobId)) row.remove();
+  });
+  if (!bodyEl.querySelector('tr[data-job-id]')) {
+    bodyEl.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted)">No jobs yet</td></tr>';
+  }
+  const chks = Array.from(bodyEl.querySelectorAll('.job-chk'));
+  const checkedCount = chks.filter(c => c.checked).length;
+  const bulkBar = document.getElementById('bulkBar');
+  const bulkCount = document.getElementById('bulkCount');
+  const selectAll = document.getElementById('selectAllJobs');
+  if (bulkBar) bulkBar.classList.toggle('hidden', checkedCount === 0);
+  if (bulkCount) bulkCount.textContent = checkedCount + ' selected';
+  if (selectAll) {
+    selectAll.checked = chks.length > 0 && checkedCount === chks.length;
+    selectAll.indeterminate = checkedCount > 0 && checkedCount < chks.length;
+  }
+}
+
+function updateOrderBulkUI() {
+  const bulkBtn = document.getElementById('orderBulkDeleteBtn');
+  const bulkCount = document.getElementById('orderBulkCount');
+  const selectAll = document.getElementById('orderSelectAll');
+  const selectedTotal = _orderSelectedIds.size;
+
+  if (bulkBtn) bulkBtn.classList.toggle('hidden', selectedTotal === 0);
+  if (bulkCount) bulkCount.textContent = String(selectedTotal);
+
+  if (selectAll) {
+    const visibleIds = getFilteredSorted().map(j => j.job_id);
+    if (!visibleIds.length) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else {
+      const checkedVisible = visibleIds.filter(id => _orderSelectedIds.has(id)).length;
+      selectAll.checked = checkedVisible === visibleIds.length;
+      selectAll.indeterminate = checkedVisible > 0 && checkedVisible < visibleIds.length;
+    }
+  }
+}
+
+async function deleteOrderJob(jobId, filename, triggerBtn = null) {
+  if (!jobId) return false;
+  const label = filename || jobId;
+  if (!confirm(`発注書「${label}」を削除しますか？\nこの操作は元に戻せません。`)) return false;
+  if (triggerBtn) triggerBtn.disabled = true;
+  try {
+    const r = await dbFetch(`/api/db/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+    if (!r || !r.ok) {
+      const err = r ? await r.json().catch(() => ({})) : {};
+      throw new Error(err.detail || (r ? r.statusText : '削除に失敗しました'));
+    }
+    _orderAllJobs = _orderAllJobs.filter(j => j.job_id !== jobId);
+    _orderSelectedIds.delete(jobId);
+    renderOrderSheet();
+    document.getElementById('orderPreview')?.classList.add('hidden');
+    syncHomeHistoryRemoved([jobId]);
+    showToast(`発注書「${label}」を削除しました`);
+    return true;
+  } catch (e) {
+    showToast('削除に失敗しました: ' + e.message, true);
+    return false;
+  } finally {
+    if (triggerBtn && document.body.contains(triggerBtn)) triggerBtn.disabled = false;
   }
 }
 
@@ -164,11 +264,13 @@ function renderOrderSheet() {
   if (countEl) countEl.textContent = `${rows.length} 件`;
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="sheet-empty">条件に一致する発注書データが見つかりませんでした。</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="sheet-empty">条件に一致する発注書データが見つかりませんでした。</td></tr>';
+    updateOrderBulkUI();
     return;
   }
 
   tbody.innerHTML = rows.map((j, idx) => {
+    const isChecked = _orderSelectedIds.has(j.job_id);
     const clientName = j.client_name_ja
       ? `<span class="sheet-client">${esc(j.client_name_ja)}</span>${j.client_name_en ? `<span class="sheet-client-en">${esc(j.client_name_en)}</span>` : ''}`
       : '<span class="sheet-unassigned">—</span>';
@@ -184,8 +286,9 @@ function renderOrderSheet() {
       : '';
     const date       = j.created_at ? j.created_at.replace('T',' ').slice(0,16) : '—';
     const timeStr    = j.processing_time_s != null ? j.processing_time_s + 's' : '—';
-    return `<tr class="${idx % 2 === 1 ? 'row-alt' : ''}"
+    return `<tr class="${idx % 2 === 1 ? 'row-alt' : ''}${isChecked ? ' row-selected' : ''}"
                data-job-id="${esc(j.job_id)}" data-filename="${esc(j.filename)}">
+      <td class="col-check"><input type="checkbox" class="order-row-chk" data-job-id="${esc(j.job_id)}" ${isChecked ? 'checked' : ''} /></td>
       <td class="col-no">${idx + 1}</td>
       <td class="col-client">${clientName}</td>
       <td class="col-file" title="${esc(j.filename)}">${esc(j.filename)}</td>
@@ -194,20 +297,83 @@ function renderOrderSheet() {
       <td class="col-conf"><span class="conf-cell ${confClass}">${confBar}<span>${confStr}</span></span></td>
       <td class="col-time">${esc(timeStr)}</td>
       <td class="col-date">${esc(date)}</td>
-      <td class="col-preview"><button class="preview-btn" data-job-id="${esc(j.job_id)}" data-filename="${esc(j.filename)}" title="プレビュー表示">▶</button></td>
+      <td class="col-preview">
+        <div class="order-row-actions">
+          <button class="preview-btn" data-job-id="${esc(j.job_id)}" data-filename="${esc(j.filename)}" title="プレビュー表示">▶</button>
+          <button class="order-del-btn" data-job-id="${esc(j.job_id)}" data-filename="${esc(j.filename)}" title="この発注書を削除">🗑</button>
+        </div>
+      </td>
     </tr>`;
   }).join('');
 
   tbody.querySelectorAll('tr[data-job-id]').forEach(tr => {
     tr.addEventListener('click', e => {
-      if (e.target.closest('.preview-btn')) return;
+      if (e.target.closest('.preview-btn, .order-del-btn, .col-check, .order-row-chk')) return;
       openOrderPreview(tr.dataset.jobId, tr.dataset.filename);
+    });
+  });
+  tbody.querySelectorAll('.order-row-chk').forEach(chk => {
+    chk.addEventListener('change', e => {
+      e.stopPropagation();
+      const jobId = chk.dataset.jobId;
+      if (chk.checked) _orderSelectedIds.add(jobId);
+      else _orderSelectedIds.delete(jobId);
+      chk.closest('tr')?.classList.toggle('row-selected', chk.checked);
+      updateOrderBulkUI();
     });
   });
   tbody.querySelectorAll('.preview-btn').forEach(btn => {
     btn.addEventListener('click', e => { e.stopPropagation(); openOrderPreview(btn.dataset.jobId, btn.dataset.filename); });
   });
+  tbody.querySelectorAll('.order-del-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteOrderJob(btn.dataset.jobId, btn.dataset.filename, btn);
+    });
+  });
+  updateOrderBulkUI();
 }
+
+// ── Select All & Bulk Delete ──────────────────────────────────
+document.getElementById('orderSelectAll')?.addEventListener('change', e => {
+  const checked = !!e.target.checked;
+  getFilteredSorted().forEach(j => {
+    if (checked) _orderSelectedIds.add(j.job_id);
+    else _orderSelectedIds.delete(j.job_id);
+  });
+  renderOrderSheet();
+});
+
+document.getElementById('orderBulkDeleteBtn')?.addEventListener('click', async () => {
+  const ids = Array.from(_orderSelectedIds);
+  if (!ids.length) return;
+  if (!confirm(`選択した ${ids.length} 件の発注書を削除しますか？\nこの操作は元に戻せません。`)) return;
+  const bulkBtn = document.getElementById('orderBulkDeleteBtn');
+  if (bulkBtn) bulkBtn.disabled = true;
+  try {
+    const r = await dbFetch('/api/db/jobs/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_ids: ids }),
+    });
+    if (!r || !r.ok) {
+      const err = r ? await r.json().catch(() => ({})) : {};
+      throw new Error(err.detail || (r ? r.statusText : '一括削除に失敗しました'));
+    }
+    const { deleted } = await r.json();
+    const deletedSet = new Set(ids);
+    _orderAllJobs = _orderAllJobs.filter(j => !deletedSet.has(j.job_id));
+    _orderSelectedIds.clear();
+    renderOrderSheet();
+    document.getElementById('orderPreview')?.classList.add('hidden');
+    syncHomeHistoryRemoved(ids);
+    showToast(`${deleted ?? ids.length} 件の発注書を削除しました`);
+  } catch (e) {
+    showToast('一括削除に失敗しました: ' + e.message, true);
+  } finally {
+    if (bulkBtn) bulkBtn.disabled = false;
+  }
+});
 
 // ── Sorting ───────────────────────────────────────────────────
 document.querySelectorAll('#orderSheet .sortable').forEach(th => {
@@ -677,6 +843,7 @@ function renderProductClientsHeadingGrid() {
 
   const cf = document.getElementById('productClientFilter');
   const activeClientId = cf?.value || '';
+  const searchQuery = (document.getElementById('productSearch')?.value || '').trim().toLowerCase();
 
   // Render quick client selector tabs
   if (tabStrip) {
@@ -741,6 +908,20 @@ function renderProductClientsHeadingGrid() {
     return;
   }
 
+  const matrixClients = searchQuery
+    ? _productAllClients.filter(c =>
+        (c.code || '').toLowerCase().includes(searchQuery) ||
+        (c.name_ja || '').toLowerCase().includes(searchQuery) ||
+        (c.name_en || '').toLowerCase().includes(searchQuery) ||
+        (c.heading_columns || '').toLowerCase().includes(searchQuery)
+      )
+    : _productAllClients;
+
+  if (!matrixClients.length) {
+    grid.innerHTML = '<div class="sheet-empty" style="padding:20px">条件に一致する取引先見出しフォーマットが見つかりませんでした。</div>';
+    return;
+  }
+
   // Enterprise Aligned Schema Matrix Table when viewing All Clients
   grid.innerHTML = `<div class="pm-schema-matrix-wrap">
     <table class="pm-schema-table">
@@ -753,7 +934,7 @@ function renderProductClientsHeadingGrid() {
         </tr>
       </thead>
       <tbody>
-        ${_productAllClients.map(c => {
+        ${matrixClients.map(c => {
           const isActive = activeClientId && String(c.id) === activeClientId;
           return `<tr class="pm-schema-row${isActive ? ' active' : ''}" data-client-id="${esc(c.id)}" title="${esc(c.name_ja || c.code)} で絞り込み">
             <td class="pm-schema-client-cell">
@@ -943,23 +1124,24 @@ async function initProductMasterView() {
 
 async function reloadProductSheet() {
   const tbody = document.getElementById('productSheetBody');
-  if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="10" class="sheet-loading">Loading…</td></tr>';
+  const headingGrid = document.getElementById('productClientsHeadingGrid');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="sheet-loading">読み込み中…</td></tr>';
+  else if (headingGrid) headingGrid.innerHTML = '<div class="sheet-loading" style="padding:16px">取引先見出しフォーマットを読み込み中…</div>';
 
   try {
     const [prodsRes, clientsRes] = await Promise.all([
-      dbFetch('/api/db/products?limit=1000'),
+      dbFetch('/api/db/products?limit=1000').catch(() => null),
       dbFetch('/api/db/clients'),
     ]);
-    if (!prodsRes || !prodsRes.ok) throw new Error('Database not connected');
-    _productAllRows = await prodsRes.json();
-    _productAllClients = clientsRes && clientsRes.ok ? await clientsRes.json() : [];
+    if (!clientsRes || !clientsRes.ok) throw new Error('Database not connected');
+    _productAllClients = await clientsRes.json();
+    _productAllRows = prodsRes && prodsRes.ok ? await prodsRes.json() : [];
 
     // Populate client filter dropdown
     const cf = document.getElementById('productClientFilter');
     if (cf) {
       const prev = cf.value;
-      cf.innerHTML = '<option value="">All Clients</option>' +
+      cf.innerHTML = '<option value="">すべての取引先</option>' +
         _productAllClients.map(c => `<option value="${c.id}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''}</option>`).join('');
       cf.value = prev;
     }
@@ -967,6 +1149,7 @@ async function reloadProductSheet() {
     renderProductSheet();
   } catch (e) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="sheet-loading" style="color:var(--danger)">Error: ${esc(e.message)}</td></tr>`;
+    else if (headingGrid) headingGrid.innerHTML = `<div class="sheet-loading" style="padding:16px;color:var(--danger)">Error: ${esc(e.message)}</div>`;
   }
 }
 
@@ -1017,7 +1200,10 @@ function renderProductSheet() {
 
   const tbody   = document.getElementById('productSheetBody');
   const countEl = document.getElementById('productRowCount');
-  if (!tbody) return;
+  if (!tbody) {
+    if (countEl) countEl.textContent = `${_productAllClients.length} 社`;
+    return;
+  }
 
   const rows = getFilteredSortedProducts();
   if (countEl) countEl.textContent = `${rows.length} 件`;
@@ -1676,11 +1862,24 @@ function _renderXlsGrid(sheet) {
 
   const tbody = document.createElement('tbody');
   const rowNumCells = [];
+  const hideHeaderRowInBody = !!(hasHeader && headerIdx >= 0 && headerIdx < rows.length && rows.length > 1);
+
+  function stepRow(fromRi, delta) {
+    let nextRi = fromRi + delta;
+    if (hideHeaderRowInBody && nextRi === headerIdx) {
+      nextRi += delta;
+    }
+    if (nextRi < 0 || nextRi >= rows.length) return fromRi;
+    return nextRi;
+  }
 
   function selectCell(ri, ci, focusGrid = false) {
     if (!rows.length) return;
     ri = Math.max(0, Math.min(rows.length - 1, ri));
     ci = Math.max(0, Math.min(maxCols - 1, ci));
+    if (hideHeaderRowInBody && ri === headerIdx) {
+      ri = headerIdx + 1 < rows.length ? headerIdx + 1 : Math.max(0, headerIdx - 1);
+    }
     if (selectedTd) {
       selectedTd.classList.remove('xls-sel');
       if (selectedColIdx >= 0) colHeaders[selectedColIdx]?.classList.remove('xls-col-sel');
@@ -1769,7 +1968,7 @@ function _renderXlsGrid(sheet) {
       td.title = finalVal;
       if (save) updateCellValue(ri, ci, finalVal);
       cellValEl.value = (rows[ri] && rows[ri][ci] != null) ? String(rows[ri][ci]) : '';
-      if (nextAction === 'down') selectCell(Math.min(rows.length - 1, ri + 1), ci, true);
+      if (nextAction === 'down') selectCell(stepRow(ri, 1), ci, true);
       else if (nextAction === 'right') selectCell(ri, Math.min(maxCols - 1, ci + 1), true);
       else if (nextAction === 'left') selectCell(ri, Math.max(0, ci - 1), true);
       else gridWrap.focus({ preventScroll: true });
@@ -1791,18 +1990,22 @@ function _renderXlsGrid(sheet) {
     });
   }
 
+  let visibleRowNum = 0;
   rows.forEach((rowCells, ri) => {
-    const tr = document.createElement('tr');
     const isHdr = hasHeader && ri === headerIdx;
+    if (hideHeaderRowInBody && isHdr) return;
+
+    visibleRowNum += 1;
+    const tr = document.createElement('tr');
     if (isHdr) {
       tr.className = 'xls-row-is-header';
-    } else if (ri % 2 === 1) {
+    } else if (visibleRowNum % 2 === 0) {
       tr.className = 'xls-row-alt';
     }
 
     const rowNum = document.createElement('td');
     rowNum.className = 'xls-td-row' + (isHdr ? ' is-header-row' : '');
-    rowNum.textContent = ri + 1;
+    rowNum.textContent = visibleRowNum;
     rowNum.title = isHdr
       ? `Row ${ri + 1} is currently the Header Row (click to unselect)`
       : `Click to set Row ${ri + 1} as Header Row`;
@@ -1826,7 +2029,7 @@ function _renderXlsGrid(sheet) {
     });
 
     tr.appendChild(rowNum);
-    rowNumCells.push(rowNum);
+    rowNumCells[ri] = rowNum;
     cellMatrix[ri] = [];
 
     for (let ci = 0; ci < maxCols; ci++) {
@@ -1873,7 +2076,7 @@ function _renderXlsGrid(sheet) {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
-        selectCell(Math.min(rows.length - 1, selectedRowIdx + 1), selectedColIdx, true);
+        selectCell(stepRow(selectedRowIdx, 1), selectedColIdx, true);
       }
     } else if (e.key === 'Escape') {
       e.preventDefault();
@@ -1895,8 +2098,8 @@ function _renderXlsGrid(sheet) {
   gridWrap.onkeydown = (e) => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
     if (selectedRowIdx < 0 || selectedColIdx < 0) return;
-    if (e.key === 'ArrowUp') { e.preventDefault(); selectCell(selectedRowIdx - 1, selectedColIdx, false); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); selectCell(selectedRowIdx + 1, selectedColIdx, false); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); selectCell(stepRow(selectedRowIdx, -1), selectedColIdx, false); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); selectCell(stepRow(selectedRowIdx, 1), selectedColIdx, false); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); selectCell(selectedRowIdx, selectedColIdx - 1, false); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); selectCell(selectedRowIdx, selectedColIdx + 1, false); }
     else if (e.key === 'Tab') {
@@ -1948,6 +2151,14 @@ async function openOrderPreview(jobId, filename) {
   _xlsJobId = jobId;
   _xlsResult = null;
   _markXlsDirty(false);
+  const delOrderBtn = document.getElementById('xlsDeleteOrderBtn');
+  if (delOrderBtn) {
+    delOrderBtn.disabled = false;
+    delOrderBtn.onclick = async () => {
+      const ok = await deleteOrderJob(_xlsJobId, filename || titleEl.textContent, delOrderBtn);
+      if (ok) closeXlsModal();
+    };
+  }
   modal.classList.remove('hidden');
 
   let result = null;
@@ -1976,15 +2187,41 @@ async function openOrderPreview(jobId, filename) {
       initialClientId = _xlsSheets[0].clientHeadingId;
     }
     if (!initialClientId && _xlsAllClients.length) {
-      const haystack = `${filename || ''} ${result.fused_text || ''}`.toLowerCase();
-      const matched = _xlsAllClients.find(c =>
-        (c.name_ja && haystack.includes(c.name_ja.toLowerCase())) ||
-        (c.code && haystack.includes(c.code.toLowerCase()))
-      );
-      if (matched) initialClientId = matched.id;
+      // Robust client matching using 検出キーワード (detection keywords), names, and codes
+      const hayNorm = `${filename || ''} ${result.fused_text || ''} ${result.text || ''}`.toLowerCase();
+      const hayStrip = hayNorm.replace(/\s+/g, '');
+      let bestScore = 0;
+      let bestMatch = null;
+      _xlsAllClients.forEach(c => {
+        let score = 0;
+        const nameJa = (c.name_ja || '').toLowerCase();
+        const code = (c.code || '').toLowerCase();
+        if (nameJa && (hayNorm.includes(nameJa) || hayStrip.includes(nameJa.replace(/\s+/g, '')))) score += 100;
+        if (code && hayNorm.includes(code)) score += 80;
+        const kws = String(c.keywords || '').split(/[,、\n\r\t;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+        kws.forEach(kw => {
+          const kwStrip = kw.replace(/\s+/g, '');
+          if (hayNorm.includes(kw) || (kwStrip && hayStrip.includes(kwStrip))) {
+            score += kwStrip.length >= 4 ? 25 : 8;
+          }
+        });
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = c;
+        }
+      });
+      if (bestMatch && bestScore >= 8) initialClientId = bestMatch.id;
     }
     clientSelectEl.value = initialClientId ? String(initialClientId) : '';
     clientSelectEl.onchange = () => _updateXlsClientBarUI();
+
+    // Auto-apply matched client heading format if sheet has not been customized
+    if (initialClientId) {
+      const detectedClient = _xlsAllClients.find(c => String(c.id) === String(initialClientId));
+      if (detectedClient && _xlsSheets[0] && _xlsSheets[0].clientHeadingId == null) {
+        _applyClientHeadingToSheet(_xlsSheets[0], detectedClient);
+      }
+    }
   }
 
   _xlsSheets.forEach((sheet, i) => {
@@ -2189,6 +2426,76 @@ async function openOrderPreview(jobId, filename) {
     };
   }
 
+  const delRowBtn = document.getElementById('xlsDelRowBtn');
+  if (delRowBtn) {
+    delRowBtn.onclick = () => {
+      const sheet = _xlsSheets[_xlsActiveSheet];
+      if (!sheet || !Array.isArray(sheet.rows) || !sheet.rows.length) return;
+      const ri = sheet._selRow != null ? sheet._selRow : 0;
+      if (ri < 0 || ri >= sheet.rows.length) return;
+      if (sheet.rows.length <= 1) {
+        sheet.rows[0] = sheet.rows[0].map(() => '');
+        sheet.hasHeader = false;
+        sheet.headerIdx = -1;
+        sheet._selRow = 0;
+        _markXlsDirty(true);
+        _renderXlsGrid(sheet);
+        _updateXlsClientBarUI();
+        showToast('行 1 の内容をクリアしました');
+        return;
+      }
+      sheet.rows.splice(ri, 1);
+      if (sheet.hasHeader && sheet.headerIdx >= 0) {
+        if (sheet.headerIdx === ri) {
+          sheet.hasHeader = false;
+          sheet.headerIdx = -1;
+        } else if (sheet.headerIdx > ri) {
+          sheet.headerIdx -= 1;
+        }
+      }
+      sheet._selRow = Math.min(ri, sheet.rows.length - 1);
+      _markXlsDirty(true);
+      _renderXlsGrid(sheet);
+      _updateXlsClientBarUI();
+      showToast(`行 ${ri + 1} を削除しました`);
+    };
+  }
+
+  const delColBtn = document.getElementById('xlsDelColBtn');
+  if (delColBtn) {
+    delColBtn.onclick = () => {
+      const sheet = _xlsSheets[_xlsActiveSheet];
+      if (!sheet || !Array.isArray(sheet.rows) || !sheet.rows.length) return;
+      const maxCols = Math.max(1, ...sheet.rows.map(r => r.length), (sheet.customHeaders || []).length, (sheet.clientHeaders || []).length);
+      const ci = sheet._selCol != null ? sheet._selCol : 0;
+      if (ci < 0 || ci >= maxCols) return;
+      const colName = _colLetter(ci);
+      if (maxCols <= 1) {
+        sheet.rows.forEach(r => { if (r.length > 0) r[0] = ''; });
+        if (Array.isArray(sheet.customHeaders) && sheet.customHeaders.length > 0) sheet.customHeaders[0] = '';
+        if (Array.isArray(sheet.clientHeaders) && sheet.clientHeaders.length > 0) sheet.clientHeaders[0] = '';
+        sheet._selCol = 0;
+        _markXlsDirty(true);
+        _renderXlsGrid(sheet);
+        _updateXlsClientBarUI();
+        showToast(`列 ${colName} の内容をクリアしました`);
+        return;
+      }
+      sheet.rows.forEach(r => { if (ci < r.length) r.splice(ci, 1); });
+      if (Array.isArray(sheet.customHeaders) && ci < sheet.customHeaders.length) {
+        sheet.customHeaders.splice(ci, 1);
+      }
+      if (Array.isArray(sheet.clientHeaders) && ci < sheet.clientHeaders.length) {
+        sheet.clientHeaders.splice(ci, 1);
+      }
+      sheet._selCol = Math.min(ci, maxCols - 2);
+      _markXlsDirty(true);
+      _renderXlsGrid(sheet);
+      _updateXlsClientBarUI();
+      showToast(`列 ${colName} を削除しました`);
+    };
+  }
+
   const saveXlsBtn = document.getElementById('xlsSaveBtn');
   if (saveXlsBtn) {
     saveXlsBtn.onclick = async () => {
@@ -2322,20 +2629,16 @@ let currentResult  = null;
 let currentJobId   = null;
 let gpuAvailable   = false;  // updated from /api/health on load
 
-// Engine selector
+// Engine selector — seamlessly supports CPU mode (e.g. AWS EC2 CPU) and CUDA GPU
 document.querySelectorAll(".toggle").forEach(btn => {
   btn.addEventListener("click", () => {
-    if (btn.dataset.engine === "deepseek" && !gpuAvailable) {
-      showToast("DeepSeek-OCR requires a CUDA GPU — not available on this machine.", true);
-      return;
-    }
     document.querySelectorAll(".toggle").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     selectedEngine = btn.dataset.engine;
   });
 });
 
-// Mark DeepSeek button as GPU-required based on health check
+// Update DeepSeek indicator based on hardware health check (GPU vs CPU mode)
 (async function checkGpu() {
   try {
     const r = await fetch(`${API_BASE}/api/health`);
@@ -2343,15 +2646,17 @@ document.querySelectorAll(".toggle").forEach(btn => {
     gpuAvailable = !!j.gpu_available;
   } catch { gpuAvailable = false; }
   const dsBtn = document.querySelector('.toggle[data-engine="deepseek"]');
-  if (dsBtn && !gpuAvailable) {
-    dsBtn.classList.add("gpu-required");
-    dsBtn.title = "Requires CUDA GPU — not available on this machine";
-    // Append a small badge if not already there
-    if (!dsBtn.querySelector(".gpu-badge")) {
-      const badge = document.createElement("span");
-      badge.className = "gpu-badge";
-      badge.textContent = " ⚠ GPU";
-      dsBtn.appendChild(badge);
+  if (dsBtn) {
+    if (gpuAvailable) {
+      dsBtn.title = "DeepSeek-OCR (CUDA GPU 加速)";
+    } else {
+      dsBtn.title = "DeepSeek-OCR (CPU モード・自動レイアウト抽出)";
+      if (!dsBtn.querySelector(".gpu-badge")) {
+        const badge = document.createElement("span");
+        badge.className = "gpu-badge";
+        badge.textContent = " CPU";
+        dsBtn.appendChild(badge);
+      }
     }
   }
 })();
@@ -2512,9 +2817,10 @@ function renderResults(res) {
   document.getElementById("fusedText").textContent   = res.fused_text || "(no text extracted)";
   document.getElementById("doclingText").textContent  = res.docling?.markdown || res.docling?.text || "(Docling produced no output)";
   const dsErr = res.deepseek?.error || "";
+  const dsNotice = res.deepseek?.notice ? `\n\n[${res.deepseek.notice}]` : "";
   document.getElementById("deepseekText").textContent =
-    res.deepseek?.markdown || res.deepseek?.text ||
-    (dsErr ? dsErr : "(DeepSeek-OCR not run — requires a CUDA GPU)");
+    (res.deepseek?.markdown || res.deepseek?.text ||
+    (dsErr ? dsErr : "(DeepSeek-OCR produced no output)")) + dsNotice;
 
   const lines = res.paddle?.lines || [];
   document.getElementById("paddleLines").innerHTML = lines.length
