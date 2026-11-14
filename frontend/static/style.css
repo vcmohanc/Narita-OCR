@@ -408,9 +408,60 @@ td{color:var(--muted)}
 .del-job-btn:disabled{opacity:.2;cursor:not-allowed}
 
 /* ─────────────────────────────────────────────
-   ORDER VIEW
+   ORDER, CLIENTS & PRODUCT MASTER VIEWS
 ───────────────────────────────────────────── */
-#viewOrder{display:flex;flex-direction:column;height:100%}
+#viewOrder, #viewClients, #viewProductMaster{display:flex;flex-direction:column;height:100%}
+
+.client-kw-tag{
+  display:inline-block;
+  background:var(--surface2);
+  border:1px solid var(--border);
+  padding:1px 6px;
+  border-radius:4px;
+  font-size:11px;
+  color:var(--text2);
+  margin:2px 3px 2px 0;
+}
+
+.prod-code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  font-size:12px;font-weight:600;color:var(--accent);
+}
+.prod-price{
+  font-variant-numeric:tabular-nums;
+  font-weight:600;color:var(--text);text-align:right;
+}
+.prod-actions{
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.prod-btn{
+  background:none;border:1px solid var(--border);border-radius:var(--radius-sm);
+  cursor:pointer;padding:3px 8px;font-size:11px;color:var(--text2);
+  transition:all .12s;
+}
+.prod-btn:hover{background:var(--surface2);border-color:var(--accent);color:var(--accent)}
+.prod-btn-headings:hover{background:#eff6ff;border-color:#3b82f6;color:#2563eb}
+.prod-btn-del:hover{background:var(--danger-bg);border-color:var(--danger);color:var(--danger)}
+
+.client-row-badge{
+  display:inline-block;
+  background:#f1f5f9;
+  border:1px solid #cbd5e1;
+  border-radius:4px;
+  font-size:11px;
+  font-weight:600;
+  color:#334155;
+  padding:1px 6px;
+  margin-right:6px;
+  white-space:nowrap;
+}
+.client-cols-preview{
+  display:inline-flex;
+  flex-wrap:wrap;
+  gap:2px;
+  align-items:center;
+  max-width:320px;
+}
 
 .order-topbar{
   display:flex;align-items:center;gap:10px;
@@ -675,8 +726,14 @@ td{color:var(--muted)}
 .xls-cell-val{
   flex:1;font-size:12px;
   font-family:'Calibri','Consolas',monospace;
-  color:#000;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;min-width:120px;padding:2px 4px;
+  color:#000;min-width:140px;padding:3px 6px;
+  border:1px solid #d0d0d0;border-radius:3px;
+  background:#fff;outline:none;
+  transition:border-color .15s,box-shadow .15s;
+}
+.xls-cell-val:focus{
+  border-color:#1a73e8;
+  box-shadow:0 0 0 2px rgba(26,115,232,.15);
 }
 .xls-header-tools{
   display:flex;align-items:center;gap:6px;flex-shrink:0;
@@ -772,6 +829,37 @@ td{color:var(--muted)}
   background:#cce0ff !important;
   outline:2px solid #1a73e8;outline-offset:-2px;
   position:relative;z-index:1;
+}
+.xls-grid-wrap:focus{outline:none}
+.xls-cell.xls-editing{
+  padding:0 !important;background:#fff !important;
+  outline:2px solid #1a73e8;outline-offset:-2px;
+  position:relative;z-index:2;
+}
+.xls-cell-input{
+  width:100%;height:100%;min-height:22px;
+  border:none;outline:none;padding:3px 8px;
+  font-size:12px;font-family:'Calibri','Arial',sans-serif;
+  color:#000;background:#fff;box-sizing:border-box;
+}
+.xls-th-input{
+  width:100%;min-width:72px;
+  border:1px solid #1a73e8;border-radius:2px;outline:none;
+  padding:1px 4px;font-size:11px;font-weight:700;text-align:center;
+  font-family:'Calibri','Arial',sans-serif;
+  color:#0f172a;background:#fff;box-sizing:border-box;margin-top:2px;
+}
+.btn-save-xls{
+  background:#eff6ff;border:1px solid #93c5fd;color:#1d4ed8;font-weight:600;
+}
+.btn-save-xls:hover:not(:disabled){
+  background:#dbeafe;border-color:#60a5fa;
+}
+.btn-save-xls.is-dirty{
+  background:#2563eb;border-color:#1d4ed8;color:#fff;
+}
+.btn-save-xls.is-dirty:hover:not(:disabled){
+  background:#1d4ed8;
 }
 /* sheet tabs bar */
 .xls-sheetbar{

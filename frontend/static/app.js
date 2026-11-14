@@ -18,6 +18,8 @@ const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
       const view = document.getElementById('view' + target.charAt(0).toUpperCase() + target.slice(1));
       if (view) view.classList.remove('hidden');
       if (target === 'order') initOrderView();
+      if (target === 'clients') initClientsView();
+      if (target === 'productMaster') initProductMasterView();
     });
   });
 })();
@@ -38,6 +40,11 @@ function openClientModal(client = null) {
   document.getElementById('clientFormNameEn').value   = client ? (client.name_en  || '') : '';
   document.getElementById('clientFormCode').value     = client ? (client.code     || '') : '';
   document.getElementById('clientFormKeywords').value = client ? (client.keywords || '') : '';
+  const rowInput = document.getElementById('clientFormHeaderRow');
+  if (rowInput) rowInput.value = client && client.header_row != null ? client.header_row : 1;
+  const colsInput = document.getElementById('clientFormHeadingColumns');
+  if (colsInput) colsInput.value = client ? (client.heading_columns || '') : '';
+
   document.getElementById('clientModalBackdrop').classList.remove('hidden');
   document.getElementById('clientFormNameJa').focus();
 }
@@ -53,6 +60,9 @@ document.getElementById('clientFormSave')?.addEventListener('click', async () =>
   const nameEn   = document.getElementById('clientFormNameEn').value.trim();
   const code     = document.getElementById('clientFormCode').value.trim();
   const keywords = document.getElementById('clientFormKeywords').value.trim();
+  const headerRow = parseInt(document.getElementById('clientFormHeaderRow')?.value || '1', 10) || 1;
+  const headingColumns = (document.getElementById('clientFormHeadingColumns')?.value || '').trim();
+
   if (!nameJa || !code) { showToast('Japanese name and code are required', true); return; }
   const saveBtn = document.getElementById('clientFormSave');
   saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
@@ -60,11 +70,19 @@ document.getElementById('clientFormSave')?.addEventListener('click', async () =>
     const url    = _clientModalEditId ? `${API_BASE}/api/db/clients/${_clientModalEditId}` : `${API_BASE}/api/db/clients`;
     const method = _clientModalEditId ? 'PUT' : 'POST';
     const r = await fetch(url, { method, headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ name_ja: nameJa, name_en: nameEn, code, keywords }) });
+      body: JSON.stringify({
+        name_ja: nameJa,
+        name_en: nameEn,
+        code,
+        keywords,
+        header_row: headerRow,
+        heading_columns: headingColumns
+      }) });
     if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.statusText);
     closeClientModal();
     showToast(_clientModalEditId ? 'Client updated' : 'Client added');
     await reloadOrderSheet();
+    if (typeof reloadClientsSheet === 'function') await reloadClientsSheet();
   } catch (e) { showToast('Error: ' + e.message, true); }
   finally { saveBtn.disabled = false; saveBtn.textContent = 'Save Client'; }
 });
@@ -236,9 +254,609 @@ document.getElementById('orderExportBtn')?.addEventListener('click', () => {
   showToast(`Exported ${rows.length} rows`);
 });
 
+// ============================================================
+// Clients view — Directory & Rule Management
+// ============================================================
+let _clientsViewLoaded = false;
+let _clientsAllList    = [];
+let _clientsSort       = { col: 'code', dir: 1 };
+let _clientHeadingTarget = null;
+
+const HEADING_PRESETS = {
+  fusui: {
+    row: 8,
+    columns: '商品名, 規格母目, C/S入数, 単価, 金額, 備考'
+  },
+  standard: {
+    row: 1,
+    columns: '商品コード, 商品名, 規格, 数量, 単価, 金額'
+  },
+  wholesale: {
+    row: 1,
+    columns: '品番, 品名, 規格, 入数, 単価, 金額, 納品日'
+  },
+  simple: {
+    row: 1,
+    columns: '品名, 数量, 単価, 金額'
+  }
+};
+
+function openClientHeadingModal(client) {
+  _clientHeadingTarget = client;
+  const titleEl = document.getElementById('clientHeadingModalTitle');
+  if (titleEl) {
+    titleEl.textContent = `Configure Heading Format — ${client.name_ja || client.code}`;
+  }
+  const rowInput  = document.getElementById('clientHeadingRow');
+  const colsInput = document.getElementById('clientHeadingColumns');
+  const presetSel = document.getElementById('clientHeadingPreset');
+
+  const curRow  = client.header_row != null ? client.header_row : 1;
+  const curCols = client.heading_columns || '';
+
+  if (rowInput) rowInput.value = curRow;
+  if (colsInput) colsInput.value = curCols;
+
+  if (presetSel) {
+    let matched = 'custom';
+    for (const [key, p] of Object.entries(HEADING_PRESETS)) {
+      if (p.row === curRow && p.columns.replace(/\s+/g, '') === curCols.replace(/\s+/g, '')) {
+        matched = key;
+        break;
+      }
+    }
+    presetSel.value = matched;
+  }
+
+  document.getElementById('clientHeadingModalBackdrop')?.classList.remove('hidden');
+  rowInput?.focus();
+}
+
+function closeClientHeadingModal() {
+  document.getElementById('clientHeadingModalBackdrop')?.classList.add('hidden');
+  _clientHeadingTarget = null;
+}
+
+document.getElementById('clientHeadingCancel')?.addEventListener('click', closeClientHeadingModal);
+document.getElementById('clientHeadingModalBackdrop')?.addEventListener('click', e => {
+  if (e.target === document.getElementById('clientHeadingModalBackdrop')) closeClientHeadingModal();
+});
+
+document.getElementById('clientHeadingPreset')?.addEventListener('change', e => {
+  const presetKey = e.target.value;
+  if (HEADING_PRESETS[presetKey]) {
+    const p = HEADING_PRESETS[presetKey];
+    const rowInput  = document.getElementById('clientHeadingRow');
+    const colsInput = document.getElementById('clientHeadingColumns');
+    if (rowInput) rowInput.value = p.row;
+    if (colsInput) colsInput.value = p.columns;
+  }
+});
+
+document.getElementById('clientHeadingSave')?.addEventListener('click', async () => {
+  if (!_clientHeadingTarget) return;
+  const rowVal  = parseInt(document.getElementById('clientHeadingRow')?.value || '1', 10) || 1;
+  const colsVal = (document.getElementById('clientHeadingColumns')?.value || '').trim();
+
+  const saveBtn = document.getElementById('clientHeadingSave');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+  try {
+    const r = await dbFetch(`/api/db/clients/${_clientHeadingTarget.id}/heading-format`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        header_row: rowVal,
+        heading_columns: colsVal
+      })
+    });
+    if (!r || !r.ok) {
+      const err = r ? await r.json().catch(() => ({})) : {};
+      throw new Error(err.detail || (r ? r.statusText : 'Save failed'));
+    }
+    closeClientHeadingModal();
+    showToast(`Heading format updated for ${_clientHeadingTarget.name_ja || _clientHeadingTarget.code}`);
+    await reloadClientsSheet();
+  } catch (err) {
+    showToast('Failed to save heading format: ' + err.message, true);
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Heading Format'; }
+  }
+});
+
+async function initClientsView() {
+  if (_clientsViewLoaded) return;
+  await reloadClientsSheet();
+  _clientsViewLoaded = true;
+}
+
+async function reloadClientsSheet() {
+  const tbody = document.getElementById('clientsSheetBody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="9" class="sheet-loading">Loading…</td></tr>';
+
+  try {
+    const res = await dbFetch('/api/db/clients');
+    if (!res || !res.ok) throw new Error('Database not connected');
+    _clientsAllList = await res.json();
+    renderClientsSheet();
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="sheet-loading" style="color:var(--danger)">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function getFilteredSortedClients() {
+  const q = (document.getElementById('clientsSearch')?.value || '').toLowerCase();
+
+  let rows = _clientsAllList.filter(c => {
+    if (q) {
+      const code   = (c.code || '').toLowerCase();
+      const ja     = (c.name_ja || '').toLowerCase();
+      const en     = (c.name_en || '').toLowerCase();
+      const kw     = (c.keywords || '').toLowerCase();
+      const hcols  = (c.heading_columns || '').toLowerCase();
+      if (!code.includes(q) && !ja.includes(q) && !en.includes(q) && !kw.includes(q) && !hcols.includes(q)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const { col, dir } = _clientsSort;
+  rows.sort((a, b) => {
+    let av, bv;
+    if (col === 'code')           { av = (a.code || '').toLowerCase(); bv = (b.code || '').toLowerCase(); }
+    else if (col === 'name_ja')   { av = (a.name_ja || '').toLowerCase(); bv = (b.name_ja || '').toLowerCase(); }
+    else if (col === 'name_en')   { av = (a.name_en || '').toLowerCase(); bv = (b.name_en || '').toLowerCase(); }
+    else if (col === 'keywords')  { av = (a.keywords || '').toLowerCase(); bv = (b.keywords || '').toLowerCase(); }
+    else if (col === 'heading_format') {
+      av = `row${a.header_row || 1}:${(a.heading_columns || '').toLowerCase()}`;
+      bv = `row${b.header_row || 1}:${(b.heading_columns || '').toLowerCase()}`;
+    }
+    else if (col === 'total_jobs'){ av = a.total_jobs ?? 0; bv = b.total_jobs ?? 0; }
+    else                          { av = a.created_at || ''; bv = b.created_at || ''; }
+    if (av < bv) return -dir; if (av > bv) return dir; return 0;
+  });
+  return rows;
+}
+
+function renderClientsSheet() {
+  const tbody   = document.getElementById('clientsSheetBody');
+  const countEl = document.getElementById('clientsRowCount');
+  if (!tbody) return;
+
+  const rows = getFilteredSortedClients();
+  if (countEl) countEl.textContent = `${rows.length} client${rows.length !== 1 ? 's' : ''}`;
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="sheet-empty">No clients match the current search.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map((c, idx) => {
+    const kws = c.keywords
+      ? c.keywords.split(',').map(k => k.trim()).filter(Boolean).map(k => `<span class="client-kw-tag">${esc(k)}</span>`).join('')
+      : '<span class="sheet-unassigned">—</span>';
+
+    // Heading Format Option preview
+    const hRow = c.header_row || 1;
+    let colsPreview = '';
+    if (c.heading_columns) {
+      const colItems = c.heading_columns.split(',').map(s => s.trim()).filter(Boolean);
+      const displayItems = colItems.slice(0, 4);
+      const moreCount = colItems.length - displayItems.length;
+      colsPreview = displayItems.map(col => `<span class="client-kw-tag">${esc(col)}</span>`).join('') +
+        (moreCount > 0 ? `<span class="client-kw-tag" style="opacity:.65" title="${esc(c.heading_columns)}">+${moreCount}</span>` : '');
+    } else {
+      colsPreview = '<span class="sheet-unassigned" style="font-size:11px">Default</span>';
+    }
+    const headingFormatHtml = `<div class="client-cols-preview"><span class="client-row-badge">Row ${hRow}</span>${colsPreview}</div>`;
+
+    const totalJobs = c.total_jobs != null ? c.total_jobs : 0;
+    const date = c.created_at ? c.created_at.replace('T', ' ').slice(0, 16) : '—';
+
+    return `<tr class="${idx % 2 === 1 ? 'row-alt' : ''}" data-client-id="${esc(c.id)}">
+      <td class="col-no">${idx + 1}</td>
+      <td><span class="prod-code">${esc(c.code)}</span></td>
+      <td><strong>${esc(c.name_ja)}</strong></td>
+      <td>${esc(c.name_en || '—')}</td>
+      <td>${kws}</td>
+      <td>${headingFormatHtml}</td>
+      <td style="text-align:center"><span class="badge ${totalJobs > 0 ? 'badge-done' : 'badge-queued'}">${totalJobs}</span></td>
+      <td class="col-date">${esc(date)}</td>
+      <td class="prod-actions">
+        <button class="prod-btn prod-btn-edit" data-id="${esc(c.id)}" title="Edit Client Details">✎ Edit</button>
+        <button class="prod-btn prod-btn-headings" data-id="${esc(c.id)}" title="Configure Heading Format">⚙ Headings</button>
+        <button class="prod-btn prod-btn-del" data-id="${esc(c.id)}" title="Delete Client">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Wire edit, headings, and delete buttons
+  tbody.querySelectorAll('.prod-btn-edit').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id, 10);
+      const client = _clientsAllList.find(x => x.id === id);
+      if (client) openClientModal(client);
+    });
+  });
+
+  tbody.querySelectorAll('.prod-btn-headings').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id, 10);
+      const client = _clientsAllList.find(x => x.id === id);
+      if (client) openClientHeadingModal(client);
+    });
+  });
+
+  tbody.querySelectorAll('.prod-btn-del').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id, 10);
+      const client = _clientsAllList.find(x => x.id === id);
+      const label = client ? `${client.name_ja} (${client.code})` : `ID ${id}`;
+      if (!confirm(`Delete client ${label}? Existing jobs for this client will remain unassigned.`)) return;
+      btn.disabled = true;
+      try {
+        const r = await dbFetch(`/api/db/clients/${id}`, { method: 'DELETE' });
+        if (!r || !r.ok) {
+          const err = r ? await r.json().catch(() => ({})) : {};
+          throw new Error(err.detail || (r ? r.statusText : 'Delete failed'));
+        }
+        showToast(`Deleted client ${label}`);
+        await reloadClientsSheet();
+        await reloadOrderSheet();
+      } catch (err) {
+        showToast('Delete failed: ' + err.message, true);
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+// ── Sorting & Search for Clients ──
+document.querySelectorAll('#clientsSheet .sortable').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (_clientsSort.col === col) { _clientsSort.dir *= -1; }
+    else { _clientsSort = { col, dir: 1 }; }
+    document.querySelectorAll('#clientsSheet .sortable').forEach(h => {
+      const ic = h.querySelector('.sort-icon');
+      if (ic) ic.textContent = h.dataset.col === col ? (_clientsSort.dir === 1 ? '↑' : '↓') : '↕';
+    });
+    renderClientsSheet();
+  });
+});
+
+document.getElementById('clientsSearch')?.addEventListener('input', () => renderClientsSheet());
+
+document.getElementById('clientViewAddBtn')?.addEventListener('click', () => openClientModal(null));
+
+document.getElementById('clientsRefreshBtn')?.addEventListener('click', async () => {
+  _clientsViewLoaded = false;
+  await reloadClientsSheet();
+  _clientsViewLoaded = true;
+});
+
+// CSV Export for Clients
+document.getElementById('clientsExportBtn')?.addEventListener('click', () => {
+  const rows = getFilteredSortedClients();
+  const header = ['No.', 'Client Code', 'Japanese Name', 'English Name', 'Keywords', 'Header Row', 'Heading Columns', 'Total Orders', 'Created At'];
+  const lines = [header, ...rows.map((c, i) => [
+    i + 1,
+    c.code || '',
+    c.name_ja || '',
+    c.name_en || '',
+    c.keywords || '',
+    c.header_row || 1,
+    c.heading_columns || '',
+    c.total_jobs ?? 0,
+    c.created_at ? c.created_at.replace('T', ' ').slice(0, 19) : '',
+  ])].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: 'clients_' + new Date().toISOString().slice(0, 10) + '.csv' });
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  showToast(`Exported ${rows.length} clients`);
+});
+
+// ============================================================
+// Product Master view — Catalog & Price Management
+// ============================================================
+let _productsLoaded    = false;
+let _productAllRows    = [];
+let _productAllClients = [];
+let _productSort       = { col: 'product_code', dir: 1 };
+let _productModalEditId = null;
+
+function openProductModal(product = null) {
+  _productModalEditId = product ? product.id : null;
+  const title = document.getElementById('productModalTitle');
+  if (title) title.textContent = product ? 'Edit Product' : 'Add Product';
+  document.getElementById('productFormCode').value   = product ? (product.product_code || '') : '';
+  document.getElementById('productFormNameJa').value = product ? (product.name_ja      || '') : '';
+  document.getElementById('productFormNameEn').value = product ? (product.name_en      || '') : '';
+  document.getElementById('productFormSpec').value   = product ? (product.spec         || '') : '';
+  document.getElementById('productFormPrice').value  = product && product.unit_price != null ? product.unit_price : '';
+
+  // populate client select
+  const clientSel = document.getElementById('productFormClient');
+  if (clientSel) {
+    clientSel.innerHTML = '<option value="">(None / General)</option>' +
+      _productAllClients.map(c => `<option value="${c.id}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''}</option>`).join('');
+    clientSel.value = product && product.client_id ? String(product.client_id) : '';
+  }
+
+  const modal = document.getElementById('productModalBackdrop');
+  if (modal) modal.classList.remove('hidden');
+  document.getElementById('productFormCode')?.focus();
+}
+
+function closeProductModal() {
+  document.getElementById('productModalBackdrop')?.classList.add('hidden');
+}
+
+document.getElementById('productFormCancel')?.addEventListener('click', closeProductModal);
+document.getElementById('productModalBackdrop')?.addEventListener('click', e => {
+  if (e.target === document.getElementById('productModalBackdrop')) closeProductModal();
+});
+
+document.getElementById('addProductBtn')?.addEventListener('click', () => openProductModal(null));
+
+document.getElementById('productFormSave')?.addEventListener('click', async () => {
+  const code   = document.getElementById('productFormCode')?.value.trim();
+  const nameJa = document.getElementById('productFormNameJa')?.value.trim();
+  const nameEn = document.getElementById('productFormNameEn')?.value.trim();
+  const spec   = document.getElementById('productFormSpec')?.value.trim();
+  const priceVal = document.getElementById('productFormPrice')?.value.trim();
+  const clientIdVal = document.getElementById('productFormClient')?.value;
+
+  if (!code || !nameJa) {
+    showToast('Product code and Japanese name are required', true);
+    return;
+  }
+
+  const unit_price = priceVal === '' ? null : parseFloat(priceVal);
+  if (unit_price !== null && isNaN(unit_price)) {
+    showToast('Unit price must be a valid number', true);
+    return;
+  }
+  const client_id = clientIdVal ? parseInt(clientIdVal, 10) : null;
+
+  const saveBtn = document.getElementById('productFormSave');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+  try {
+    const url    = _productModalEditId ? `/api/db/products/${_productModalEditId}` : `/api/db/products`;
+    const method = _productModalEditId ? 'PUT' : 'POST';
+    const r = await dbFetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_code: code,
+        name_ja: nameJa,
+        name_en: nameEn || null,
+        spec: spec || null,
+        unit_price: unit_price,
+        client_id: client_id,
+      })
+    });
+    if (!r || !r.ok) {
+      const err = r ? await r.json().catch(() => ({})) : {};
+      throw new Error(err.detail || (r ? r.statusText : 'Server unreachable'));
+    }
+    closeProductModal();
+    showToast(_productModalEditId ? 'Product updated' : 'Product added');
+    await reloadProductSheet();
+  } catch (e) {
+    showToast('Error: ' + e.message, true);
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Product'; }
+  }
+});
+
+async function initProductMasterView() {
+  if (_productsLoaded) return;
+  await reloadProductSheet();
+  _productsLoaded = true;
+}
+
+async function reloadProductSheet() {
+  const tbody = document.getElementById('productSheetBody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="9" class="sheet-loading">Loading…</td></tr>';
+
+  try {
+    const [prodsRes, clientsRes] = await Promise.all([
+      dbFetch('/api/db/products?limit=1000'),
+      dbFetch('/api/db/clients'),
+    ]);
+    if (!prodsRes || !prodsRes.ok) throw new Error('Database not connected');
+    _productAllRows = await prodsRes.json();
+    _productAllClients = clientsRes && clientsRes.ok ? await clientsRes.json() : [];
+
+    // Populate client filter dropdown
+    const cf = document.getElementById('productClientFilter');
+    if (cf) {
+      const prev = cf.value;
+      cf.innerHTML = '<option value="">All Clients</option>' +
+        _productAllClients.map(c => `<option value="${c.id}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''}</option>`).join('');
+      cf.value = prev;
+    }
+
+    renderProductSheet();
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="sheet-loading" style="color:var(--danger)">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function getFilteredSortedProducts() {
+  const q       = (document.getElementById('productSearch')?.value || '').toLowerCase();
+  const clientF = document.getElementById('productClientFilter')?.value || '';
+
+  let rows = _productAllRows.filter(p => {
+    if (clientF && String(p.client_id) !== clientF) return false;
+    if (q) {
+      const code   = (p.product_code || '').toLowerCase();
+      const ja     = (p.name_ja || '').toLowerCase();
+      const en     = (p.name_en || '').toLowerCase();
+      const spec   = (p.spec || '').toLowerCase();
+      const client = (p.client_name_ja || p.client_name_en || '').toLowerCase();
+      if (!code.includes(q) && !ja.includes(q) && !en.includes(q) && !spec.includes(q) && !client.includes(q)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const { col, dir } = _productSort;
+  rows.sort((a, b) => {
+    let av, bv;
+    if (col === 'product_code') { av = (a.product_code || '').toLowerCase(); bv = (b.product_code || '').toLowerCase(); }
+    else if (col === 'name_ja') { av = (a.name_ja || '').toLowerCase(); bv = (b.name_ja || '').toLowerCase(); }
+    else if (col === 'name_en') { av = (a.name_en || '').toLowerCase(); bv = (b.name_en || '').toLowerCase(); }
+    else if (col === 'spec')    { av = (a.spec || '').toLowerCase(); bv = (b.spec || '').toLowerCase(); }
+    else if (col === 'unit_price') { av = a.unit_price ?? -1; bv = b.unit_price ?? -1; }
+    else if (col === 'client')  { av = (a.client_name_ja || '').toLowerCase(); bv = (b.client_name_ja || '').toLowerCase(); }
+    else { av = a.updated_at || a.created_at || ''; bv = b.updated_at || b.created_at || ''; }
+    if (av < bv) return -dir; if (av > bv) return dir; return 0;
+  });
+  return rows;
+}
+
+function renderProductSheet() {
+  const tbody   = document.getElementById('productSheetBody');
+  const countEl = document.getElementById('productRowCount');
+  if (!tbody) return;
+
+  const rows = getFilteredSortedProducts();
+  if (countEl) countEl.textContent = `${rows.length} product${rows.length !== 1 ? 's' : ''}`;
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="sheet-empty">No products match the current filters.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map((p, idx) => {
+    const clientName = p.client_name_ja
+      ? `<span class="sheet-client">${esc(p.client_name_ja)}</span>${p.client_name_en ? `<span class="sheet-client-en">${esc(p.client_name_en)}</span>` : ''}`
+      : '<span class="sheet-unassigned">—</span>';
+    const priceStr = p.unit_price != null ? '¥' + Number(p.unit_price).toLocaleString('ja-JP', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '—';
+    const updated = p.updated_at || p.created_at ? (p.updated_at || p.created_at).replace('T', ' ').slice(0, 16) : '—';
+
+    return `<tr class="${idx % 2 === 1 ? 'row-alt' : ''}" data-product-id="${esc(p.id)}">
+      <td class="col-no">${idx + 1}</td>
+      <td><span class="prod-code">${esc(p.product_code)}</span></td>
+      <td><strong>${esc(p.name_ja)}</strong></td>
+      <td>${esc(p.name_en || '—')}</td>
+      <td>${esc(p.spec || '—')}</td>
+      <td class="prod-price">${priceStr}</td>
+      <td>${clientName}</td>
+      <td class="col-date">${esc(updated)}</td>
+      <td class="prod-actions">
+        <button class="prod-btn prod-btn-edit" data-id="${esc(p.id)}" title="Edit">✎ Edit</button>
+        <button class="prod-btn prod-btn-del" data-id="${esc(p.id)}" title="Delete">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Wire edit and delete buttons
+  tbody.querySelectorAll('.prod-btn-edit').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id, 10);
+      const prod = _productAllRows.find(x => x.id === id);
+      if (prod) openProductModal(prod);
+    });
+  });
+
+  tbody.querySelectorAll('.prod-btn-del').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id, 10);
+      const prod = _productAllRows.find(x => x.id === id);
+      const label = prod ? `${prod.product_code} (${prod.name_ja})` : `ID ${id}`;
+      if (!confirm(`Delete product ${label}?`)) return;
+      btn.disabled = true;
+      try {
+        const r = await dbFetch(`/api/db/products/${id}`, { method: 'DELETE' });
+        if (!r || !r.ok) {
+          const err = r ? await r.json().catch(() => ({})) : {};
+          throw new Error(err.detail || (r ? r.statusText : 'Delete failed'));
+        }
+        showToast(`Deleted ${label}`);
+        await reloadProductSheet();
+      } catch (err) {
+        showToast('Delete failed: ' + err.message, true);
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+// ── Product Sorting & Filters ──
+document.querySelectorAll('#productSheet .sortable').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (_productSort.col === col) { _productSort.dir *= -1; }
+    else { _productSort = { col, dir: 1 }; }
+    document.querySelectorAll('#productSheet .sortable').forEach(h => {
+      const ic = h.querySelector('.sort-icon');
+      if (ic) ic.textContent = h.dataset.col === col ? (_productSort.dir === 1 ? '↑' : '↓') : '↕';
+    });
+    renderProductSheet();
+  });
+});
+
+['productSearch', 'productClientFilter'].forEach(id => {
+  document.getElementById(id)?.addEventListener('input', () => renderProductSheet());
+});
+
+document.getElementById('productRefreshBtn')?.addEventListener('click', async () => {
+  _productsLoaded = false;
+  await reloadProductSheet();
+  _productsLoaded = true;
+});
+
+// CSV Export
+document.getElementById('productExportBtn')?.addEventListener('click', () => {
+  const rows = getFilteredSortedProducts();
+  const header = ['No.', 'Item Code', 'Product Name (JA)', 'Product Name (EN)', 'Spec', 'Unit Price', 'Client Code', 'Client Name (JA)', 'Updated At'];
+  const lines = [header, ...rows.map((p, i) => [
+    i + 1,
+    p.product_code || '',
+    p.name_ja || '',
+    p.name_en || '',
+    p.spec || '',
+    p.unit_price != null ? p.unit_price : '',
+    p.client_code || '',
+    p.client_name_ja || '',
+    p.updated_at || p.created_at || '',
+  ])].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: 'products_' + new Date().toISOString().slice(0, 10) + '.csv' });
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  showToast(`Exported ${rows.length} products`);
+});
+
 // ── Excel Preview Modal ───────────────────────────────────────
 let _xlsActiveSheet = 0;
 let _xlsSheets = [];
+let _xlsJobId = null;
+let _xlsResult = null;
+let _xlsDirty = false;
+
+function _markXlsDirty(dirty) {
+  _xlsDirty = !!dirty;
+  const saveBtn = document.getElementById('xlsSaveBtn');
+  if (!saveBtn) return;
+  saveBtn.disabled = !_xlsDirty;
+  saveBtn.classList.toggle('is-dirty', _xlsDirty);
+  saveBtn.textContent = _xlsDirty ? '💾 Save*' : '💾 Save';
+}
 
 function _colLetter(i) {
   let n = i, s = '';
@@ -317,14 +935,43 @@ function _bboxToTable(lines) {
   return { rows, maxCols, headerIdx };
 }
 
+function _normaliseDataRows(data) {
+  // tbl.data can be Array<Array> (already cells) or Array<Object> (key→value from OCR engine).
+  // Always return Array<Array<string>> so _renderXlsGrid can safely call r.length.
+  if (!data || !data.length) return null;
+  const first = data[0];
+  if (Array.isArray(first)) return data; // already cell arrays
+  if (first === null || typeof first !== 'object') return null;
+  const cols = Object.keys(first);
+  if (!cols.length) return null;
+  const numericKeys = cols.every(c => !isNaN(Number(c)));
+  if (numericKeys) {
+    // Keys are 0,1,2... — each row's values are the cells; first row may contain header text
+    return data.map(r => cols.map(c => r[c] != null ? String(r[c]) : ''));
+  }
+  // Named keys — prepend a header row with the column names
+  return [cols, ...data.map(r => cols.map(c => r[c] != null ? String(r[c]) : ''))];
+}
+
 function _buildSheets(result) {
+  if (result.custom_sheets && Array.isArray(result.custom_sheets) && result.custom_sheets.length > 0) {
+    return result.custom_sheets.map(s => ({
+      name: String(s.name || 'Sheet1'),
+      rows: Array.isArray(s.rows) ? s.rows.map(r => Array.isArray(r) ? [...r] : [String(r ?? '')]) : [['']],
+      hasHeader: !!s.hasHeader,
+      headerIdx: s.headerIdx != null ? s.headerIdx : -1,
+      customHeaders: Array.isArray(s.customHeaders) ? [...s.customHeaders] : [],
+    }));
+  }
+
   const sheets = [];
   const tables = result.tables || [];
   tables.forEach((tbl, i) => {
     let rows = null;
     if (tbl.data && Array.isArray(tbl.data) && tbl.data.length > 0) {
-      rows = tbl.data;
-    } else if (tbl.markdown && tbl.markdown.trim()) {
+      rows = _normaliseDataRows(tbl.data);
+    }
+    if (!rows && tbl.markdown && tbl.markdown.trim()) {
       rows = _parseMdToRows(tbl.markdown);
     }
     if (rows && rows.length > 0) {
@@ -333,7 +980,8 @@ function _buildSheets(result) {
         name: tbl.caption ? tbl.caption.substring(0, 20) : ('Table ' + (i + 1)),
         rows,
         hasHeader: detected >= 0,
-        headerIdx: detected >= 0 ? detected : 0
+        headerIdx: detected >= 0 ? detected : 0,
+        customHeaders: []
       });
     }
   });
@@ -349,7 +997,8 @@ function _buildSheets(result) {
           name: 'Sheet1',
           rows,
           hasHeader: detected >= 0,
-          headerIdx: detected >= 0 ? detected : (recon.headerIdx >= 0 ? recon.headerIdx : 0)
+          headerIdx: detected >= 0 ? detected : (recon.headerIdx >= 0 ? recon.headerIdx : 0),
+          customHeaders: []
         });
       }
     }
@@ -365,7 +1014,8 @@ function _buildSheets(result) {
           name: 'Sheet1',
           rows,
           hasHeader: detected >= 0,
-          headerIdx: detected >= 0 ? detected : 0
+          headerIdx: detected >= 0 ? detected : 0,
+          customHeaders: []
         });
       }
     }
@@ -374,10 +1024,10 @@ function _buildSheets(result) {
   const text = result.fused_text || result.text || '';
   if (text) {
     const rows = text.split('\n').filter(l => l.trim()).map(l => [l]);
-    sheets.push({ name: 'Full Text', rows, hasHeader: false, headerIdx: -1 });
+    sheets.push({ name: 'Full Text', rows, hasHeader: false, headerIdx: -1, customHeaders: [] });
   }
 
-  if (sheets.length === 0) sheets.push({ name: 'Sheet1', rows: [['No data']], hasHeader: false, headerIdx: -1 });
+  if (sheets.length === 0) sheets.push({ name: 'Sheet1', rows: [['No data']], hasHeader: false, headerIdx: -1, customHeaders: [] });
   return sheets;
 }
 
@@ -410,11 +1060,13 @@ function _renderXlsGrid(sheet) {
   if (!rows || rows.length === 0) { gridWrap.innerHTML = '<div class="xls-loading">No data</div>'; return; }
 
   _syncHeaderSelect(sheet);
+  gridWrap.tabIndex = 0;
 
-  const maxCols = Math.max(...rows.map(r => r.length));
+  const maxCols = Math.max(1, ...rows.map(r => r.length), (sheet.customHeaders || []).length);
   const colLetters = Array.from({ length: maxCols }, (_, i) => _colLetter(i));
 
   let selectedTd = null, selectedColIdx = -1, selectedRowIdx = -1;
+  const cellMatrix = [];
 
   const table = document.createElement('table');
   table.className = 'xls-table';
@@ -424,32 +1076,195 @@ function _renderXlsGrid(sheet) {
   const corner = document.createElement('th');
   corner.className = 'xls-th-corner';
   colHeaderRow.appendChild(corner);
+
   const colHeaders = colLetters.map((letter, ci) => {
     const th = document.createElement('th');
     th.className = 'xls-th-col';
-    
-    let headingVal = '';
-    if (hasHeader && headerIdx >= 0 && headerIdx < rows.length) {
-      const raw = rows[headerIdx][ci];
-      if (raw != null && String(raw).trim()) {
-        headingVal = String(raw).trim();
-      }
-    }
-
-    if (headingVal) {
-      th.classList.add('has-heading');
-      th.innerHTML = `<div class="xls-th-letter">${letter}</div><div class="xls-th-title" title="${esc(headingVal)}">${esc(headingVal)}</div>`;
-    } else {
-      th.innerHTML = `<div class="xls-th-letter">${letter}</div>`;
-    }
+    th.title = 'Double-click to edit column heading';
     colHeaderRow.appendChild(th);
     return th;
   });
+
+  function refreshColHeader(ci) {
+    const th = colHeaders[ci];
+    if (!th) return;
+    let headingVal = '';
+    if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < rows.length) {
+      const raw = rows[sheet.headerIdx][ci];
+      if (raw != null && String(raw).trim()) {
+        headingVal = String(raw).trim();
+      }
+    } else if (sheet.customHeaders && sheet.customHeaders[ci] != null && String(sheet.customHeaders[ci]).trim()) {
+      headingVal = String(sheet.customHeaders[ci]).trim();
+    }
+
+    th.classList.toggle('has-heading', !!headingVal);
+    if (headingVal) {
+      th.innerHTML = `<div class="xls-th-letter">${colLetters[ci]}</div><div class="xls-th-title" title="${esc(headingVal)}">${esc(headingVal)}</div>`;
+    } else {
+      th.innerHTML = `<div class="xls-th-letter">${colLetters[ci]}</div>`;
+    }
+  }
+
+  colHeaders.forEach((th, ci) => {
+    refreshColHeader(ci);
+    th.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      if (th.querySelector('.xls-th-input')) return;
+      let curVal = '';
+      if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < rows.length) {
+        curVal = rows[sheet.headerIdx][ci] != null ? String(rows[sheet.headerIdx][ci]) : '';
+      } else if (sheet.customHeaders && sheet.customHeaders[ci] != null) {
+        curVal = String(sheet.customHeaders[ci]);
+      }
+      th.innerHTML = `<div class="xls-th-letter">${colLetters[ci]}</div>`;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'xls-th-input';
+      input.value = curVal;
+      th.appendChild(input);
+      input.focus();
+      input.select();
+
+      let finished = false;
+      function finishHeaderEdit(save) {
+        if (finished) return;
+        finished = true;
+        if (save) {
+          const newHeading = input.value;
+          if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < rows.length) {
+            while (rows[sheet.headerIdx].length <= ci) rows[sheet.headerIdx].push('');
+            rows[sheet.headerIdx][ci] = newHeading;
+          } else {
+            sheet.customHeaders = sheet.customHeaders || [];
+            sheet.customHeaders[ci] = newHeading;
+          }
+          if (newHeading !== curVal) _markXlsDirty(true);
+          _renderXlsGrid(sheet);
+        } else {
+          refreshColHeader(ci);
+        }
+      }
+      input.addEventListener('blur', () => finishHeaderEdit(true));
+      input.addEventListener('keydown', (ke) => {
+        if (ke.key === 'Enter') { ke.preventDefault(); finishHeaderEdit(true); }
+        else if (ke.key === 'Escape') { ke.preventDefault(); ke.stopPropagation(); finishHeaderEdit(false); }
+      });
+    });
+  });
+
   thead.appendChild(colHeaderRow);
   table.appendChild(thead);
 
   const tbody = document.createElement('tbody');
   const rowNumCells = [];
+
+  function selectCell(ri, ci, focusGrid = false) {
+    if (!rows.length) return;
+    ri = Math.max(0, Math.min(rows.length - 1, ri));
+    ci = Math.max(0, Math.min(maxCols - 1, ci));
+    if (selectedTd) {
+      selectedTd.classList.remove('xls-sel');
+      if (selectedColIdx >= 0) colHeaders[selectedColIdx]?.classList.remove('xls-col-sel');
+      if (selectedRowIdx >= 0) rowNumCells[selectedRowIdx]?.classList.remove('xls-row-sel');
+    }
+    selectedRowIdx = ri;
+    selectedColIdx = ci;
+    selectedTd = cellMatrix[ri]?.[ci] || null;
+    sheet._selRow = ri;
+    sheet._selCol = ci;
+
+    selectedTd?.classList.add('xls-sel');
+    colHeaders[ci]?.classList.add('xls-col-sel');
+    rowNumCells[ri]?.classList.add('xls-row-sel');
+
+    cellRefEl.textContent = colLetters[ci] + (ri + 1);
+    const val = (rows[ri] && rows[ri][ci] != null) ? String(rows[ri][ci]) : '';
+    cellValEl.value = val;
+
+    const setBtn = document.getElementById('xlsSetHeaderBtn');
+    if (setBtn) {
+      setBtn.textContent = `📌 Set Row ${ri + 1} as Header`;
+    }
+    selectedTd?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (focusGrid) gridWrap.focus({ preventScroll: true });
+  }
+
+  function updateCellValue(ri, ci, newVal) {
+    if (!rows[ri]) rows[ri] = [];
+    while (rows[ri].length <= ci) rows[ri].push('');
+    const prevVal = rows[ri][ci] != null ? String(rows[ri][ci]) : '';
+    if (prevVal === newVal) return;
+    rows[ri][ci] = newVal;
+    const td = cellMatrix[ri]?.[ci];
+    if (td && !td.classList.contains('xls-editing')) {
+      td.textContent = newVal;
+      td.title = newVal;
+    }
+    _markXlsDirty(true);
+    if (sheet.hasHeader && ri === sheet.headerIdx) {
+      refreshColHeader(ci);
+      _syncHeaderSelect(sheet);
+    }
+  }
+
+  function startInlineEdit(ri, ci, initialChar = null) {
+    selectCell(ri, ci, false);
+    const td = cellMatrix[ri]?.[ci];
+    if (!td || td.classList.contains('xls-editing')) return;
+    const origVal = (rows[ri] && rows[ri][ci] != null) ? String(rows[ri][ci]) : '';
+    td.classList.add('xls-editing');
+    td.textContent = '';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'xls-cell-input';
+    input.value = initialChar !== null ? initialChar : origVal;
+    td.appendChild(input);
+    input.focus();
+    if (initialChar === null) {
+      input.select();
+    } else {
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+    cellValEl.value = input.value;
+
+    let committed = false;
+    input.addEventListener('input', () => {
+      cellValEl.value = input.value;
+    });
+
+    function finishEdit(save, nextAction = null) {
+      if (committed) return;
+      committed = true;
+      const finalVal = save ? input.value : origVal;
+      td.classList.remove('xls-editing');
+      td.textContent = finalVal;
+      td.title = finalVal;
+      if (save) updateCellValue(ri, ci, finalVal);
+      cellValEl.value = (rows[ri] && rows[ri][ci] != null) ? String(rows[ri][ci]) : '';
+      if (nextAction === 'down') selectCell(Math.min(rows.length - 1, ri + 1), ci, true);
+      else if (nextAction === 'right') selectCell(ri, Math.min(maxCols - 1, ci + 1), true);
+      else if (nextAction === 'left') selectCell(ri, Math.max(0, ci - 1), true);
+      else gridWrap.focus({ preventScroll: true });
+    }
+
+    input.addEventListener('blur', () => finishEdit(true));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        finishEdit(true, 'down');
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        finishEdit(true, e.shiftKey ? 'left' : 'right');
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        finishEdit(false);
+      }
+    });
+  }
+
   rows.forEach((rowCells, ri) => {
     const tr = document.createElement('tr');
     const isHdr = hasHeader && ri === headerIdx;
@@ -477,11 +1292,13 @@ function _renderXlsGrid(sheet) {
         sheet.headerIdx = ri;
         showToast(`Row ${ri + 1} set as table heading`);
       }
+      _markXlsDirty(true);
       _renderXlsGrid(sheet);
     });
 
     tr.appendChild(rowNum);
     rowNumCells.push(rowNum);
+    cellMatrix[ri] = [];
 
     for (let ci = 0; ci < maxCols; ci++) {
       const td = document.createElement('td');
@@ -490,25 +1307,14 @@ function _renderXlsGrid(sheet) {
       td.title = val;
       td.textContent = val;
 
-      td.addEventListener('click', () => {
-        if (selectedTd) {
-          selectedTd.classList.remove('xls-sel');
-          if (selectedColIdx >= 0) colHeaders[selectedColIdx]?.classList.remove('xls-col-sel');
-          if (selectedRowIdx >= 0) rowNumCells[selectedRowIdx]?.classList.remove('xls-row-sel');
-        }
-        selectedTd = td; selectedColIdx = ci; selectedRowIdx = ri;
-        td.classList.add('xls-sel');
-        colHeaders[ci]?.classList.add('xls-col-sel');
-        rowNum.classList.add('xls-row-sel');
-        cellRefEl.textContent = colLetters[ci] + (ri + 1);
-        cellValEl.textContent = val;
-
-        const setBtn = document.getElementById('xlsSetHeaderBtn');
-        if (setBtn) {
-          setBtn.textContent = `📌 Set Row ${ri + 1} as Header`;
-        }
+      td.addEventListener('click', () => selectCell(ri, ci, true));
+      td.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        startInlineEdit(ri, ci);
       });
+
       tr.appendChild(td);
+      cellMatrix[ri][ci] = td;
     }
     tbody.appendChild(tr);
   });
@@ -516,7 +1322,67 @@ function _renderXlsGrid(sheet) {
 
   gridWrap.innerHTML = '';
   gridWrap.appendChild(table);
-  gridWrap.scrollTop = 0; gridWrap.scrollLeft = 0;
+
+  cellValEl.onfocus = () => {
+    cellValEl.dataset.origVal = cellValEl.value;
+  };
+  cellValEl.oninput = () => {
+    if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
+      updateCellValue(selectedRowIdx, selectedColIdx, cellValEl.value);
+      const td = cellMatrix[selectedRowIdx]?.[selectedColIdx];
+      if (td) {
+        td.textContent = cellValEl.value;
+        td.title = cellValEl.value;
+      }
+    }
+  };
+  cellValEl.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
+        selectCell(Math.min(rows.length - 1, selectedRowIdx + 1), selectedColIdx, true);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      const orig = cellValEl.dataset.origVal ?? '';
+      if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
+        updateCellValue(selectedRowIdx, selectedColIdx, orig);
+        const td = cellMatrix[selectedRowIdx]?.[selectedColIdx];
+        if (td) {
+          td.textContent = orig;
+          td.title = orig;
+        }
+      }
+      cellValEl.value = orig;
+      gridWrap.focus({ preventScroll: true });
+    }
+  };
+
+  gridWrap.onkeydown = (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+    if (selectedRowIdx < 0 || selectedColIdx < 0) return;
+    if (e.key === 'ArrowUp') { e.preventDefault(); selectCell(selectedRowIdx - 1, selectedColIdx, false); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); selectCell(selectedRowIdx + 1, selectedColIdx, false); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); selectCell(selectedRowIdx, selectedColIdx - 1, false); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); selectCell(selectedRowIdx, selectedColIdx + 1, false); }
+    else if (e.key === 'Tab') {
+      e.preventDefault();
+      selectCell(selectedRowIdx, selectedColIdx + (e.shiftKey ? -1 : 1), false);
+    } else if (e.key === 'Enter' || e.key === 'F2') {
+      e.preventDefault();
+      startInlineEdit(selectedRowIdx, selectedColIdx);
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      updateCellValue(selectedRowIdx, selectedColIdx, '');
+      cellValEl.value = '';
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      startInlineEdit(selectedRowIdx, selectedColIdx, e.key);
+    }
+  };
+
+  selectCell(sheet._selRow || 0, sheet._selCol || 0, false);
 
   const dataRows = (hasHeader && headerIdx >= 0) ? Math.max(0, rows.length - 1) : rows.length;
   const headerNote = (hasHeader && headerIdx >= 0) ? ` · Heading: Row ${headerIdx + 1}` : '';
@@ -537,8 +1403,11 @@ async function openOrderPreview(jobId, filename) {
   gridWrap.classList.add('hidden');
   sheetTabsEl.innerHTML = '';
   document.getElementById('xlsCellRef').textContent = 'A1';
-  document.getElementById('xlsCellVal').textContent = '';
+  document.getElementById('xlsCellVal').value = '';
   document.getElementById('xlsStatusBar').textContent = '';
+  _xlsJobId = jobId;
+  _xlsResult = null;
+  _markXlsDirty(false);
   modal.classList.remove('hidden');
 
   let result = null;
@@ -549,6 +1418,7 @@ async function openOrderPreview(jobId, filename) {
 
   if (!result) { loading.textContent = 'Could not load result.'; return; }
 
+  _xlsResult = result;
   _xlsSheets = _buildSheets(result);
   _xlsActiveSheet = 0;
 
@@ -580,6 +1450,7 @@ async function openOrderPreview(jobId, filename) {
         sheet.headerIdx = -1;
         showToast('Headers reset to default (A, B, C...)');
       }
+      _markXlsDirty(true);
       _renderXlsGrid(sheet);
     };
   }
@@ -595,6 +1466,7 @@ async function openOrderPreview(jobId, filename) {
       if (rowNum >= 0 && rowNum < (sheet.rows || []).length) {
         sheet.hasHeader = true;
         sheet.headerIdx = rowNum;
+        _markXlsDirty(true);
         _renderXlsGrid(sheet);
         showToast(`Row ${rowNum + 1} set as table heading`);
       }
@@ -608,8 +1480,100 @@ async function openOrderPreview(jobId, filename) {
       if (!sheet) return;
       sheet.hasHeader = false;
       sheet.headerIdx = -1;
+      sheet.customHeaders = [];
+      _markXlsDirty(true);
       _renderXlsGrid(sheet);
       showToast('Headers reset to default (A, B, C...)');
+    };
+  }
+
+  const addRowBtn = document.getElementById('xlsAddRowBtn');
+  if (addRowBtn) {
+    addRowBtn.onclick = () => {
+      const sheet = _xlsSheets[_xlsActiveSheet];
+      if (!sheet) return;
+      const maxCols = Math.max(1, ...(sheet.rows || []).map(r => r.length), (sheet.customHeaders || []).length);
+      sheet.rows = sheet.rows || [];
+      sheet.rows.push(Array(maxCols).fill(''));
+      sheet._selRow = sheet.rows.length - 1;
+      sheet._selCol = 0;
+      _markXlsDirty(true);
+      _renderXlsGrid(sheet);
+      showToast('Added new row');
+    };
+  }
+
+  const addColBtn = document.getElementById('xlsAddColBtn');
+  if (addColBtn) {
+    addColBtn.onclick = () => {
+      const sheet = _xlsSheets[_xlsActiveSheet];
+      if (!sheet) return;
+      sheet.rows = sheet.rows || [[]];
+      const maxCols = Math.max(1, ...sheet.rows.map(r => r.length), (sheet.customHeaders || []).length);
+      sheet.rows.forEach(r => { while (r.length <= maxCols) r.push(''); });
+      sheet._selCol = maxCols;
+      _markXlsDirty(true);
+      _renderXlsGrid(sheet);
+      showToast('Added column ' + _colLetter(maxCols));
+    };
+  }
+
+  const saveXlsBtn = document.getElementById('xlsSaveBtn');
+  if (saveXlsBtn) {
+    saveXlsBtn.onclick = async () => {
+      if (!_xlsJobId || !_xlsResult) return;
+      saveXlsBtn.disabled = true;
+      saveXlsBtn.textContent = 'Saving…';
+      try {
+        const cleanSheets = _xlsSheets.map(s => ({
+          name: s.name,
+          rows: s.rows,
+          hasHeader: !!s.hasHeader,
+          headerIdx: s.headerIdx != null ? s.headerIdx : -1,
+          customHeaders: Array.isArray(s.customHeaders) ? s.customHeaders : [],
+        }));
+        _xlsResult.custom_sheets = cleanSheets;
+
+        const fullTextSheet = cleanSheets.find(s => s.name === 'Full Text');
+        if (fullTextSheet && Array.isArray(fullTextSheet.rows)) {
+          _xlsResult.fused_text = fullTextSheet.rows.map(r => r.join('\t')).join('\n');
+        }
+
+        const tableSheets = cleanSheets.filter(s => s.name !== 'Full Text');
+        if (tableSheets.length > 0 && Array.isArray(_xlsResult.tables) && _xlsResult.tables.length > 0) {
+          _xlsResult.tables = tableSheets.map((s, idx) => {
+            const existing = _xlsResult.tables[idx] || {};
+            const rows = s.rows || [];
+            const cols = rows.length ? Math.max(...rows.map(r => r.length)) : 0;
+            return {
+              ...existing,
+              caption: existing.caption || s.name,
+              data: rows,
+              shape: [rows.length, cols],
+            };
+          });
+        }
+
+        const r = await dbFetch('/api/ocr/result/' + encodeURIComponent(_xlsJobId), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ result: _xlsResult }),
+        });
+        if (!r || !r.ok) {
+          const err = r ? await r.json().catch(() => ({})) : {};
+          throw new Error(err.detail || 'Failed to save changes');
+        }
+        if (typeof currentJobId !== 'undefined' && currentJobId === _xlsJobId && currentResult) {
+          currentResult = _xlsResult;
+        }
+        _markXlsDirty(false);
+        saveXlsBtn.textContent = '💾 Saved';
+        showToast('Spreadsheet changes saved');
+      } catch (e) {
+        saveXlsBtn.disabled = false;
+        saveXlsBtn.textContent = '💾 Save*';
+        showToast('Save failed: ' + e.message, true);
+      }
     };
   }
 
@@ -632,7 +1596,12 @@ async function openOrderPreview(jobId, filename) {
         exportRows.push(sheet.rows[d]);
       }
     } else {
-      exportRows = sheet.rows;
+      if (sheet.customHeaders && sheet.customHeaders.some(h => h != null && String(h).trim())) {
+        const maxCols = Math.max(1, ...sheet.rows.map(r => r.length), sheet.customHeaders.length);
+        const hdrRow = Array.from({ length: maxCols }, (_, ci) => sheet.customHeaders[ci] ?? _colLetter(ci));
+        exportRows.push(hdrRow);
+      }
+      exportRows.push(...sheet.rows);
     }
 
     const csv = exportRows.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(',')).join('\r\n');
@@ -646,7 +1615,15 @@ async function openOrderPreview(jobId, filename) {
 
 function closeXlsModal() { document.getElementById('xlsModal')?.classList.add('hidden'); }
 document.getElementById('xlsClose')?.addEventListener('click', closeXlsModal);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeXlsModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const active = document.activeElement;
+    if (active && (active.classList.contains('xls-cell-input') || active.classList.contains('xls-th-input') || active.id === 'xlsCellVal')) {
+      return;
+    }
+    closeXlsModal();
+  }
+});
 
 document.getElementById('orderPreviewClose')?.addEventListener('click', () => {
   document.getElementById('orderPreview')?.classList.add('hidden');

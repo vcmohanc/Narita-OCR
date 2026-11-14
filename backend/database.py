@@ -195,12 +195,14 @@ def _create_tables():
         # Clients / customers master table
         """
         CREATE TABLE IF NOT EXISTS ocr_clients (
-            id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            code       VARCHAR(64)  NOT NULL UNIQUE,
-            name_ja    VARCHAR(128) NOT NULL,
-            name_en    VARCHAR(128) NOT NULL,
-            keywords   TEXT         NULL,
-            created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+            id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            code            VARCHAR(64)  NOT NULL UNIQUE,
+            name_ja         VARCHAR(128) NOT NULL,
+            name_en         VARCHAR(128) NOT NULL,
+            keywords        TEXT         NULL,
+            header_row      INT UNSIGNED NULL DEFAULT 1,
+            heading_columns TEXT         NULL,
+            created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """,
         # Main jobs table
@@ -262,11 +264,31 @@ def _create_tables():
                 REFERENCES ocr_jobs (job_id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """,
+        # Product Master table
+        """
+        CREATE TABLE IF NOT EXISTS ocr_products (
+            id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            product_code VARCHAR(64)   NOT NULL UNIQUE,
+            name_ja      VARCHAR(255)  NOT NULL,
+            name_en      VARCHAR(255)  NULL,
+            spec         VARCHAR(128)  NULL,
+            unit_price   DECIMAL(12,2) NULL,
+            client_id    INT UNSIGNED  NULL,
+            created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                       ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_code   (product_code),
+            INDEX idx_client (client_id),
+            CONSTRAINT fk_product_client FOREIGN KEY (client_id)
+                REFERENCES ocr_clients (id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """,
     ]
     with _get_connection() as con:
         cur = con.cursor()
         for stmt in ddl:
             cur.execute(stmt)
+        _seed_products(cur)
         cur.close()
 
 
@@ -299,7 +321,7 @@ def list_clients(with_counts: bool = True) -> list:
             if with_counts:
                 cur.execute(
                     """
-                    SELECT c.id, c.code, c.name_ja, c.name_en, c.keywords, c.created_at,
+                    SELECT c.id, c.code, c.name_ja, c.name_en, c.keywords, c.header_row, c.heading_columns, c.created_at,
                            COUNT(j.id) AS total_jobs,
                            SUM(j.status = 'done') AS done_jobs
                       FROM ocr_clients c
@@ -310,7 +332,7 @@ def list_clients(with_counts: bool = True) -> list:
                 )
             else:
                 cur.execute(
-                    "SELECT id, code, name_ja, name_en, keywords, created_at "
+                    "SELECT id, code, name_ja, name_en, keywords, header_row, heading_columns, created_at "
                     "FROM ocr_clients ORDER BY id ASC"
                 )
             rows = cur.fetchall()
@@ -670,6 +692,41 @@ def get_job_result(job_id: str) -> Optional[dict]:
         return None
 
 
+def update_job_result(job_id: str, result: dict) -> bool:
+    """Persist manually edited result_json and fused_text back to ocr_jobs."""
+    if not is_connected():
+        return False
+    try:
+        fused_text = (
+            result.get("fused_text")
+            or result.get("full_text")
+            or result.get("text")
+            or ""
+        )
+        result_json = json.dumps(result, ensure_ascii=False, default=str)
+        with _get_connection() as con:
+            cur = con.cursor()
+            cur.execute("SELECT 1 FROM ocr_jobs WHERE job_id = %s LIMIT 1", (job_id,))
+            if cur.fetchone() is None:
+                cur.close()
+                return False
+            cur.execute(
+                """
+                UPDATE ocr_jobs
+                   SET result_json = %s,
+                       fused_text  = %s,
+                       updated_at  = %s
+                 WHERE job_id = %s
+                """,
+                (result_json, fused_text, datetime.utcnow(), job_id),
+            )
+            cur.close()
+        return True
+    except Exception as exc:
+        logger.error("DB update_job_result failed: %s", exc)
+        return False
+
+
 def list_jobs(limit: int = 50, offset: int = 0, client_id: Optional[int] = None) -> list:
     """Return recent jobs ordered by created_at DESC (with client info)."""
     if not is_connected():
@@ -844,30 +901,87 @@ def _migrate():
                     REFERENCES ocr_clients (id) ON DELETE SET NULL
                 """
             )
+        if not _column_exists(cur, "ocr_clients", "header_row"):
+            cur.execute("ALTER TABLE ocr_clients ADD COLUMN header_row INT UNSIGNED NULL DEFAULT 1")
+        if not _column_exists(cur, "ocr_clients", "heading_columns"):
+            cur.execute("ALTER TABLE ocr_clients ADD COLUMN heading_columns TEXT NULL")
+        cur.execute(
+            """
+            UPDATE ocr_clients
+               SET header_row = 8,
+                   heading_columns = '商品名, 規格母目, C/S入数, 単価, 金額, 備考'
+             WHERE code = 'fusui_project' AND (heading_columns IS NULL OR heading_columns = '')
+            """
+        )
+        cur.execute(
+            """
+            UPDATE ocr_clients
+               SET header_row = 1,
+                   heading_columns = '商品コード, 商品名, 規格, 数量, 単価, 金額'
+             WHERE code != 'fusui_project' AND (heading_columns IS NULL OR heading_columns = '')
+            """
+        )
         _seed_clients(cur)
         cur.close()
 
 
-def add_client(name_ja: str, name_en: str, code: str, keywords: str = "") -> dict:
+def add_client(name_ja: str, name_en: str, code: str, keywords: str = "", header_row: Optional[int] = 1, heading_columns: str = "") -> dict:
     """Insert a new client. Returns the new row dict."""
     with _get_connection() as con:
         cur = con.cursor()
         cur.execute(
-            "INSERT INTO ocr_clients (code, name_ja, name_en, keywords) VALUES (%s, %s, %s, %s)",
-            (code.strip(), name_ja.strip(), name_en.strip(), keywords.strip()),
+            "INSERT INTO ocr_clients (code, name_ja, name_en, keywords, header_row, heading_columns) VALUES (%s, %s, %s, %s, %s, %s)",
+            (code.strip(), name_ja.strip(), name_en.strip(), keywords.strip(), header_row or 1, (heading_columns or "").strip()),
         )
         new_id = cur.lastrowid
         cur.close()
-    return {"id": new_id, "code": code, "name_ja": name_ja, "name_en": name_en, "keywords": keywords}
+    return {
+        "id": new_id,
+        "code": code,
+        "name_ja": name_ja,
+        "name_en": name_en,
+        "keywords": keywords,
+        "header_row": header_row or 1,
+        "heading_columns": heading_columns,
+    }
 
 
-def update_client(client_id: int, name_ja: str, name_en: str, code: str, keywords: str = "") -> bool:
+def update_client(client_id: int, name_ja: str, name_en: str, code: str, keywords: str = "", header_row: Optional[int] = 1, heading_columns: str = "") -> bool:
     """Update an existing client row. Returns True if a row was changed."""
     with _get_connection() as con:
         cur = con.cursor()
         cur.execute(
-            "UPDATE ocr_clients SET name_ja=%s, name_en=%s, code=%s, keywords=%s WHERE id=%s",
-            (name_ja.strip(), name_en.strip(), code.strip(), keywords.strip(), client_id),
+            "UPDATE ocr_clients SET name_ja=%s, name_en=%s, code=%s, keywords=%s, header_row=%s, heading_columns=%s WHERE id=%s",
+            (name_ja.strip(), name_en.strip(), code.strip(), keywords.strip(), header_row or 1, (heading_columns or "").strip(), client_id),
+        )
+        affected = cur.rowcount
+        cur.close()
+    return affected > 0
+
+
+def get_client_by_id(client_id: int) -> Optional[dict]:
+    """Retrieve a single client by ID."""
+    if not is_connected():
+        return None
+    try:
+        with _get_connection() as con:
+            cur = con.cursor(dictionary=True)
+            cur.execute("SELECT * FROM ocr_clients WHERE id = %s", (client_id,))
+            row = cur.fetchone()
+            cur.close()
+            return row
+    except Exception as exc:
+        logger.error("DB get_client_by_id failed: %s", exc)
+        return None
+
+
+def update_client_heading_format(client_id: int, header_row: int, heading_columns: str) -> bool:
+    """Update only header_row and heading_columns for a client."""
+    with _get_connection() as con:
+        cur = con.cursor()
+        cur.execute(
+            "UPDATE ocr_clients SET header_row = %s, heading_columns = %s WHERE id = %s",
+            (header_row or 1, (heading_columns or "").strip(), client_id),
         )
         affected = cur.rowcount
         cur.close()
@@ -953,3 +1067,142 @@ def _update_job_status(job_id: str, status: str):
             (status, datetime.utcnow(), job_id),
         )
         cur.close()
+
+
+# ---------------------------------------------------------------------------
+# Product Master CRUD
+# ---------------------------------------------------------------------------
+
+def _seed_products(cur):
+    """Seed initial sample product if table is empty."""
+    try:
+        cur.execute("SELECT COUNT(*) FROM ocr_products")
+        row = cur.fetchone()
+        if row and row[0] == 0:
+            cur.execute(
+                """
+                INSERT INTO ocr_products
+                    (product_code, name_ja, name_en, spec, unit_price, client_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                ("1029510171", "有機青じそ", "Organic Shiso", "10枚 P", 125.00, 10),
+            )
+            logger.info("Seeded initial product 1029510171 into ocr_products")
+    except Exception as exc:
+        logger.warning("Could not seed products: %s", exc)
+
+
+def list_products(limit: int = 500, offset: int = 0, client_id: Optional[int] = None, query: Optional[str] = None) -> list:
+    """Return all products from `ocr_products` joined with client info."""
+    if not is_connected():
+        return []
+    try:
+        with _get_connection() as con:
+            cur = con.cursor(dictionary=True)
+            sql = """
+                SELECT p.id, p.product_code, p.name_ja, p.name_en, p.spec, p.unit_price,
+                       p.client_id, c.code AS client_code, c.name_ja AS client_name_ja, c.name_en AS client_name_en,
+                       p.created_at, p.updated_at
+                  FROM ocr_products p
+             LEFT JOIN ocr_clients c ON p.client_id = c.id
+                 WHERE 1=1
+            """
+            params = []
+            if client_id is not None:
+                sql += " AND p.client_id = %s"
+                params.append(client_id)
+            if query and query.strip():
+                q = f"%{query.strip()}%"
+                sql += " AND (p.product_code LIKE %s OR p.name_ja LIKE %s OR p.name_en LIKE %s OR p.spec LIKE %s)"
+                params.extend([q, q, q, q])
+            sql += " ORDER BY p.id DESC LIMIT %s OFFSET %s"
+            params.extend([limit, offset])
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall()
+            cur.close()
+            for r in rows:
+                if r.get("unit_price") is not None:
+                    r["unit_price"] = float(r["unit_price"])
+            return rows
+    except Exception as exc:
+        logger.error("DB list_products failed: %s", exc)
+        return []
+
+
+def get_product(product_id: int) -> Optional[dict]:
+    """Retrieve a single product by ID."""
+    if not is_connected():
+        return None
+    try:
+        with _get_connection() as con:
+            cur = con.cursor(dictionary=True)
+            cur.execute(
+                """
+                SELECT p.id, p.product_code, p.name_ja, p.name_en, p.spec, p.unit_price,
+                       p.client_id, c.code AS client_code, c.name_ja AS client_name_ja, c.name_en AS client_name_en,
+                       p.created_at, p.updated_at
+                  FROM ocr_products p
+             LEFT JOIN ocr_clients c ON p.client_id = c.id
+                 WHERE p.id = %s
+                """,
+                (product_id,),
+            )
+            row = cur.fetchone()
+            cur.close()
+            if row and row.get("unit_price") is not None:
+                row["unit_price"] = float(row["unit_price"])
+            return row
+    except Exception as exc:
+        logger.error("DB get_product failed: %s", exc)
+        return None
+
+
+def create_product(product_code: str, name_ja: str, name_en: str = "", spec: str = "", unit_price: Optional[float] = None, client_id: Optional[int] = None) -> dict:
+    """Insert a new product into ocr_products."""
+    with _get_connection() as con:
+        cur = con.cursor()
+        cur.execute(
+            """
+            INSERT INTO ocr_products
+                (product_code, name_ja, name_en, spec, unit_price, client_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (product_code.strip(), name_ja.strip(), (name_en or "").strip(), (spec or "").strip(), unit_price, client_id),
+        )
+        new_id = cur.lastrowid
+        cur.close()
+    return get_product(new_id) or {"id": new_id, "product_code": product_code, "name_ja": name_ja}
+
+
+def update_product(product_id: int, product_code: str, name_ja: str, name_en: str = "", spec: str = "", unit_price: Optional[float] = None, client_id: Optional[int] = None) -> bool:
+    """Update an existing product."""
+    with _get_connection() as con:
+        cur = con.cursor()
+        cur.execute(
+            """
+            UPDATE ocr_products
+               SET product_code = %s,
+                   name_ja      = %s,
+                   name_en      = %s,
+                   spec         = %s,
+                   unit_price   = %s,
+                   client_id    = %s,
+                   updated_at   = %s
+             WHERE id = %s
+            """,
+            (product_code.strip(), name_ja.strip(), (name_en or "").strip(), (spec or "").strip(), unit_price, client_id, datetime.utcnow(), product_id),
+        )
+        affected = cur.rowcount
+        cur.close()
+    return affected > 0
+
+
+def delete_product(product_id: int) -> bool:
+    """Delete a product by ID."""
+    with _get_connection() as con:
+        cur = con.cursor()
+        cur.execute("DELETE FROM ocr_products WHERE id = %s", (product_id,))
+        affected = cur.rowcount
+        cur.close()
+    return affected > 0
+

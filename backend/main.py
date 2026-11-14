@@ -320,6 +320,29 @@ async def job_result(job_id: str):
     return result
 
 
+class UpdateResultRequest(BaseModel):
+    result: dict
+
+
+@app.put("/api/ocr/result/{job_id}", dependencies=[Depends(_require_api_key)])
+async def update_job_result(request: Request, job_id: str, payload: UpdateResultRequest):
+    """Persist manually edited OCR spreadsheet/result data."""
+    _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
+    in_memory = job_id in jobs
+    if in_memory:
+        jobs[job_id]["result"] = payload.result
+
+    updated_db = False
+    if db.is_connected():
+        updated_db = db.update_job_result(job_id, payload.result)
+
+    if not in_memory and not updated_db:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    _audit(request, "result_update", f"job_id={job_id} db={updated_db}")
+    return {"status": "updated", "job_id": job_id}
+
+
 class SaveJobRequest(BaseModel):
     filename: Optional[str] = Field(default=None, max_length=512)
     engine:   Optional[str] = Field(default=None, max_length=64)
@@ -327,10 +350,26 @@ class SaveJobRequest(BaseModel):
 
 
 class ClientPayload(BaseModel):
-    name_ja:  str = Field(..., min_length=1, max_length=128)
-    name_en:  str = Field(default="", max_length=128)
-    code:     str = Field(..., min_length=1, max_length=64)
-    keywords: str = Field(default="", max_length=1000)
+    name_ja:         str = Field(..., min_length=1, max_length=128)
+    name_en:         str = Field(default="", max_length=128)
+    code:            str = Field(..., min_length=1, max_length=64)
+    keywords:        str = Field(default="", max_length=1000)
+    header_row:      Optional[int] = Field(default=1, ge=1, le=100)
+    heading_columns: Optional[str] = Field(default="", max_length=2000)
+
+
+class ClientHeadingPayload(BaseModel):
+    header_row:      int = Field(default=1, ge=1, le=100)
+    heading_columns: str = Field(default="", max_length=2000)
+
+
+class ProductPayload(BaseModel):
+    product_code: str = Field(..., min_length=1, max_length=64)
+    name_ja:      str = Field(..., min_length=1, max_length=255)
+    name_en:      str = Field(default="", max_length=255)
+    spec:         str = Field(default="", max_length=128)
+    unit_price:   Optional[float] = None
+    client_id:    Optional[int] = None
 
 
 class BulkDeleteRequest(BaseModel):
@@ -432,7 +471,7 @@ async def list_clients():
 
 @app.post("/api/db/clients", dependencies=[Depends(_require_api_key)])
 async def create_client(request: Request, payload: ClientPayload):
-    """Create a new client. Body: {name_ja, name_en, code, keywords?}"""
+    """Create a new client. Body: {name_ja, name_en, code, keywords?, header_row?, heading_columns?}"""
     _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
     if not db.is_connected():
         raise HTTPException(status_code=503, detail="Database not connected")
@@ -443,7 +482,14 @@ async def create_client(request: Request, payload: ClientPayload):
     if not name_ja or not code:
         raise HTTPException(status_code=400, detail="name_ja and code are required")
     try:
-        result = db.add_client(name_ja=name_ja, name_en=name_en, code=code, keywords=keywords)
+        result = db.add_client(
+            name_ja=name_ja,
+            name_en=name_en,
+            code=code,
+            keywords=keywords,
+            header_row=payload.header_row or 1,
+            heading_columns=payload.heading_columns or "",
+        )
         _audit(request, "client_create", f"code={code}")
         return result
     except Exception:
@@ -463,11 +509,41 @@ async def update_client(request: Request, client_id: int, payload: ClientPayload
     keywords = payload.keywords.strip()
     if not name_ja or not code:
         raise HTTPException(status_code=400, detail="name_ja and code are required")
-    updated = db.update_client(client_id, name_ja=name_ja, name_en=name_en, code=code, keywords=keywords)
+    updated = db.update_client(
+        client_id,
+        name_ja=name_ja,
+        name_en=name_en,
+        code=code,
+        keywords=keywords,
+        header_row=payload.header_row or 1,
+        heading_columns=payload.heading_columns or "",
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Client not found")
     _audit(request, "client_update", f"client_id={client_id}")
     return {"updated": True, "id": client_id}
+
+
+@app.put("/api/db/clients/{client_id}/heading-format", dependencies=[Depends(_require_api_key)])
+async def update_client_heading_format_endpoint(request: Request, client_id: int, payload: ClientHeadingPayload):
+    """Update only the heading format (header_row and heading_columns) for a client."""
+    _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    updated = db.update_client_heading_format(
+        client_id=client_id,
+        header_row=payload.header_row,
+        heading_columns=payload.heading_columns,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Client not found")
+    _audit(request, "client_heading_format_update", f"client_id={client_id} header_row={payload.header_row}")
+    return {
+        "updated": True,
+        "id": client_id,
+        "header_row": payload.header_row,
+        "heading_columns": payload.heading_columns,
+    }
 
 
 @app.delete("/api/db/clients/{client_id}", dependencies=[Depends(_require_api_key)])
@@ -481,6 +557,106 @@ async def delete_client(request: Request, client_id: int):
         raise HTTPException(status_code=404, detail="Client not found")
     _audit(request, "client_delete", f"client_id={client_id}")
     return {"deleted": True, "id": client_id}
+
+
+# ---------------------------------------------------------------------------
+# Product Master API Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/db/products", dependencies=[Depends(_require_api_key)])
+async def list_products(
+    limit:     int = Query(default=500, ge=1, le=2000),
+    offset:    int = Query(default=0,   ge=0),
+    client_id: Optional[int] = Query(default=None, ge=1),
+    q:         Optional[str] = Query(default=None, max_length=100),
+):
+    """Return all products from `ocr_products` (optionally filtered by client_id or search query)."""
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    rows = db.list_products(limit=limit, offset=offset, client_id=client_id, query=q)
+    return [_serialize_dates(r) for r in rows]
+
+
+@app.get("/api/db/products/{product_id}", dependencies=[Depends(_require_api_key)])
+async def get_product_detail(product_id: int):
+    """Get single product detail."""
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    p = db.get_product(product_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return _serialize_dates(p)
+
+
+@app.post("/api/db/products", dependencies=[Depends(_require_api_key)])
+async def create_product(request: Request, payload: ProductPayload):
+    """Create a new product record."""
+    _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    code = payload.product_code.strip()
+    name_ja = payload.name_ja.strip()
+    if not code or not name_ja:
+        raise HTTPException(status_code=400, detail="product_code and name_ja are required")
+    try:
+        prod = db.create_product(
+            product_code=code,
+            name_ja=name_ja,
+            name_en=payload.name_en,
+            spec=payload.spec,
+            unit_price=payload.unit_price,
+            client_id=payload.client_id,
+        )
+    except Exception as exc:
+        if "Duplicate entry" in str(exc) or "1062" in str(exc):
+            raise HTTPException(status_code=409, detail=f"Product code '{code}' already exists")
+        logger.exception("Failed to create product: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    _audit(request, "product_create", f"id={prod.get('id')} code={code}")
+    return _serialize_dates(prod)
+
+
+@app.put("/api/db/products/{product_id}", dependencies=[Depends(_require_api_key)])
+async def update_product(request: Request, product_id: int, payload: ProductPayload):
+    """Update an existing product."""
+    _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    code = payload.product_code.strip()
+    name_ja = payload.name_ja.strip()
+    if not code or not name_ja:
+        raise HTTPException(status_code=400, detail="product_code and name_ja are required")
+    try:
+        updated = db.update_product(
+            product_id=product_id,
+            product_code=code,
+            name_ja=name_ja,
+            name_en=payload.name_en,
+            spec=payload.spec,
+            unit_price=payload.unit_price,
+            client_id=payload.client_id,
+        )
+    except Exception as exc:
+        if "Duplicate entry" in str(exc) or "1062" in str(exc):
+            raise HTTPException(status_code=409, detail=f"Product code '{code}' already exists")
+        raise HTTPException(status_code=500, detail=str(exc))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Product not found")
+    _audit(request, "product_update", f"id={product_id} code={code}")
+    return {"updated": True, "id": product_id}
+
+
+@app.delete("/api/db/products/{product_id}", dependencies=[Depends(_require_api_key)])
+async def delete_product(request: Request, product_id: int):
+    """Delete a product from master."""
+    _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
+    if not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+    deleted = db.delete_product(product_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Product not found")
+    _audit(request, "product_delete", f"id={product_id}")
+    return {"deleted": True, "id": product_id}
 
 
 @app.get("/api/db/jobs", dependencies=[Depends(_require_api_key)])

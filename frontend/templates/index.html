@@ -6,7 +6,7 @@
   <title>OCR System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=3" />
+  <link rel="stylesheet" href="/static/style.css?v=7" />
 </head>
 <body>
 
@@ -30,6 +30,14 @@
         <button class="nav-item" data-view="order">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
           <span>Order</span>
+        </button>
+        <button class="nav-item" data-view="clients">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Clients</span>
+        </button>
+        <button class="nav-item" data-view="productMaster">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          <span>Product Master</span>
         </button>
       </div>
     </nav>
@@ -258,6 +266,103 @@
         </div>
       </div>
 
+      <!-- CLIENTS VIEW -->
+      <div class="view hidden" id="viewClients">
+        <!-- Top bar -->
+        <div class="order-topbar">
+          <div class="order-topbar-title">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Clients
+          </div>
+          <span class="order-row-count" id="clientsRowCount">0 clients</span>
+          <div class="order-toolbar-actions">
+            <button class="btn-sm btn-add-client" id="clientViewAddBtn">+ Add Client</button>
+            <button class="btn-sm" id="clientsExportBtn" title="Export to CSV">↓ Export CSV</button>
+            <button class="btn-sm" id="clientsRefreshBtn">↻ Refresh</button>
+          </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="order-filterbar">
+          <div class="filter-search-wrap">
+            <svg class="filter-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="filter-search" id="clientsSearch" type="search" placeholder="Search client code, Japanese name, English name, keywords…" />
+          </div>
+        </div>
+
+        <!-- Excel-style sheet table -->
+        <div class="order-sheet-wrap" id="clientsSheetWrap">
+          <table class="order-sheet" id="clientsSheet">
+            <thead>
+              <tr>
+                <th class="col-no" style="width:48px">No.</th>
+                <th class="sortable" data-col="code" style="width:130px">Client Code <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="name_ja" style="width:160px">Japanese Name <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="name_en" style="width:140px">English Name <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="keywords">Detection Keywords <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="heading_format" style="min-width:240px">Heading Format Option <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="total_jobs" style="width:105px;text-align:center">Total Orders <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="created_at" style="width:140px">Created At <span class="sort-icon">↕</span></th>
+                <th style="width:160px;text-align:center">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="clientsSheetBody">
+              <tr><td colspan="9" class="sheet-loading">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PRODUCT MASTER VIEW -->
+      <div class="view hidden" id="viewProductMaster">
+        <!-- Top bar -->
+        <div class="order-topbar">
+          <div class="order-topbar-title">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            Product Master
+          </div>
+          <span class="order-row-count" id="productRowCount">0 products</span>
+          <div class="order-toolbar-actions">
+            <button class="btn-sm btn-add-client" id="addProductBtn">+ Add Product</button>
+            <button class="btn-sm" id="productExportBtn" title="Export to CSV">↓ Export CSV</button>
+            <button class="btn-sm" id="productRefreshBtn">↻ Refresh</button>
+          </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="order-filterbar">
+          <div class="filter-search-wrap">
+            <svg class="filter-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="filter-search" id="productSearch" type="search" placeholder="Search item code, product name, spec…" />
+          </div>
+          <select class="filter-select" id="productClientFilter">
+            <option value="">All Clients</option>
+          </select>
+        </div>
+
+        <!-- Excel-style sheet table -->
+        <div class="order-sheet-wrap" id="productSheetWrap">
+          <table class="order-sheet" id="productSheet">
+            <thead>
+              <tr>
+                <th class="col-no" style="width:48px">No.</th>
+                <th class="sortable" data-col="product_code" style="width:140px">Item Code <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="name_ja">Product Name (JA) <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="name_en">Product Name (EN) <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="spec" style="width:120px">Spec <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="unit_price" style="width:110px;text-align:right">Unit Price <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="client" style="width:170px">Client <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="updated_at" style="width:150px">Updated At <span class="sort-icon">↕</span></th>
+                <th style="width:110px;text-align:center">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="productSheetBody">
+              <tr><td colspan="9" class="sheet-loading">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div><!-- /main-area -->
   </div><!-- /app-shell -->
 
@@ -279,14 +384,17 @@
       <div class="xls-formulabar">
         <div class="xls-cell-ref" id="xlsCellRef">A1</div>
         <div class="xls-formulabar-sep">fx</div>
-        <div class="xls-cell-val" id="xlsCellVal"></div>
+        <input type="text" class="xls-cell-val" id="xlsCellVal" placeholder="Select a cell to edit value…" autocomplete="off" />
         <div class="xls-header-tools">
           <label class="xls-header-lbl" for="xlsHeaderSelect">Heading:</label>
           <select class="xls-header-select" id="xlsHeaderSelect" title="Select row to use as column headings"></select>
           <button class="btn-sm btn-header-act" id="xlsSetHeaderBtn" title="Set selected row as table headings">📌 Set as Header</button>
           <button class="btn-sm" id="xlsResetHeaderBtn" title="Reset headers to default (A, B, C...)">↺ Reset</button>
+          <button class="btn-sm" id="xlsAddRowBtn" title="Add a new row at the bottom">+ Row</button>
+          <button class="btn-sm" id="xlsAddColBtn" title="Add a new column on the right">+ Col</button>
         </div>
-        <button class="btn-sm" id="xlsCsvBtn" style="margin-left:auto;flex-shrink:0;white-space:nowrap">↓ CSV</button>
+        <button class="btn-sm btn-save-xls" id="xlsSaveBtn" style="margin-left:auto;flex-shrink:0;white-space:nowrap" disabled title="Save manual changes">💾 Save</button>
+        <button class="btn-sm" id="xlsCsvBtn" style="flex-shrink:0;white-space:nowrap">↓ CSV</button>
       </div>
       <div class="xls-main">
         <div class="xls-loading" id="xlsLoading">Loading…</div>
@@ -320,6 +428,16 @@
           <label class="modal-label" for="clientFormKeywords">Keywords <small>— comma-separated, for auto-detection</small></label>
           <input class="modal-input" id="clientFormKeywords" placeholder="e.g. 三徳,santoku,SANTOKU" />
         </div>
+        <div class="modal-row" style="display:flex;gap:12px">
+          <div class="modal-field" style="width:130px">
+            <label class="modal-label" for="clientFormHeaderRow">Header Row</label>
+            <input class="modal-input" id="clientFormHeaderRow" type="number" min="1" max="100" value="1" placeholder="e.g. 1" />
+          </div>
+          <div class="modal-field" style="flex:1">
+            <label class="modal-label" for="clientFormHeadingColumns">Heading Columns</label>
+            <input class="modal-input" id="clientFormHeadingColumns" placeholder="e.g. 商品コード, 商品名, 規格, 数量, 単価, 金額" />
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn-sm" id="clientFormCancel">Cancel</button>
@@ -328,6 +446,83 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=12"></script>
+  <!-- Dedicated Client Heading Format Modal -->
+  <div class="modal-backdrop hidden" id="clientHeadingModalBackdrop">
+    <div class="modal-box" style="max-width:540px">
+      <div class="modal-title" id="clientHeadingModalTitle">Configure Heading Format</div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+          Select a template or customize the table header row and column headings for this client.
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="clientHeadingPreset">Preset Template</label>
+          <select class="modal-input" id="clientHeadingPreset">
+            <option value="custom">— Custom Configuration —</option>
+            <option value="fusui">Fusui Style (Row 8 · 商品名, 規格母目, C/S入数, 単価, 金額, 備考)</option>
+            <option value="standard">Standard Order (Row 1 · 商品コード, 商品名, 規格, 数量, 単価, 金額)</option>
+            <option value="wholesale">Wholesale Format (Row 1 · 品番, 品名, 規格, 入数, 単価, 金額, 納品日)</option>
+            <option value="simple">Simple Table (Row 1 · 品名, 数量, 単価, 金額)</option>
+          </select>
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="clientHeadingRow">Header Row in Order Sheet <span class="required">*</span></label>
+          <input class="modal-input" id="clientHeadingRow" type="number" min="1" max="100" placeholder="e.g. 8" />
+          <small style="color:var(--muted);font-size:11px">Row number in Excel/PDF containing column headings (e.g. 8 for Fusui, 1 for standard)</small>
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="clientHeadingColumns">Heading Columns <span class="required">*</span></label>
+          <textarea class="modal-input" id="clientHeadingColumns" rows="3" placeholder="Comma-separated column names, e.g. 商品名, 規格母目, C/S入数, 単価, 金額, 備考"></textarea>
+          <small style="color:var(--muted);font-size:11px">Order columns will be mapped and formatted using these headings</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm" id="clientHeadingCancel">Cancel</button>
+        <button class="btn-primary modal-save-btn" id="clientHeadingSave">Save Heading Format</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Product add/edit modal -->
+  <div class="modal-backdrop hidden" id="productModalBackdrop">
+    <div class="modal-box">
+      <div class="modal-title" id="productModalTitle">Add Product</div>
+      <div class="modal-body">
+        <div class="modal-field">
+          <label class="modal-label" for="productFormCode">Item / Product Code <span class="required">*</span></label>
+          <input class="modal-input" id="productFormCode" placeholder="e.g. 1029510171" autocomplete="off" />
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="productFormNameJa">Product Name (Japanese) <span class="required">*</span></label>
+          <input class="modal-input" id="productFormNameJa" placeholder="e.g. 有機青じそ" />
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="productFormNameEn">Product Name (English)</label>
+          <input class="modal-input" id="productFormNameEn" placeholder="e.g. Organic Green Shiso" />
+        </div>
+        <div class="modal-row" style="display:flex;gap:12px">
+          <div class="modal-field" style="flex:1">
+            <label class="modal-label" for="productFormSpec">Specification / Packing</label>
+            <input class="modal-input" id="productFormSpec" placeholder="e.g. 10枚 P" />
+          </div>
+          <div class="modal-field" style="flex:1">
+            <label class="modal-label" for="productFormPrice">Unit Price (¥)</label>
+            <input class="modal-input" id="productFormPrice" type="number" step="0.01" placeholder="e.g. 100" />
+          </div>
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="productFormClient">Client</label>
+          <select class="modal-input" id="productFormClient">
+            <option value="">(None / General)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm" id="productFormCancel">Cancel</button>
+        <button class="btn-primary modal-save-btn" id="productFormSave">Save Product</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>
