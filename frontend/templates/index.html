@@ -6,7 +6,7 @@
   <title>OCR System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=16" />
+  <link rel="stylesheet" href="/static/style.css?v=18" />
 </head>
 <body>
 
@@ -94,6 +94,28 @@
               </div>
             </div>
 
+            <!-- Client selector for Client-specific OCR -->
+            <div class="upload-client-section" id="uploadClientSection">
+              <div class="upload-client-row">
+                <label class="engine-label" for="uploadClientSelect">取引先 (Client):</label>
+                <div class="upload-client-controls">
+                  <select id="uploadClientSelect" class="upload-client-select" aria-label="Select client for OCR">
+                    <option value="">🔍 自動判別 (ファイル名・OCR内容から自動マッチ)</option>
+                  </select>
+                  <button type="button" class="btn-sm" id="uploadClientHeadingBtn" title="選択中の取引先の見出しフォーマットを編集">⚙ 見出し設定</button>
+                  <button type="button" class="btn-sm" id="uploadAddClientBtn" title="新しい取引先を登録">＋ 取引先追加</button>
+                </div>
+              </div>
+              <div class="upload-client-preview hidden" id="uploadClientPreview" style="display:none !important">
+                <div class="upload-client-preview-top">
+                  <span class="upload-client-mode-badge" id="uploadClientModeBadge">自動判別</span>
+                  <span class="upload-client-name" id="uploadClientName">—</span>
+                  <span class="pm-row-badge" id="uploadClientRowBadge">1行目</span>
+                </div>
+                <div class="upload-client-cols" id="uploadClientCols"></div>
+              </div>
+            </div>
+
             <!-- Engine selector -->
             <div class="engine-row">
               <span class="engine-label">Engine:</span>
@@ -126,6 +148,7 @@
               <span class="results-title">Results</span>
               <div class="results-meta" id="resultsMeta"></div>
               <div class="results-actions">
+                <button class="btn-sm" id="openResultXlsBtn" title="取引先見出しフォーマットでスプレッドシート表示・編集">📊 Excel表示・編集</button>
                 <button class="btn-sm btn-save" id="saveDbBtn" disabled>Save to DB</button>
                 <button class="btn-sm" id="copyBtn">Copy text</button>
                 <div class="dl-dropdown" id="dlDropdown">
@@ -137,6 +160,20 @@
                     <button class="dl-item" data-fmt="csv">Tables CSV (.csv)</button>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <div class="results-client-bar hidden" id="resultsClientBar" style="display:none !important">
+              <div class="results-client-bar-left">
+                <span class="xls-client-bar-label">取引先OCRフォーマット:</span>
+                <select id="resultsClientSelect" class="xls-client-select" aria-label="Change client format for OCR result">
+                  <option value="">— 取引先未指定 (標準抽出) —</option>
+                </select>
+                <span class="pm-row-badge" id="resultsClientRowBadge">1行目</span>
+                <div class="results-client-cols" id="resultsClientCols"></div>
+              </div>
+              <div class="results-client-bar-right">
+                <button type="button" class="btn-sm" id="resultsEditHeadingBtn" title="この取引先の見出しフォーマットを編集">⚙ 見出し設定</button>
               </div>
             </div>
 
@@ -404,6 +441,8 @@
         <div class="xls-client-bar-left">
           <span class="xls-client-bar-label">取引先フォーマット:</span>
           <select class="xls-client-select" id="xlsClientSelect" title="取引先見出しフォーマットを選択"></select>
+          <span class="xls-client-bar-label xls-date-label">基準日:</span>
+          <input type="date" class="xls-date-input" id="xlsHeadingBaseDate" title="入力した日付に合わせて曜日見出し（月〜日）の日付を自動更新" />
         </div>
         <div class="xls-client-bar-cols" id="xlsClientColsPreview"></div>
         <div class="xls-client-bar-actions">
@@ -494,9 +533,13 @@
 
         <!-- Live Visual Header Preview (matches National Azabu order sheet header design) -->
         <div class="modal-field" style="margin-top:14px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
             <label class="modal-label" style="margin:0">見出しプレビュー (発注書デザイン)</label>
-            <span id="clientHeadingColCount" style="font-size:11px;color:var(--primary);font-weight:600">0 列</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label for="clientHeadingPreviewDate" style="font-size:11px;color:var(--muted);font-weight:600">基準日:</label>
+              <input type="date" class="xls-date-input" id="clientHeadingPreviewDate" title="基準日を変更するとプレビュー内の曜日見出し日付が自動更新されます" />
+              <span id="clientHeadingColCount" style="font-size:11px;color:var(--primary);font-weight:600">0 列</span>
+            </div>
           </div>
           <div class="heading-live-preview-wrap" id="headingLivePreviewWrap">
             <div class="heading-live-preview-bar" id="headingLivePreviewBar">
@@ -555,6 +598,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=28"></script>
+  <script src="/static/app.js?v=31"></script>
 </body>
 </html>
