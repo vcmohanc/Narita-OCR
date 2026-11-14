@@ -109,6 +109,7 @@ document.getElementById('clientFormSave')?.addEventListener('click', async () =>
     await reloadOrderSheet();
     if (typeof reloadClientsSheet === 'function') await reloadClientsSheet();
     if (typeof reloadProductSheet === 'function' && _productsLoaded) await reloadProductSheet();
+    if (typeof loadHomeUploadClients === 'function') await loadHomeUploadClients(true);
   } catch (e) { showToast('エラー: ' + e.message, true); }
   finally { saveBtn.disabled = false; saveBtn.textContent = '取引先を保存'; }
 });
@@ -458,6 +459,7 @@ function updateHeadingModalLivePreview() {
   const colsTextarea = document.getElementById('clientHeadingColumns');
   const countEl = document.getElementById('clientHeadingColCount');
   const previewBar = document.getElementById('headingLivePreviewBar');
+  const previewDateInput = document.getElementById('clientHeadingPreviewDate');
   if (!colsTextarea || !previewBar) return;
 
   const rawVal = colsTextarea.value || '';
@@ -475,10 +477,16 @@ function updateHeadingModalLivePreview() {
     return;
   }
 
+  const previewDateVal = (previewDateInput?.value || '').trim();
+  const previewSheet = /^\d{4}-\d{2}-\d{2}$/.test(previewDateVal)
+    ? { headingBaseDate: previewDateVal, rows: [] }
+    : null;
+
   previewBar.innerHTML = cols.map((col, idx) => {
-    return `<div class="heading-live-preview-cell" title="第 ${idx + 1} 列: ${esc(col)}">
+    const formattedCol = previewSheet ? _formatHeadingWithDate(col, previewSheet) : col;
+    return `<div class="heading-live-preview-cell" title="第 ${idx + 1} 列: ${esc(formattedCol)}">
       <div class="heading-cell-idx">${idx + 1}</div>
-      <div class="heading-cell-content">${formatHeaderHtml(col)}</div>
+      <div class="heading-cell-content">${formatHeaderHtml(formattedCol)}</div>
     </div>`;
   }).join('');
 }
@@ -492,12 +500,21 @@ function openClientHeadingModal(client) {
   const rowInput  = document.getElementById('clientHeadingRow');
   const colsInput = document.getElementById('clientHeadingColumns');
   const presetSel = document.getElementById('clientHeadingPreset');
+  const previewDateInput = document.getElementById('clientHeadingPreviewDate');
 
   const curRow  = client.header_row != null ? client.header_row : 1;
   const curCols = client.heading_columns || '';
 
   if (rowInput) rowInput.value = curRow;
   if (colsInput) colsInput.value = curCols;
+  if (previewDateInput) {
+    const xlsModalEl = document.getElementById('xlsModal');
+    const xlsOpen = xlsModalEl && !xlsModalEl.classList.contains('hidden');
+    const activeSheet = xlsOpen && Array.isArray(_xlsSheets) ? _xlsSheets[_xlsActiveSheet] : null;
+    previewDateInput.value = xlsOpen
+      ? (document.getElementById('xlsHeadingBaseDate')?.value || _detectSheetInitialIsoDate(activeSheet) || '')
+      : '';
+  }
 
   if (presetSel) {
     let matched = 'custom';
@@ -539,6 +556,8 @@ document.getElementById('clientHeadingPreset')?.addEventListener('change', e => 
 
 document.getElementById('clientHeadingColumns')?.addEventListener('input', updateHeadingModalLivePreview);
 document.getElementById('clientHeadingColumns')?.addEventListener('change', updateHeadingModalLivePreview);
+document.getElementById('clientHeadingPreviewDate')?.addEventListener('input', updateHeadingModalLivePreview);
+document.getElementById('clientHeadingPreviewDate')?.addEventListener('change', updateHeadingModalLivePreview);
 
 document.getElementById('clientHeadingSave')?.addEventListener('click', async () => {
   if (!_clientHeadingTarget) return;
@@ -561,12 +580,26 @@ document.getElementById('clientHeadingSave')?.addEventListener('click', async ()
       const err = r ? await r.json().catch(() => ({})) : {};
       throw new Error(err.detail || (r ? r.statusText : '保存に失敗しました'));
     }
+    const targetId = _clientHeadingTarget.id;
     const targetLabel = _clientHeadingTarget.name_ja || _clientHeadingTarget.code;
     closeClientHeadingModal();
     showToast(`「${targetLabel}」の見出し設定を保存しました`);
     await reloadClientsSheet();
     if (typeof reloadProductSheet === 'function' && _productsLoaded) await reloadProductSheet();
     if (typeof _refreshXlsClientsAfterEdit === 'function') await _refreshXlsClientsAfterEdit();
+    if (typeof loadHomeUploadClients === 'function') await loadHomeUploadClients(true);
+    if (typeof currentResult !== 'undefined' && currentResult && currentResult.client && String(currentResult.client.id) === String(targetId)) {
+      const updatedClient = (typeof _xlsAllClients !== 'undefined')
+        ? _xlsAllClients.find(x => String(x.id) === String(targetId))
+        : null;
+      if (updatedClient) {
+        currentResult.client = { ...currentResult.client, ...updatedClient };
+      } else {
+        currentResult.client.header_row = rowVal;
+        currentResult.client.heading_columns = colsVal;
+      }
+      if (typeof renderResults === 'function') renderResults(currentResult);
+    }
   } catch (err) {
     showToast('見出し設定の保存に失敗しました: ' + err.message, true);
   } finally {
@@ -1405,16 +1438,27 @@ function _getXlsSelectedClient() {
 }
 
 function _updateXlsClientBarUI() {
-  const previewEl = document.getElementById('xlsClientColsPreview');
-  const applyBtn  = document.getElementById('xlsApplyClientHeadingBtn');
-  const saveBtn   = document.getElementById('xlsSaveToClientHeadingBtn');
-  const editBtn   = document.getElementById('xlsEditClientHeadingBtn');
-  const client    = _getXlsSelectedClient();
-  const sheet     = _xlsSheets[_xlsActiveSheet] || null;
+  const previewEl  = document.getElementById('xlsClientColsPreview');
+  const applyBtn   = document.getElementById('xlsApplyClientHeadingBtn');
+  const saveBtn    = document.getElementById('xlsSaveToClientHeadingBtn');
+  const editBtn    = document.getElementById('xlsEditClientHeadingBtn');
+  const baseDateEl = document.getElementById('xlsHeadingBaseDate');
+  const client     = _getXlsSelectedClient();
+  const sheet      = _xlsSheets[_xlsActiveSheet] || null;
+
+  if (baseDateEl) {
+    const targetVal = sheet ? (sheet.headingBaseDate || _detectSheetInitialIsoDate(sheet) || '') : '';
+    if (document.activeElement !== baseDateEl || !sheet) {
+      baseDateEl.value = targetVal;
+    }
+    baseDateEl.disabled = !sheet;
+  }
 
   if (previewEl) {
     if (client) {
-      previewEl.innerHTML = buildClientHeadingFormatHtml(client.header_row, client.heading_columns, 0, 'schema');
+      const cols = _parseClientHeadingCols(client).map(c => _formatHeadingWithDate(c, sheet));
+      const formattedCols = cols.length ? cols.join(', ') : (client.heading_columns || '');
+      previewEl.innerHTML = buildClientHeadingFormatHtml(client.header_row, formattedCols, 0, 'schema');
     } else {
       previewEl.innerHTML = '<span class="sheet-unassigned" style="font-size:11px">Select a client to view or apply its heading format</span>';
     }
@@ -1437,7 +1481,7 @@ function _applyClientHeadingToSheet(sheet, client) {
     showToast(`${client.name_ja || client.code} has no heading columns configured`, true);
     return false;
   }
-  sheet.clientHeaders = cols;
+  sheet.clientHeaders = cols.map(c => _formatHeadingWithDate(c, sheet));
   sheet.clientHeadingId = client.id;
   _markXlsDirty(true);
   _renderXlsGrid(sheet);
@@ -1447,6 +1491,7 @@ function _applyClientHeadingToSheet(sheet, client) {
 
 async function _refreshXlsClientsAfterEdit() {
   await _ensureXlsClientsLoaded(true);
+  if (typeof loadHomeUploadClients === 'function') await loadHomeUploadClients(false);
   const modal = document.getElementById('xlsModal');
   if (!modal || modal.classList.contains('hidden')) return;
   const sel = document.getElementById('xlsClientSelect');
@@ -1459,7 +1504,7 @@ async function _refreshXlsClientsAfterEdit() {
   const sheet = _xlsSheets[_xlsActiveSheet];
   if (sheet && sheet.clientHeadingId != null) {
     const c = _xlsAllClients.find(x => String(x.id) === String(sheet.clientHeadingId));
-    if (c) sheet.clientHeaders = _parseClientHeadingCols(c);
+    if (c) sheet.clientHeaders = _parseClientHeadingCols(c).map(col => _formatHeadingWithDate(col, sheet));
   }
   _updateXlsClientBarUI();
   if (sheet) _renderXlsGrid(sheet);
@@ -1566,6 +1611,7 @@ function _buildSheets(result) {
       customHeaders: Array.isArray(s.customHeaders) ? [...s.customHeaders] : [],
       clientHeaders: Array.isArray(s.clientHeaders) ? [...s.clientHeaders] : [],
       clientHeadingId: s.clientHeadingId != null ? s.clientHeadingId : null,
+      headingBaseDate: s.headingBaseDate || null,
     }));
   }
 
@@ -1642,10 +1688,447 @@ function _buildSheets(result) {
   return sheets;
 }
 
+const _DOW_CHARS = ['日', '月', '火', '水', '木', '金', '土'];
+
+function _parseWeekdayHeadingToken(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const mParen = s.match(/^(?:(\d{1,2})\s*[\/\.月\-]\s*(\d{1,2})\s*日?\s*)?[\(（]\s*([月火水木金土日])(?:曜日|曜)?\s*[\)）]\s*(.*)$/);
+  if (mParen) {
+    const extra = (mParen[4] || '').trim();
+    if (/\d{1,2}\s*[\/\.月\-]\s*\d{1,2}/.test(extra)) return null;
+    return {
+      month: mParen[1] ? parseInt(mParen[1], 10) : null,
+      day: mParen[2] ? parseInt(mParen[2], 10) : null,
+      dow: mParen[3],
+      extra,
+    };
+  }
+  const mBare = s.match(/^(?:(\d{1,2})\s*[\/\.月\-]\s*(\d{1,2})\s*日?\s+)?([月火水木金土日])(?:曜日|曜)?(?:\s+(.*))?$/);
+  if (mBare) {
+    const extra = (mBare[4] || '').trim();
+    if (/\d{1,2}\s*[\/\.月\-]\s*\d{1,2}/.test(extra)) return null;
+    return {
+      month: mBare[1] ? parseInt(mBare[1], 10) : null,
+      day: mBare[2] ? parseInt(mBare[2], 10) : null,
+      dow: mBare[3],
+      extra,
+    };
+  }
+  return null;
+}
+
+function _toIsoDateStr(year, month, day) {
+  const dt = new Date(year, month - 1, day);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function _inferSheetRefYear(sheet, resultOverride = null) {
+  const result = resultOverride || (typeof _xlsResult !== 'undefined' ? _xlsResult : null);
+  const jobId = resultOverride?.job_id || (typeof _xlsJobId !== 'undefined' ? _xlsJobId : null);
+  const jobMeta = (typeof _orderAllJobs !== 'undefined' && Array.isArray(_orderAllJobs) && jobId)
+    ? _orderAllJobs.find(j => j.job_id === jobId)
+    : null;
+  const titleText = (!resultOverride && typeof document !== 'undefined' ? document.getElementById('xlsTitle')?.textContent : '') || '';
+  const candidates = [result?.filename, jobMeta?.filename, titleText, result?.fused_text, result?.text];
+  if (sheet && Array.isArray(sheet.rows)) {
+    for (const r of sheet.rows.slice(0, 20)) {
+      if (Array.isArray(r)) candidates.push(r.join(' '));
+    }
+  }
+  for (const src of candidates) {
+    if (!src) continue;
+    const ym = String(src).match(/(20\d{2})\s*[\/\.\-年]\s*(\d{1,2})\s*[\/\.\-月]\s*(\d{1,2})/);
+    if (ym) return parseInt(ym[1], 10);
+  }
+  if (jobMeta?.created_at) {
+    const jm = String(jobMeta.created_at).match(/(20\d{2})/);
+    if (jm) return parseInt(jm[1], 10);
+  }
+  return new Date().getFullYear();
+}
+
+function _parseAnyDateInput(raw, fallbackYear, strictBodyCell = false) {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const yrDefault = fallbackYear || new Date().getFullYear();
+  function validDate(yr, mo, da) {
+    if (mo < 1 || mo > 12 || da < 1 || da > 31) return false;
+    const d = new Date(yr, mo - 1, da);
+    return d.getFullYear() === yr && d.getMonth() === mo - 1 && d.getDate() === da;
+  }
+  let m = s.match(/(?:^|[^\d])(20\d{2})\s*[\/\.\-年]\s*(\d{1,2})\s*[\/\.\-月]\s*(\d{1,2})\s*日?(?:\s*[\(（]?\s*([月火水木金土日])(?:曜日|曜)?\s*[\)）]?)?(?=$|[^\d])/);
+  if (m) {
+    const yr = parseInt(m[1], 10), mo = parseInt(m[2], 10), da = parseInt(m[3], 10);
+    if (validDate(yr, mo, da)) return { year: yr, month: mo, day: da, dow: m[4] || null };
+  }
+  m = s.match(/(?:^|[^\d\/\.年\-])(\d{1,2})\s*月\s*(\d{1,2})\s*日(?:\s*[\(（]?\s*([月火水木金土日])(?:曜日|曜)?\s*[\)）]?)?(?=$|[^\d])/);
+  if (m) {
+    const mo = parseInt(m[1], 10), da = parseInt(m[2], 10);
+    if (validDate(yrDefault, mo, da)) return { year: yrDefault, month: mo, day: da, dow: m[3] || null };
+  }
+  m = s.match(/(?:^|[^\d\/\.年\-])(\d{1,2})\s*[\/\.\-]\s*(\d{1,2})\s*日?\s*[\(（]?\s*([月火水木金土日])(?:曜日|曜)?\s*[\)）]?(?=$|[^月火水木金土日曜\d])/);
+  if (m) {
+    const mo = parseInt(m[1], 10), da = parseInt(m[2], 10);
+    if (validDate(yrDefault, mo, da)) return { year: yrDefault, month: mo, day: da, dow: m[3] };
+  }
+  if (strictBodyCell) return null;
+  m = s.match(/^\s*(\d{1,2})\s*[\/\.\-]\s*(\d{1,2})\s*(?:[\(（]\s*([月火水木金土日])(?:曜日|曜)?\s*[\)）])?(?:\s+.*)?$/);
+  if (m) {
+    const mo = parseInt(m[1], 10), da = parseInt(m[2], 10);
+    if (validDate(yrDefault, mo, da)) return { year: yrDefault, month: mo, day: da, dow: m[3] || null };
+  }
+  return null;
+}
+
+function _extractSheetWeekdayDates(sheet, resultOverride = null) {
+  if (sheet && sheet.headingBaseDate) {
+    const bm = String(sheet.headingBaseDate).trim().match(/^(20\d{2})-(\d{1,2})-(\d{1,2})$/);
+    if (bm) {
+      const yr = parseInt(bm[1], 10), mo = parseInt(bm[2], 10), da = parseInt(bm[3], 10);
+      const baseDt = new Date(yr, mo - 1, da);
+      if (!isNaN(baseDt.getTime())) {
+        const dowMap = {};
+        for (let off = 0; off < 7; off++) {
+          const dt = new Date(yr, mo - 1, da + off);
+          const dow = _DOW_CHARS[dt.getDay()];
+          dowMap[dow] = `${dt.getMonth() + 1}/${dt.getDate()}`;
+        }
+        return dowMap;
+      }
+    }
+  }
+  const result = resultOverride || (typeof _xlsResult !== 'undefined' ? _xlsResult : null);
+  const jobId = resultOverride?.job_id || (typeof _xlsJobId !== 'undefined' ? _xlsJobId : null);
+  const jobMeta = (typeof _orderAllJobs !== 'undefined' && Array.isArray(_orderAllJobs) && jobId)
+    ? _orderAllJobs.find(j => j.job_id === jobId)
+    : null;
+  const titleText = (!resultOverride && typeof document !== 'undefined' ? document.getElementById('xlsTitle')?.textContent : '') || '';
+  const filename = result?.filename || jobMeta?.filename || titleText || '';
+
+  const docChunks = [];
+  if (sheet && Array.isArray(sheet.rows)) {
+    for (const r of sheet.rows) {
+      if (Array.isArray(r)) {
+        const line = r.map(c => (c != null ? String(c).trim() : '')).filter(Boolean).join(' ');
+        if (line) docChunks.push(line);
+      }
+    }
+  }
+  if (result && Array.isArray(result.tables)) {
+    for (const tbl of result.tables) {
+      if (!tbl) continue;
+      if (tbl.caption) docChunks.push(String(tbl.caption));
+      if (tbl.markdown) docChunks.push(String(tbl.markdown));
+      if (Array.isArray(tbl.data)) {
+        for (const row of tbl.data) {
+          if (Array.isArray(row)) {
+            docChunks.push(row.map(c => (c != null ? String(c) : '')).join(' '));
+          } else if (row && typeof row === 'object') {
+            docChunks.push(Object.keys(row).join(' '));
+            docChunks.push(Object.values(row).map(v => (v != null ? String(v) : '')).join(' '));
+          }
+        }
+      }
+    }
+  }
+  const paddleLines = result?.paddle?.lines;
+  if (Array.isArray(paddleLines) && paddleLines.length) {
+    const pts = paddleLines
+      .filter(ln => ln && ln.text)
+      .map(ln => ({
+        text: String(ln.text).trim(),
+        y: Array.isArray(ln.bbox) && ln.bbox.length ? Math.min(...ln.bbox.map(p => p[1])) : 0,
+        x: Array.isArray(ln.bbox) && ln.bbox.length ? Math.min(...ln.bbox.map(p => p[0])) : 0,
+      }))
+      .sort((a, b) => a.y - b.y || a.x - b.x);
+    const rowGroups = [];
+    for (const pt of pts) {
+      const g = rowGroups.find(gr => Math.abs(pt.y - gr.refY) <= 18);
+      if (g) g.items.push(pt);
+      else rowGroups.push({ refY: pt.y, items: [pt] });
+    }
+    for (const g of rowGroups) {
+      g.items.sort((a, b) => a.x - b.x);
+      docChunks.push(g.items.map(i => i.text).join(' '));
+    }
+  }
+  for (const txt of [
+    result?.fused_text,
+    result?.text,
+    result?.deepseek?.markdown,
+    result?.deepseek?.text,
+    result?.docling?.markdown,
+    result?.docling?.text,
+  ]) {
+    if (txt) docChunks.push(String(txt));
+  }
+
+  let refYear = new Date().getFullYear();
+  let foundYear = false;
+  for (const src of [filename, ...docChunks]) {
+    if (!src) continue;
+    const ym = String(src).match(/(20\d{2})\s*[\/\.\-年]\s*(\d{1,2})\s*[\/\.\-月]\s*(\d{1,2})/);
+    if (ym) {
+      refYear = parseInt(ym[1], 10);
+      foundYear = true;
+      break;
+    }
+  }
+  if (!foundYear && jobMeta?.created_at) {
+    const jm = String(jobMeta.created_at).match(/(20\d{2})/);
+    if (jm) refYear = parseInt(jm[1], 10);
+  }
+
+  const dowMap = {};
+  let anchor = null;
+  const pairRe = /(?:(20\d{2})\s*[\/\.\-年]\s*)?(\d{1,2})\s*[\/\.月\-]\s*(\d{1,2})\s*日?\s*(?:[\(（]\s*([月火水木金土日])(?:曜日|曜)?\s*[\)）]|([月火水木金土日])(?:曜日|曜)?(?=\s|$|[変更要望発注納品数量\|]))/g;
+
+  function scanExplicitPairs(chunks) {
+    for (const chunk of chunks) {
+      if (!chunk) continue;
+      pairRe.lastIndex = 0;
+      let m;
+      while ((m = pairRe.exec(chunk)) !== null) {
+        const yr = m[1] ? parseInt(m[1], 10) : refYear;
+        const mo = parseInt(m[2], 10);
+        const da = parseInt(m[3], 10);
+        const dow = m[4] || m[5];
+        if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31 && dow) {
+          if (!dowMap[dow]) dowMap[dow] = `${mo}/${da}`;
+          if (!anchor) anchor = { year: yr, month: mo, day: da, dow };
+        }
+      }
+    }
+  }
+
+  scanExplicitPairs(docChunks);
+
+  let fnDate = null;
+  if (filename) {
+    let fm = filename.match(/(?:^|[^\d])(20\d{2})\s*[\/\.\-年]\s*(\d{1,2})\s*[\/\.\-月]\s*(\d{1,2})(?:\s*日)?(?=$|[^\d])/);
+    if (fm) {
+      const yr = parseInt(fm[1], 10), mo = parseInt(fm[2], 10), da = parseInt(fm[3], 10);
+      if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31) fnDate = { year: yr, month: mo, day: da };
+    }
+    if (!fnDate) {
+      fm = filename.match(/(?:^|[^\d\/\.年\-])(\d{1,2})\s*[\/\.\-]\s*(\d{1,2})(?=$|[^\d])/);
+      if (fm) {
+        const mo = parseInt(fm[1], 10), da = parseInt(fm[2], 10);
+        if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31) fnDate = { year: refYear, month: mo, day: da };
+      }
+    }
+    if (!fnDate) {
+      fm = filename.match(/(?:^|[^\d])(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?=$|[^\d])/);
+      if (fm) {
+        const mo = parseInt(fm[1], 10), da = parseInt(fm[2], 10);
+        if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31) fnDate = { year: refYear, month: mo, day: da };
+      }
+    }
+  }
+
+  function fillWeekFromAnchor(anch) {
+    let startDow = anch.dow;
+    const hdrCandidates = [
+      ...(Array.isArray(sheet?.clientHeaders) ? sheet.clientHeaders : []),
+      ...((sheet?.hasHeader && sheet?.headerIdx >= 0 && sheet?.rows?.[sheet.headerIdx]) ? sheet.rows[sheet.headerIdx] : []),
+      ...(Array.isArray(sheet?.customHeaders) ? sheet.customHeaders : []),
+    ];
+    for (const h of hdrCandidates) {
+      const p = _parseWeekdayHeadingToken(h);
+      if (p && p.dow) { startDow = p.dow; break; }
+    }
+    if (fnDate) {
+      const fnDt = new Date(fnDate.year, fnDate.month - 1, fnDate.day);
+      const fnDow = _DOW_CHARS[fnDt.getDay()];
+      if (dowMap[fnDow] === `${fnDate.month}/${fnDate.day}` || (anch.month === fnDate.month && anch.day === fnDate.day)) {
+        startDow = fnDow;
+      }
+    }
+    const startIdx = _DOW_CHARS.indexOf(startDow);
+    const anchorPos = (_DOW_CHARS.indexOf(anch.dow) - startIdx + 7) % 7;
+    for (const dChar of _DOW_CHARS) {
+      if (!dowMap[dChar]) {
+        const pos = (_DOW_CHARS.indexOf(dChar) - startIdx + 7) % 7;
+        const delta = pos - anchorPos;
+        const dt = new Date(anch.year, anch.month - 1, anch.day + delta);
+        dowMap[dChar] = `${dt.getMonth() + 1}/${dt.getDate()}`;
+      }
+    }
+  }
+
+  const missingCount = _DOW_CHARS.filter(d => !dowMap[d]).length;
+  if (missingCount > 0) {
+    if (anchor) {
+      fillWeekFromAnchor(anchor);
+    } else if (fnDate) {
+      for (let off = 0; off < 7; off++) {
+        const dt = new Date(fnDate.year, fnDate.month - 1, fnDate.day + off);
+        const dow = _DOW_CHARS[dt.getDay()];
+        if (!dowMap[dow]) dowMap[dow] = `${dt.getMonth() + 1}/${dt.getDate()}`;
+      }
+    } else {
+      const templateChunks = [];
+      if (Array.isArray(sheet?.clientHeaders) && sheet.clientHeaders.length) templateChunks.push(sheet.clientHeaders.join(' '));
+      if (Array.isArray(sheet?.customHeaders) && sheet.customHeaders.length) templateChunks.push(sheet.customHeaders.join(' '));
+      scanExplicitPairs(templateChunks);
+      if (anchor) {
+        fillWeekFromAnchor(anchor);
+      } else {
+        let baseDate = null;
+        for (const chunk of docChunks) {
+          if (!chunk) continue;
+          const dm = String(chunk).match(/(?:^|[^\d])(20\d{2})\s*[\/\.\-年]\s*(\d{1,2})\s*[\/\.\-月]\s*(\d{1,2})(?:\s*日)?(?=$|[^\d])/);
+          if (dm) {
+            const yr = parseInt(dm[1], 10), mo = parseInt(dm[2], 10), da = parseInt(dm[3], 10);
+            if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31) {
+              baseDate = { year: yr, month: mo, day: da };
+              break;
+            }
+          }
+        }
+        if (baseDate) {
+          for (let off = 0; off < 7; off++) {
+            const dt = new Date(baseDate.year, baseDate.month - 1, baseDate.day + off);
+            const dow = _DOW_CHARS[dt.getDay()];
+            if (!dowMap[dow]) dowMap[dow] = `${dt.getMonth() + 1}/${dt.getDate()}`;
+          }
+        }
+      }
+    }
+  }
+
+  return dowMap;
+}
+
+function _formatHeadingWithDate(raw, sheet, resultOverride = null) {
+  const str = raw == null ? '' : String(raw).trim();
+  if (!str) return '';
+  const parsed = _parseWeekdayHeadingToken(str);
+  if (!parsed) return str;
+  const dowMap = _extractSheetWeekdayDates(sheet, resultOverride);
+  let dateStr = dowMap[parsed.dow] || '';
+  if (!dateStr && parsed.month && parsed.day && parsed.month >= 1 && parsed.month <= 12 && parsed.day >= 1 && parsed.day <= 31) {
+    dateStr = `${parsed.month}/${parsed.day}`;
+  }
+  if (!dateStr) return str;
+  return `${dateStr} (${parsed.dow})${parsed.extra ? ' ' + parsed.extra : ''}`;
+}
+
+function _detectSheetInitialIsoDate(sheet) {
+  if (sheet && sheet.headingBaseDate && /^\d{4}-\d{2}-\d{2}$/.test(sheet.headingBaseDate)) {
+    return sheet.headingBaseDate;
+  }
+  const dowMap = _extractSheetWeekdayDates(sheet);
+  const refYear = _inferSheetRefYear(sheet);
+  const entries = Object.values(dowMap).filter(Boolean);
+  if (entries.length) {
+    const dates = [];
+    for (const md of entries) {
+      const p = md.match(/^(\d{1,2})\/(\d{1,2})$/);
+      if (p) {
+        dates.push(new Date(refYear, parseInt(p[1], 10) - 1, parseInt(p[2], 10)));
+      }
+    }
+    if (dates.length) {
+      dates.sort((a, b) => a - b);
+      const earliest = dates[0];
+      return _toIsoDateStr(earliest.getFullYear(), earliest.getMonth() + 1, earliest.getDate());
+    }
+  }
+  return '';
+}
+
+function _applyHeadingBaseDateToSheet(sheet, isoDateStr) {
+  if (!sheet) return;
+  const cleanIso = (isoDateStr && /^\d{4}-\d{2}-\d{2}$/.test(isoDateStr)) ? isoDateStr : null;
+  sheet.headingBaseDate = cleanIso;
+
+  const allClients = typeof _xlsAllClients !== 'undefined' ? _xlsAllClients : [];
+  const hasClientHdrs = Array.isArray(sheet.clientHeaders) && sheet.clientHeaders.length > 0;
+  if (hasClientHdrs) {
+    let baseCols = sheet.clientHeaders;
+    if (sheet.clientHeadingId != null && Array.isArray(allClients)) {
+      const clientObj = allClients.find(c => String(c.id) === String(sheet.clientHeadingId));
+      if (clientObj) {
+        const tmplCols = _parseClientHeadingCols(clientObj);
+        if (tmplCols.length > 0) {
+          baseCols = baseCols.map((existingCol, idx) => {
+            if (_parseWeekdayHeadingToken(existingCol)) return existingCol;
+            if (idx < tmplCols.length && _parseWeekdayHeadingToken(tmplCols[idx])) return tmplCols[idx];
+            return existingCol;
+          });
+        }
+      }
+    }
+    sheet.clientHeaders = baseCols.map(c => _formatHeadingWithDate(c, sheet));
+  }
+
+  if (sheet.hasHeader && sheet.headerIdx >= 0 && Array.isArray(sheet.rows) && sheet.rows[sheet.headerIdx]) {
+    if (!cleanIso && Array.isArray(sheet._origHeaderRow)) {
+      sheet.rows[sheet.headerIdx] = [...sheet._origHeaderRow];
+      delete sheet._origHeaderRow;
+    } else if (cleanIso && !hasClientHdrs) {
+      if (!Array.isArray(sheet._origHeaderRow)) {
+        sheet._origHeaderRow = [...sheet.rows[sheet.headerIdx]];
+      }
+      sheet.rows[sheet.headerIdx] = sheet.rows[sheet.headerIdx].map(cell => {
+        return _parseWeekdayHeadingToken(cell) ? _formatHeadingWithDate(cell, sheet) : cell;
+      });
+    }
+  }
+
+  if (Array.isArray(sheet.customHeaders) && sheet.customHeaders.length > 0) {
+    sheet.customHeaders = sheet.customHeaders.map(cell => {
+      return _parseWeekdayHeadingToken(cell) ? _formatHeadingWithDate(cell, sheet) : cell;
+    });
+  }
+}
+
+function _syncSheetBaseDateFromEditedValue(sheet, ci, rawInput, prevHeading) {
+  if (!sheet) return null;
+  const refYear = _inferSheetRefYear(sheet);
+  const parsedDate = _parseAnyDateInput(rawInput, refYear, false);
+  if (!parsedDate) return null;
+
+  const rawTok = _parseWeekdayHeadingToken(rawInput);
+  const prevTok = _parseWeekdayHeadingToken(prevHeading);
+  const tok = rawTok || prevTok;
+  if (!tok || !tok.dow) return null;
+
+  const colDow = rawTok ? rawTok.dow : prevTok.dow;
+  let firstDow = colDow;
+  const hdrCandidates = [
+    ...(Array.isArray(sheet.clientHeaders) ? sheet.clientHeaders : []),
+    ...((sheet.hasHeader && sheet.headerIdx >= 0 && sheet.rows?.[sheet.headerIdx]) ? sheet.rows[sheet.headerIdx] : []),
+    ...(Array.isArray(sheet.customHeaders) ? sheet.customHeaders : []),
+  ];
+  for (const h of hdrCandidates) {
+    const p = _parseWeekdayHeadingToken(h);
+    if (p && p.dow) { firstDow = p.dow; break; }
+  }
+
+  const offset = (_DOW_CHARS.indexOf(colDow) - _DOW_CHARS.indexOf(firstDow) + 7) % 7;
+  const baseDt = offset > 0
+    ? new Date(parsedDate.year, parsedDate.month - 1, parsedDate.day - offset)
+    : new Date(parsedDate.year, parsedDate.month - 1, parsedDate.day);
+
+  _applyHeadingBaseDateToSheet(sheet, _toIsoDateStr(baseDt.getFullYear(), baseDt.getMonth() + 1, baseDt.getDate()));
+  const actualDow = _DOW_CHARS[new Date(parsedDate.year, parsedDate.month - 1, parsedDate.day).getDay()];
+  const normalizedDow = rawTok ? rawTok.dow : actualDow;
+  const dowMap = _extractSheetWeekdayDates(sheet);
+  const finalDateStr = dowMap[normalizedDow] || `${parsedDate.month}/${parsedDate.day}`;
+  const extra = rawTok ? rawTok.extra : (prevTok ? prevTok.extra : '');
+  return `${finalDateStr} (${normalizedDow})${extra ? ' ' + extra : ''}`;
+}
+
 function _resolveSheetColHeading(sheet, ci) {
   if (!sheet) return '';
   if (Array.isArray(sheet.clientHeaders) && sheet.clientHeaders.length > 0) {
-    return sheet.clientHeaders[ci] != null ? String(sheet.clientHeaders[ci]).trim() : '';
+    const rawClientHdr = sheet.clientHeaders[ci] != null ? String(sheet.clientHeaders[ci]).trim() : '';
+    return rawClientHdr ? _formatHeadingWithDate(rawClientHdr, sheet) : '';
   }
   const rows = sheet.rows || [];
   if (sheet.hasHeader && sheet.headerIdx >= 0 && sheet.headerIdx < rows.length) {
@@ -1662,7 +2145,7 @@ function _resolveSheetColHeading(sheet, ci) {
       if (normCp(raw) && ci + 1 < hdrRow.length && !String(hdrRow[ci + 1] || '').trim() && hasSlashBelow(ci + 1)) {
         return 'C / P (C)';
       }
-      return raw;
+      return _formatHeadingWithDate(raw, sheet);
     }
     const prev1 = ci >= 1 ? (hdrRow[ci - 1] != null ? String(hdrRow[ci - 1]).trim() : '') : '';
     const prev2 = ci >= 2 ? (hdrRow[ci - 2] != null ? String(hdrRow[ci - 2]).trim() : '') : '';
@@ -1675,13 +2158,14 @@ function _resolveSheetColHeading(sheet, ci) {
     if (sheet.headerIdx > 0) {
       const above = rows[sheet.headerIdx - 1]?.[ci];
       if (above != null && String(above).trim()) {
-        return _cleanExcelCell(above).trim();
+        return _formatHeadingWithDate(_cleanExcelCell(above).trim(), sheet);
       }
     }
     return '';
   }
   if (Array.isArray(sheet.customHeaders) && sheet.customHeaders[ci] != null) {
-    return String(sheet.customHeaders[ci]).trim();
+    const rawCustom = String(sheet.customHeaders[ci]).trim();
+    return rawCustom ? _formatHeadingWithDate(rawCustom, sheet) : '';
   }
   return '';
 }
@@ -1740,8 +2224,8 @@ function formatHeaderHtml(raw) {
     const d = dateMatch[1];
     const day = dateMatch[2] || dateMatch[3] || '';
     const extra = (dateMatch[4] || '').trim();
-    let html = `<div class="hdr-main">${esc(d)}</div>`;
-    if (day) html += `<div class="hdr-day">${esc(day)}</div>`;
+    const mainLabel = day ? `${d} (${day})` : d;
+    let html = `<div class="hdr-main">${esc(mainLabel)}</div>`;
     if (extra) html += `<div class="hdr-extra">${esc(extra)}</div>`;
     return html;
   }
@@ -1832,7 +2316,9 @@ function _renderXlsGrid(sheet) {
         if (finished) return;
         finished = true;
         if (save) {
-          const newHeading = input.value;
+          let newHeading = input.value;
+          const synced = _syncSheetBaseDateFromEditedValue(sheet, ci, newHeading, curVal);
+          if (synced) newHeading = synced;
           if (Array.isArray(sheet.clientHeaders) && sheet.clientHeaders.length > 0) {
             while (sheet.clientHeaders.length <= ci) sheet.clientHeaders.push('');
             sheet.clientHeaders[ci] = newHeading;
@@ -1845,6 +2331,7 @@ function _renderXlsGrid(sheet) {
           }
           if (newHeading !== curVal) _markXlsDirty(true);
           _renderXlsGrid(sheet);
+          _updateXlsClientBarUI();
         } else {
           refreshColHeader(ci);
         }
@@ -1912,18 +2399,39 @@ function _renderXlsGrid(sheet) {
     while (rows[ri].length <= ci) rows[ri].push('');
     const prevVal = rows[ri][ci] != null ? String(rows[ri][ci]) : '';
     if (prevVal === newVal) return;
-    rows[ri][ci] = newVal;
+    let finalCellVal = newVal;
+    let dateSynced = false;
+    const refYear = _inferSheetRefYear(sheet);
+    if (sheet.hasHeader && ri === sheet.headerIdx) {
+      const synced = _syncSheetBaseDateFromEditedValue(sheet, ci, newVal, prevVal);
+      if (synced) {
+        finalCellVal = synced;
+        dateSynced = true;
+      }
+    } else {
+      const parsedBodyDate = _parseAnyDateInput(newVal, refYear, true);
+      if (parsedBodyDate) {
+        const baseDt = new Date(parsedBodyDate.year, parsedBodyDate.month - 1, parsedBodyDate.day);
+        _applyHeadingBaseDateToSheet(sheet, _toIsoDateStr(baseDt.getFullYear(), baseDt.getMonth() + 1, baseDt.getDate()));
+        dateSynced = true;
+      }
+    }
+    rows[ri][ci] = finalCellVal;
     const td = cellMatrix[ri]?.[ci];
     if (td && !td.classList.contains('xls-editing')) {
-      if (sheet.hasHeader && ri === sheet.headerIdx && newVal) {
-        td.innerHTML = formatHeaderHtml(newVal);
+      if (sheet.hasHeader && ri === sheet.headerIdx && finalCellVal) {
+        td.innerHTML = formatHeaderHtml(finalCellVal);
       } else {
-        td.textContent = newVal;
+        td.textContent = finalCellVal;
       }
-      td.title = newVal;
+      td.title = finalCellVal;
     }
     _markXlsDirty(true);
-    if (sheet.hasHeader && ri === sheet.headerIdx) {
+    if (dateSynced) {
+      colHeaders.forEach((_, i) => refreshColHeader(i));
+      _updateXlsClientBarUI();
+      if (sheet.hasHeader && ri === sheet.headerIdx) _syncHeaderSelect(sheet);
+    } else if (sheet.hasHeader && ri === sheet.headerIdx) {
       refreshColHeader(ci);
       _syncHeaderSelect(sheet);
     }
@@ -2169,6 +2677,9 @@ async function openOrderPreview(jobId, filename) {
     ]);
     if (r && r.ok) result = await r.json();
   } catch {}
+  if (!result && typeof currentJobId !== 'undefined' && jobId === currentJobId && currentResult) {
+    result = currentResult;
+  }
 
   if (!result) { loading.textContent = 'Could not load result.'; return; }
 
@@ -2236,6 +2747,23 @@ async function openOrderPreview(jobId, filename) {
     });
     sheetTabsEl.appendChild(tab);
   });
+
+  // Wire Heading Base Date picker (auto-updates weekday headings on date input)
+  const baseDateEl = document.getElementById('xlsHeadingBaseDate');
+  if (baseDateEl) {
+    const handleBaseDateChange = () => {
+      const sheet = _xlsSheets[_xlsActiveSheet];
+      if (!sheet) return;
+      const val = (baseDateEl.value || '').trim();
+      if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) return;
+      _applyHeadingBaseDateToSheet(sheet, val || null);
+      _markXlsDirty(true);
+      _renderXlsGrid(sheet);
+      _updateXlsClientBarUI();
+    };
+    baseDateEl.oninput = handleBaseDateChange;
+    baseDateEl.onchange = handleBaseDateChange;
+  }
 
   // Wire Client Heading Format bar actions
   const applyClientBtn = document.getElementById('xlsApplyClientHeadingBtn');
@@ -2511,6 +3039,7 @@ async function openOrderPreview(jobId, filename) {
           customHeaders: Array.isArray(s.customHeaders) ? s.customHeaders : [],
           clientHeaders: Array.isArray(s.clientHeaders) ? s.clientHeaders : [],
           clientHeadingId: s.clientHeadingId != null ? s.clientHeadingId : null,
+          headingBaseDate: s.headingBaseDate || null,
         }));
         _xlsResult.custom_sheets = cleanSheets;
 
@@ -2534,6 +3063,20 @@ async function openOrderPreview(jobId, filename) {
           });
         }
 
+        const selClient = _getXlsSelectedClient();
+        if (selClient) {
+          _xlsResult.client = {
+            id: selClient.id,
+            code: selClient.code,
+            name_ja: selClient.name_ja,
+            name_en: selClient.name_en,
+            header_row: selClient.header_row || 1,
+            heading_columns: selClient.heading_columns || '',
+          };
+        } else if (clientSelectEl && !clientSelectEl.value) {
+          _xlsResult.client = null;
+        }
+
         const r = await dbFetch('/api/ocr/result/' + encodeURIComponent(_xlsJobId), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -2545,6 +3088,10 @@ async function openOrderPreview(jobId, filename) {
         }
         if (typeof currentJobId !== 'undefined' && currentJobId === _xlsJobId && currentResult) {
           currentResult = _xlsResult;
+          const resCard = document.getElementById('resultsCard');
+          if (resCard && !resCard.classList.contains('hidden') && typeof renderResults === 'function') {
+            renderResults(currentResult);
+          }
         }
         _markXlsDirty(false);
         saveXlsBtn.textContent = '💾 Saved';
@@ -2629,6 +3176,141 @@ let currentResult  = null;
 let currentJobId   = null;
 let gpuAvailable   = false;  // updated from /api/health on load
 
+function _normClientMatchText(s) {
+  return String(s || '').normalize('NFKC').toLowerCase();
+}
+
+function _stripClientMatchSpaces(s) {
+  return _normClientMatchText(s).replace(/[\s_\-]+/g, '');
+}
+
+function _clientKeywordMatches(normHay, normKw) {
+  if (!normHay || !normKw) return false;
+  if (/^[a-z0-9 _-]+$/.test(normKw)) {
+    const escaped = normKw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`).test(normHay);
+  }
+  return normHay.includes(normKw);
+}
+
+function _detectClientFromFilenameClientSide(filename, clients) {
+  if (!filename || !Array.isArray(clients) || !clients.length) return null;
+  const fnNorm = _normClientMatchText(filename);
+  const fnStrip = _stripClientMatchSpaces(filename);
+  if (!fnStrip) return null;
+
+  let bestScore = 0;
+  let bestClient = null;
+  for (const c of clients) {
+    let score = 0;
+    for (const rawTok of [c.name_ja, c.name_en, c.code]) {
+      if (!rawTok) continue;
+      const ntok = _normClientMatchText(rawTok);
+      const stok = _stripClientMatchSpaces(rawTok);
+      if (stok && (fnStrip.includes(stok) || _clientKeywordMatches(fnNorm, ntok))) {
+        score += 150 + stok.length * 5;
+      }
+    }
+    const kws = String(c.keywords || '').split(/[,、\n\r\t;]+/).map(s => s.trim()).filter(Boolean);
+    for (const kw of kws) {
+      const nkw = _normClientMatchText(kw);
+      const skw = _stripClientMatchSpaces(kw);
+      if (skw && (fnStrip.includes(skw) || _clientKeywordMatches(fnNorm, nkw))) {
+        score += 50 + skw.length * 2;
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestClient = c;
+    }
+  }
+  return bestScore >= 8 ? bestClient : null;
+}
+
+function populateHomeClientSelects(clients) {
+  const list = Array.isArray(clients) ? clients : [];
+  const upSel = document.getElementById('uploadClientSelect');
+  if (upSel) {
+    const prev = upSel.value;
+    upSel.innerHTML =
+      '<option value="">🔍 自動判別 (ファイル名・OCR内容から自動マッチ)</option>' +
+      list.map(c => `<option value="${esc(c.id)}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''} (${esc(c.code)})</option>`).join('');
+    if (prev && list.some(c => String(c.id) === String(prev))) upSel.value = prev;
+  }
+  const resSel = document.getElementById('resultsClientSelect');
+  if (resSel) {
+    const prev = resSel.value;
+    resSel.innerHTML =
+      '<option value="">— 取引先未指定 (標準抽出) —</option>' +
+      list.map(c => `<option value="${esc(c.id)}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''}</option>`).join('');
+    if (prev && list.some(c => String(c.id) === String(prev))) resSel.value = prev;
+  }
+}
+
+function getEffectiveUploadClient() {
+  const upSel = document.getElementById('uploadClientSelect');
+  const cid = upSel?.value ? String(upSel.value) : '';
+  if (cid) {
+    const found = _xlsAllClients.find(c => String(c.id) === cid) || null;
+    return found ? { mode: 'manual', client: found } : null;
+  }
+  if (selectedFile && _xlsAllClients.length) {
+    const auto = _detectClientFromFilenameClientSide(selectedFile.name, _xlsAllClients);
+    if (auto) return { mode: 'auto', client: auto };
+  }
+  return null;
+}
+
+function updateUploadClientPreview() {
+  const preview = document.getElementById('uploadClientPreview');
+  const modeBadge = document.getElementById('uploadClientModeBadge');
+  const nameEl = document.getElementById('uploadClientName');
+  const rowBadge = document.getElementById('uploadClientRowBadge');
+  const colsEl = document.getElementById('uploadClientCols');
+  if (!preview) return;
+
+  const info = getEffectiveUploadClient();
+  if (!info || !info.client) {
+    preview.classList.add('hidden');
+    return;
+  }
+  const { mode, client } = info;
+  preview.classList.remove('hidden');
+  if (modeBadge) {
+    modeBadge.classList.toggle('mode-manual', mode === 'manual');
+    modeBadge.classList.toggle('mode-auto', mode === 'auto');
+    modeBadge.textContent = mode === 'manual' ? '🎯 指定取引先' : '✨ ファイル名から自動判別';
+  }
+  if (nameEl) {
+    nameEl.textContent = `${client.name_ja}${client.name_en ? ' / ' + client.name_en : ''} (${client.code})`;
+  }
+  if (rowBadge) {
+    rowBadge.textContent = `見出し: ${client.header_row || 1}行目`;
+  }
+  if (colsEl) {
+    colsEl.innerHTML = buildClientHeadingColsHtml(client.heading_columns, 16, 'schema');
+  }
+}
+
+async function loadHomeUploadClients(force = false) {
+  const clients = await _ensureXlsClientsLoaded(force);
+  populateHomeClientSelects(clients);
+  updateUploadClientPreview();
+  return clients;
+}
+
+document.getElementById('uploadClientSelect')?.addEventListener('change', updateUploadClientPreview);
+document.getElementById('uploadClientHeadingBtn')?.addEventListener('click', () => {
+  const info = getEffectiveUploadClient();
+  if (!info || !info.client) {
+    showToast('見出しを設定する取引先をプルダウンから選択してください', true);
+    return;
+  }
+  openClientHeadingModal(info.client);
+});
+document.getElementById('uploadAddClientBtn')?.addEventListener('click', () => openClientModal(null));
+loadHomeUploadClients(false);
+
 // Engine selector — seamlessly supports CPU mode (e.g. AWS EC2 CPU) and CUDA GPU
 document.querySelectorAll(".toggle").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -2706,6 +3388,7 @@ function pickFile(file) {
     document.getElementById("previewImg").classList.add("hidden");
     document.getElementById("fileIcon").classList.remove("hidden");
   }
+  updateUploadClientPreview();
 }
 
 function fmtBytes(b) {
@@ -2744,9 +3427,13 @@ document.getElementById("processBtn").addEventListener("click", async () => {
 
   try {
     setProgress(8, "Uploading file…");
+    const selectedClientId = document.getElementById("uploadClientSelect")?.value || "";
     const form = new FormData();
     form.append("file", selectedFile);
-    const uploadRes = await fetch(`${API_BASE}/api/ocr/upload?engine=${encodeURIComponent(selectedEngine)}`, {
+    if (selectedClientId) form.append("client_id", selectedClientId);
+    const uploadUrl = `${API_BASE}/api/ocr/upload?engine=${encodeURIComponent(selectedEngine)}` +
+      (selectedClientId ? `&client_id=${encodeURIComponent(selectedClientId)}` : "");
+    const uploadRes = await fetch(uploadUrl, {
       method: "POST",
       body: form,
     });
@@ -2776,6 +3463,13 @@ document.getElementById("processBtn").addEventListener("click", async () => {
         const rr = await fetch(`${API_BASE}/api/ocr/result/${job_id}`);
         if (!rr.ok) throw new Error("Failed to retrieve result");
         currentResult = await rr.json();
+        await _ensureXlsClientsLoaded();
+        if (currentResult && selectedClientId) {
+          const picked = _xlsAllClients.find(c => String(c.id) === String(selectedClientId));
+          if (picked && (!currentResult.client || String(currentResult.client.id) !== String(picked.id))) {
+            currentResult.client = { ...picked };
+          }
+        }
         break;
       }
       if (job.status === "error") throw new Error(job.error || "OCR processing failed");
@@ -2802,17 +3496,199 @@ document.getElementById("processBtn").addEventListener("click", async () => {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-function renderResults(res) {
+function _resolveResultClient(res) {
+  if (!res || !res.client) return null;
+  const c = res.client;
+  const match = (c.id != null && Array.isArray(_xlsAllClients))
+    ? _xlsAllClients.find(x => String(x.id) === String(c.id))
+    : null;
+  return match ? { ...c, ...match } : c;
+}
+
+function _getClientEnrichedHeaders(activeClient, rows2D, res) {
+  if (!activeClient) return [];
+  const rawCols = _parseClientHeadingCols(activeClient);
+  if (!rawCols.length) return [];
+  const headerIdx = Math.max(0, (parseInt(activeClient.header_row, 10) || 1) - 1);
+  const sheetCtx = { rows: Array.isArray(rows2D) ? rows2D : [], headerIdx };
+  return rawCols.map(col => _formatHeadingWithDate(col, sheetCtx, res));
+}
+
+function _applyClientFormattingToTable(origHeaders, bodyRows2D, activeClient, res, opts = {}) {
+  const { headerIncludedInRows = false, allowDeepHeaderSkip = false, fallbackHeaderIdx = -1 } = opts;
+  const safeHeaders = Array.isArray(origHeaders) ? origHeaders.map(h => _cleanExcelCell(h)) : [];
+  const safeRows = Array.isArray(bodyRows2D)
+    ? bodyRows2D.map(r => Array.isArray(r) ? r.map(c => _cleanExcelCell(c)) : [_cleanExcelCell(r)])
+    : [];
+
+  if (!activeClient) {
+    return { headerCols: safeHeaders, bodyRows: safeRows, isClientFormatted: false };
+  }
+  const allSampleRows = safeHeaders.length ? [safeHeaders, ...safeRows] : safeRows;
+  const enrichedCols = _getClientEnrichedHeaders(activeClient, allSampleRows, res);
+  if (!enrichedCols.length) {
+    return { headerCols: safeHeaders, bodyRows: safeRows, isClientFormatted: false };
+  }
+
+  const cfgIdx = Math.max(0, (parseInt(activeClient.header_row, 10) || 1) - 1);
+  const detIdx = _detectHeaderRow(safeRows);
+  let finalBodyRows;
+
+  if (!headerIncludedInRows) {
+    const headersArePlaceholders = safeHeaders.length > 0 &&
+      safeHeaders.every(h => !h || !isNaN(Number(h)) || /^Unnamed/i.test(h));
+    if (headersArePlaceholders && detIdx === 0 && safeRows.length > 1) {
+      finalBodyRows = safeRows.slice(1);
+    } else if (allowDeepHeaderSkip && cfgIdx > 0 && cfgIdx < safeRows.length && detIdx === cfgIdx) {
+      finalBodyRows = safeRows.slice(cfgIdx + 1);
+    } else {
+      finalBodyRows = safeRows;
+    }
+  } else {
+    if (allowDeepHeaderSkip && cfgIdx > 0 && cfgIdx < safeRows.length && detIdx === cfgIdx) {
+      finalBodyRows = safeRows.slice(cfgIdx + 1);
+    } else if (detIdx >= 0) {
+      finalBodyRows = safeRows.slice(detIdx + 1);
+    } else if (fallbackHeaderIdx >= 0 && safeRows.length > fallbackHeaderIdx + 1) {
+      finalBodyRows = [...safeRows.slice(0, fallbackHeaderIdx), ...safeRows.slice(fallbackHeaderIdx + 1)];
+    } else if (allowDeepHeaderSkip && cfgIdx > 0 && cfgIdx < safeRows.length) {
+      finalBodyRows = safeRows.slice(cfgIdx + 1);
+    } else if (safeRows.length > 1) {
+      finalBodyRows = safeRows.slice(1);
+    } else {
+      finalBodyRows = safeRows;
+    }
+  }
+
+  const maxCols = Math.max(1, enrichedCols.length, safeHeaders.length, ...finalBodyRows.map(r => r.length));
+  const finalHeaders = Array.from({ length: maxCols }, (_, ci) =>
+    enrichedCols[ci] != null ? enrichedCols[ci] : (safeHeaders[ci] || _colLetter(ci))
+  );
+  return { headerCols: finalHeaders, bodyRows: finalBodyRows, isClientFormatted: true, maxCols };
+}
+
+function _renderResultsClientBar(res, activeClient) {
+  const barEl = document.getElementById('resultsClientBar');
+  const selEl = document.getElementById('resultsClientSelect');
+  const rowBadge = document.getElementById('resultsClientRowBadge');
+  const colsEl = document.getElementById('resultsClientCols');
+  const editBtn = document.getElementById('resultsEditHeadingBtn');
+  if (!barEl) return;
+
+  barEl.classList.remove('hidden');
+  if (selEl) {
+    if (selEl.options.length <= 1 && _xlsAllClients.length) populateHomeClientSelects(_xlsAllClients);
+    selEl.value = activeClient ? String(activeClient.id) : '';
+    selEl.onchange = async () => {
+      if (!currentResult) return;
+      const newCid = selEl.value;
+      const chosen = newCid ? (_xlsAllClients.find(c => String(c.id) === String(newCid)) || null) : null;
+      if (chosen) {
+        const cols = _parseClientHeadingCols(chosen);
+        const hdrIdx = Math.max(0, (parseInt(chosen.header_row, 10) || 1) - 1);
+        currentResult.client = {
+          id: chosen.id,
+          code: chosen.code,
+          name_ja: chosen.name_ja,
+          name_en: chosen.name_en,
+          header_row: chosen.header_row || 1,
+          heading_columns: chosen.heading_columns || '',
+        };
+        currentResult.client_ocr = {
+          client_id: chosen.id,
+          code: chosen.code,
+          name_ja: chosen.name_ja,
+          name_en: chosen.name_en,
+          header_row: chosen.header_row || 1,
+          heading_columns: chosen.heading_columns || '',
+          parsed_columns: cols,
+          matched_mode: 'manual',
+        };
+        if (Array.isArray(currentResult.custom_sheets)) {
+          currentResult.custom_sheets.forEach(s => {
+            if (!s || s.name === 'Full Text') return;
+            const enriched = _getClientEnrichedHeaders(chosen, s.rows || [], currentResult);
+            s.clientHeadingId = chosen.id;
+            if (enriched.length) s.clientHeaders = enriched;
+            if (Array.isArray(s.rows) && s.rows.length) {
+              s.hasHeader = true;
+              s.headerIdx = Math.min(hdrIdx, s.rows.length - 1);
+            }
+          });
+        }
+      } else {
+        currentResult.client = null;
+        currentResult.client_ocr = { matched_mode: 'unassigned' };
+        if (Array.isArray(currentResult.custom_sheets)) {
+          currentResult.custom_sheets.forEach(s => {
+            if (!s || s.name === 'Full Text') return;
+            s.clientHeaders = [];
+            s.clientHeadingId = null;
+          });
+        }
+      }
+      if (currentJobId) {
+        dbFetch('/api/ocr/result/' + encodeURIComponent(currentJobId), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ result: currentResult }),
+        }).catch(() => {});
+      }
+      renderResults(currentResult, { preserveTab: true });
+      showToast(chosen ? `取引先「${chosen.name_ja}」のフォーマットを適用しました` : '取引先指定を解除しました');
+    };
+  }
+
+  if (rowBadge) {
+    rowBadge.textContent = activeClient ? `見出し: ${activeClient.header_row || 1}行目` : '標準';
+  }
+  if (colsEl) {
+    if (activeClient) {
+      const enriched = _getClientEnrichedHeaders(activeClient, [], res);
+      const colStr = enriched.length ? enriched.join(', ') : (activeClient.heading_columns || '');
+      colsEl.innerHTML = buildClientHeadingColsHtml(colStr, 16, 'schema');
+    } else {
+      colsEl.innerHTML = '<span class="sheet-unassigned" style="font-size:11.5px">取引先を選択すると、見出しフォーマットで表を整形します</span>';
+    }
+  }
+  if (editBtn) {
+    editBtn.disabled = !activeClient;
+    editBtn.onclick = () => {
+      if (!activeClient) {
+        showToast('見出しを設定する取引先を選択してください', true);
+        return;
+      }
+      openClientHeadingModal(activeClient);
+    };
+  }
+  const xlsBtn = document.getElementById('openResultXlsBtn');
+  if (xlsBtn) {
+    xlsBtn.disabled = !currentResult;
+    xlsBtn.onclick = () => {
+      if (!currentResult) return;
+      const fn = (selectedFile && selectedFile.name) || currentResult.filename || 'OCR Result';
+      openOrderPreview(currentJobId || 'preview', fn);
+    };
+  }
+}
+
+function renderResults(res, opts = {}) {
+  const { preserveTab = false } = opts;
+  const activeClient = _resolveResultClient(res);
   const conf = res.confidence_avg ? (res.confidence_avg * 100).toFixed(1) + "%" : null;
   const confClass = (res.confidence_avg || 0) >= 0.9 ? "good" : "warn";
-  const clientPill = res.client
-    ? `<span class="meta-pill client">${esc(res.client.name_ja)} / ${esc(res.client.name_en)}</span>`
+  const displayClient = activeClient || res.client;
+  const clientModeTag = res.client_ocr?.matched_mode === 'manual' ? '指定' : (displayClient ? '自動判別' : '');
+  const clientPill = displayClient
+    ? `<span class="meta-pill client">${esc(displayClient.name_ja)}${displayClient.name_en ? ' / ' + esc(displayClient.name_en) : ''}${clientModeTag ? ` (${esc(clientModeTag)})` : ''}</span>`
     : "";
   document.getElementById("resultsMeta").innerHTML =
     clientPill +
     `<span class="meta-pill engine">${esc(res.primary_engine || "—")}</span>` +
     (conf ? `<span class="meta-pill ${confClass}">${conf} confidence</span>` : "") +
     (res.processing_time_s ? `<span class="meta-pill">${res.processing_time_s}s</span>` : "");
+
+  _renderResultsClientBar(res, activeClient);
 
   document.getElementById("fusedText").textContent   = res.fused_text || "(no text extracted)";
   document.getElementById("doclingText").textContent  = res.docling?.markdown || res.docling?.text || "(Docling produced no output)";
@@ -2889,23 +3765,42 @@ function renderResults(res) {
     return { rows, maxCols, headerIdx };
   }
 
-  // Render a reconstructed bbox table as an HTML string.
-  // The row with the most columns becomes <thead>; all other rows become <tbody>.
+  // Render a reconstructed bbox table as an HTML string (with optional client headings).
   function renderBboxTable(caption, recon) {
     const { rows, maxCols, headerIdx } = recon;
-    const header = rows[headerIdx];
-    // Data rows = everything except the header row
-    const bodyRows = [...rows.slice(0, headerIdx), ...rows.slice(headerIdx + 1)];
-    const thead = `<thead><tr>${header.cells.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>`;
+    const rawRows2D = rows.map(r => r.cells);
+    const defaultHeaders = (rows[headerIdx]?.cells || []).map(c => String(c ?? ''));
+    const defaultBodyRows = [...rows.slice(0, headerIdx), ...rows.slice(headerIdx + 1)].map(r => r.cells);
+
+    let headerCols = defaultHeaders;
+    let bodyRows = defaultBodyRows;
+    let colCount = maxCols;
+    let clientTag = '';
+
+    if (activeClient) {
+      const formatted = _applyClientFormattingToTable(defaultHeaders, rawRows2D, activeClient, res, {
+        headerIncludedInRows: true,
+        allowDeepHeaderSkip: true,
+        fallbackHeaderIdx: headerIdx,
+      });
+      if (formatted.isClientFormatted) {
+        headerCols = formatted.headerCols;
+        bodyRows = formatted.bodyRows;
+        colCount = formatted.maxCols || headerCols.length;
+        clientTag = ` · ${esc(activeClient.name_ja)}`;
+      }
+    }
+
+    const thead = `<thead><tr>${Array.from({ length: colCount }, (_, ci) => `<th>${esc(headerCols[ci] || '')}</th>`).join('')}</tr></thead>`;
     const tbody = `<tbody>${bodyRows.map((r, ri) =>
       `<tr class="${ri % 2 === 1 ? 'tbl-alt' : ''}">${
-        Array.from({length: maxCols}, (_, ci) => `<td>${esc(r.cells[ci] || '')}</td>`).join('')
+        Array.from({ length: colCount }, (_, ci) => `<td>${esc(r[ci] || '')}</td>`).join('')
       }</tr>`
     ).join('')}</tbody>`;
     return `<div class="tbl-block">
       <div class="tbl-header">
-        <span class="tbl-title">${caption} <small style="font-weight:400;color:var(--muted)">(layout reconstructed)</small></span>
-        <span class="tbl-meta">${bodyRows.length} rows × ${maxCols} cols</span>
+        <span class="tbl-title">${caption} <small style="font-weight:400;color:var(--muted)">(layout reconstructed${clientTag})</small></span>
+        <span class="tbl-meta">${bodyRows.length} rows × ${colCount} cols</span>
       </div>
       <div class="tbl-scroll"><table class="tbl-grid">${thead}${tbody}</table></div>
     </div>`;
@@ -2926,8 +3821,44 @@ function renderResults(res) {
     return { headers, bodyRows };
   }
 
+  function renderHtmlTableBlock(titleHtml, headerCols, bodyRows2D, isClientFormatted = false) {
+    const colCount = Math.max(1, headerCols.length, ...bodyRows2D.map(r => r.length));
+    const thead = `<thead><tr>${Array.from({ length: colCount }, (_, ci) => `<th>${esc(headerCols[ci] ?? '')}</th>`).join('')}</tr></thead>`;
+    const tbody = `<tbody>${bodyRows2D.map((r, ri) =>
+      `<tr class="${ri % 2 === 1 ? 'tbl-alt' : ''}">${
+        Array.from({ length: colCount }, (_, ci) => `<td>${esc(r[ci] ?? '')}</td>`).join('')
+      }</tr>`
+    ).join('')}</tbody>`;
+    const badge = isClientFormatted && activeClient
+      ? ` <small style="font-weight:500;color:#2563eb">(${esc(activeClient.name_ja)})</small>`
+      : '';
+    return `<div class="tbl-block">
+      <div class="tbl-header">
+        <span class="tbl-title">${titleHtml}${badge}</span>
+        <span class="tbl-meta">${bodyRows2D.length} rows × ${colCount} cols</span>
+      </div>
+      <div class="tbl-scroll"><table class="tbl-grid">${thead}${tbody}</table></div>
+    </div>`;
+  }
+
   const tables = res.tables || res.docling?.tables || [];
-  if (!tables.length) {
+  const customSheets = Array.isArray(res.custom_sheets)
+    ? res.custom_sheets.filter(s => s && s.name !== 'Full Text' && Array.isArray(s.rows) && s.rows.length > 0)
+    : [];
+
+  if (!tables.length && customSheets.length > 0) {
+    document.getElementById("tablesOutput").innerHTML = customSheets.map((s, si) => {
+      const caption = esc(s.name || `Sheet ${si + 1}`);
+      const hIdx = (s.hasHeader && s.headerIdx >= 0 && s.headerIdx < s.rows.length) ? s.headerIdx : 0;
+      const origHdrs = (s.rows[hIdx] || []).map(c => _cleanExcelCell(c));
+      const formatted = _applyClientFormattingToTable(origHdrs, s.rows, activeClient, res, {
+        headerIncludedInRows: true,
+        allowDeepHeaderSkip: true,
+        fallbackHeaderIdx: hIdx,
+      });
+      return renderHtmlTableBlock(caption, formatted.headerCols, formatted.bodyRows, formatted.isClientFormatted);
+    }).join('');
+  } else if (!tables.length) {
     const recon = reconstructTableFromBbox(res.paddle?.lines);
     document.getElementById("tablesOutput").innerHTML = recon
       ? renderBboxTable("Table 1", recon)
@@ -2938,34 +3869,25 @@ function renderResults(res) {
   } else {
     document.getElementById("tablesOutput").innerHTML = tables.map((tbl, i) => {
       const rows = tbl.data || [];
-      const shape = tbl.shape || [rows.length, rows.length ? Object.keys(rows[0]).length : 0];
       const caption = tbl.caption ? esc(tbl.caption) : `Table ${i + 1}`;
 
       // If no row data, try to parse the markdown or fall back to docling full markdown
       if (!rows.length) {
-        // Try per-table markdown first (works when PPStructure fallback populated it)
         const tblMdLines = (tbl.markdown || "").replace(/\r\n/g, "\n")
           .split("\n").map(l => l.trim()).filter(l => l.startsWith("|"));
         let parsed = parseMdTable(tblMdLines);
 
-        // If that failed, try the i-th table from full Docling markdown
         if (!parsed) {
           const docMdTables = extractMdTables(res.docling?.markdown);
           if (docMdTables[i]) parsed = parseMdTable(docMdTables[i]);
         }
 
         if (parsed && parsed.headers.length) {
-          const thead = `<thead><tr>${parsed.headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>`;
-          const tbody = `<tbody>${parsed.bodyRows.map((r, ri) =>
-            `<tr class="${ri % 2 === 1 ? 'tbl-alt' : ''}">${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`
-          ).join('')}</tbody>`;
-          return `<div class="tbl-block">
-            <div class="tbl-header">
-              <span class="tbl-title">${caption}</span>
-              <span class="tbl-meta">${parsed.bodyRows.length} rows × ${parsed.headers.length} cols</span>
-            </div>
-            <div class="tbl-scroll"><table class="tbl-grid">${thead}${tbody}</table></div>
-          </div>`;
+          const formatted = _applyClientFormattingToTable(parsed.headers, parsed.bodyRows, activeClient, res, {
+            headerIncludedInRows: false,
+            allowDeepHeaderSkip: true,
+          });
+          return renderHtmlTableBlock(caption, formatted.headerCols, formatted.bodyRows, formatted.isClientFormatted);
         }
 
         // Final fallback: reconstruct from PaddleOCR bbox (only on first table to avoid duplication)
@@ -2983,89 +3905,130 @@ function renderResults(res) {
       }
 
       const cols = Object.keys(rows[0]);
-      // Detect if first column keys are numeric (0,1,2…) → treat first data row as header
       const numericKeys = cols.every(c => !isNaN(Number(c)));
-      let headerCols, bodyRows;
+      let origHeaderCols, bodyRows2D;
       if (numericKeys && rows.length > 1) {
-        headerCols = cols.map(c => String(rows[0][c] ?? ''));
-        bodyRows   = rows.slice(1);
+        origHeaderCols = cols.map(c => _cleanExcelCell(rows[0][c]));
+        bodyRows2D = rows.map(r => cols.map(c => _cleanExcelCell(r[c])));
+        const formatted = _applyClientFormattingToTable(origHeaderCols, bodyRows2D, activeClient, res, {
+          headerIncludedInRows: true,
+          allowDeepHeaderSkip: true,
+          fallbackHeaderIdx: 0,
+        });
+        return renderHtmlTableBlock(caption, formatted.headerCols, formatted.bodyRows, formatted.isClientFormatted);
       } else {
-        headerCols = cols;
-        bodyRows   = rows;
+        origHeaderCols = cols.map(c => _cleanExcelCell(c));
+        bodyRows2D = rows.map(r => cols.map(c => _cleanExcelCell(r[c])));
+        const formatted = _applyClientFormattingToTable(origHeaderCols, bodyRows2D, activeClient, res, {
+          headerIncludedInRows: false,
+          allowDeepHeaderSkip: true,
+        });
+        return renderHtmlTableBlock(caption, formatted.headerCols, formatted.bodyRows, formatted.isClientFormatted);
       }
-
-      const thead = `<thead><tr>${headerCols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>`;
-      const tbody = `<tbody>${bodyRows.map((r, ri) =>
-        `<tr class="${ri % 2 === 1 ? 'tbl-alt' : ''}">${cols.map(c => `<td>${esc(String(r[c] ?? ''))}</td>`).join('')}</tr>`
-      ).join('')}</tbody>`;
-
-      return `<div class="tbl-block">
-        <div class="tbl-header">
-          <span class="tbl-title">${caption}</span>
-          <span class="tbl-meta">${shape[0]} rows × ${shape[1]} cols</span>
-        </div>
-        <div class="tbl-scroll">
-          <table class="tbl-grid">
-            ${thead}
-            ${tbody}
-          </table>
-        </div>
-      </div>`;
     }).join('');
   }
 
   document.getElementById("rawJson").textContent = JSON.stringify(res, null, 2);
 
-  // CSV tab — full fused text + all table blocks
+  // CSV tab — full fused text + all client-formatted table blocks
   (function renderCsv() {
-    const q = s => `"${String(s).replace(/"/g, '""')}"`;
+    const q = s => `"${String(s == null ? '' : s).replace(/"/g, '""')}"`;
 
     // ── Section 1: complete fused text ───────────────────────────
     const fusedLines = (res.fused_text || "").split("\n");
     const textSection = "# Full Text\r\nline\r\n" + fusedLines.map(q).join("\r\n");
 
     // ── Section 2: tables ─────────────────────────────────────────
-    // Prefer the full Docling document markdown — it has the actual
-    // table headers & data rows that the per-table DataFrame often lacks.
-    // Also try DeepSeek markdown as additional source.
     const docMd = res.docling?.markdown || res.deepseek?.markdown || "";
     const docMdTables = extractMdTables(docMd);
+    const hasClientHeading = !!(activeClient && _parseClientHeadingCols(activeClient).length > 0);
 
-    let tableSections;
-    if (docMdTables.length > 0) {
+    let tableSections = [];
+    if (customSheets.length > 0 && !tables.length) {
+      tableSections = customSheets.map((s, si) => {
+        const caption = s.name || `Sheet ${si + 1}`;
+        const hIdx = (s.hasHeader && s.headerIdx >= 0 && s.headerIdx < s.rows.length) ? s.headerIdx : 0;
+        const origHdrs = (s.rows[hIdx] || []).map(c => _cleanExcelCell(c));
+        const formatted = _applyClientFormattingToTable(origHdrs, s.rows, activeClient, res, {
+          headerIncludedInRows: true,
+          allowDeepHeaderSkip: true,
+          fallbackHeaderIdx: hIdx,
+        });
+        const maxCols = Math.max(1, formatted.headerCols.length, ...formatted.bodyRows.map(r => r.length));
+        const hdrCsv = Array.from({ length: maxCols }, (_, ci) => q(formatted.headerCols[ci] ?? '')).join(",");
+        const bodyCsv = formatted.bodyRows.map(r =>
+          Array.from({ length: maxCols }, (_, ci) => q(r[ci] ?? '')).join(",")
+        ).join("\r\n");
+        return `# ${caption}\r\n${hdrCsv}${bodyCsv ? '\r\n' + bodyCsv : ''}`;
+      });
+    } else if (docMdTables.length > 0) {
       tableSections = docMdTables.map((lines, i) => {
+        if (hasClientHeading) {
+          const parsed = parseMdTable(lines);
+          if (parsed && parsed.headers.length) {
+            const formatted = _applyClientFormattingToTable(parsed.headers, parsed.bodyRows, activeClient, res, {
+              headerIncludedInRows: false,
+              allowDeepHeaderSkip: true,
+            });
+            const maxCols = Math.max(1, formatted.headerCols.length, ...formatted.bodyRows.map(r => r.length));
+            const hdrCsv = Array.from({ length: maxCols }, (_, ci) => q(formatted.headerCols[ci] ?? '')).join(",");
+            const bodyCsv = formatted.bodyRows.map(r =>
+              Array.from({ length: maxCols }, (_, ci) => q(r[ci] ?? '')).join(",")
+            ).join("\r\n");
+            return `# Table ${i + 1}\r\n${hdrCsv}${bodyCsv ? '\r\n' + bodyCsv : ''}`;
+          }
+        }
         const dataLines = lines.filter(l => !isSepRow(l) && l.replace(/[\s|]/g, "").length > 0);
         if (!dataLines.length) return null;
         return `# Table ${i + 1}\r\n` + dataLines.map(mdRowToCsv).join("\r\n");
       }).filter(Boolean);
     } else {
-      // Fallback: per-table objects from res.tables
-      const tables = res.tables || res.docling?.tables || [];
-      tableSections = tables.map((tbl, i) => {
+      const tblList = res.tables || res.docling?.tables || [];
+      tableSections = tblList.map((tbl, i) => {
         const caption = tbl.caption || `Table ${i + 1}`;
         const rows = tbl.data || [];
 
-        // Path A: structured row data
         if (rows.length) {
           const cols = Object.keys(rows[0]);
           const numericKeys = cols.every(c => !isNaN(Number(c)));
-          let headerCols, bodyRows;
+          let formatted;
           if (numericKeys && rows.length > 1) {
-            headerCols = cols.map(c => String(rows[0][c] ?? ""));
-            bodyRows   = rows.slice(1);
+            const origHdrs = cols.map(c => _cleanExcelCell(rows[0][c]));
+            const allRows2D = rows.map(r => cols.map(c => _cleanExcelCell(r[c])));
+            formatted = _applyClientFormattingToTable(origHdrs, allRows2D, activeClient, res, {
+              headerIncludedInRows: true,
+              allowDeepHeaderSkip: true,
+              fallbackHeaderIdx: 0,
+            });
           } else {
-            headerCols = cols;
-            bodyRows   = rows;
+            const origHdrs = cols.map(c => _cleanExcelCell(c));
+            const body2D = rows.map(r => cols.map(c => _cleanExcelCell(r[c])));
+            formatted = _applyClientFormattingToTable(origHdrs, body2D, activeClient, res, {
+              headerIncludedInRows: false,
+              allowDeepHeaderSkip: true,
+            });
           }
-          const header = headerCols.map(q).join(",");
-          const body   = bodyRows.map(r => cols.map(c => q(r[c] ?? "")).join(",")).join("\r\n");
-          return `# ${caption}\r\n${header}\r\n${body}`;
+          const maxCols = Math.max(1, formatted.headerCols.length, ...formatted.bodyRows.map(r => r.length));
+          const header = Array.from({ length: maxCols }, (_, ci) => q(formatted.headerCols[ci] ?? '')).join(",");
+          const body   = formatted.bodyRows.map(r => Array.from({ length: maxCols }, (_, ci) => q(r[ci] ?? '')).join(",")).join("\r\n");
+          return `# ${caption}\r\n${header}${body ? '\r\n' + body : ''}`;
         }
 
-        // Path B: parse per-table markdown
         const md = (tbl.markdown || "").replace(/\r\n/g, "\n");
         const mdLines = md.split("\n").map(l => l.trim()).filter(l => l.startsWith("|"));
-        // dataLines: not a separator AND has at least one non-empty cell
+        if (hasClientHeading) {
+          const parsed = parseMdTable(mdLines);
+          if (parsed && parsed.headers.length) {
+            const formatted = _applyClientFormattingToTable(parsed.headers, parsed.bodyRows, activeClient, res, {
+              headerIncludedInRows: false,
+              allowDeepHeaderSkip: true,
+            });
+            const maxCols = Math.max(1, formatted.headerCols.length, ...formatted.bodyRows.map(r => r.length));
+            const hdrCsv = Array.from({ length: maxCols }, (_, ci) => q(formatted.headerCols[ci] ?? '')).join(",");
+            const bodyCsv = formatted.bodyRows.map(r => Array.from({ length: maxCols }, (_, ci) => q(r[ci] ?? '')).join(",")).join("\r\n");
+            return `# ${caption}\r\n${hdrCsv}${bodyCsv ? '\r\n' + bodyCsv : ''}`;
+          }
+        }
         const dataLines = mdLines.filter(l =>
           !isSepRow(l) && l.replace(/[\s|]/g, "").length > 0
         );
@@ -3073,10 +4036,22 @@ function renderResults(res) {
           return `# ${caption}\r\n` + dataLines.map(mdRowToCsv).join("\r\n");
         }
 
-        // Path C: bbox reconstruction (only on first table)
         if (i === 0) {
           const recon = reconstructTableFromBbox(res.paddle?.lines);
           if (recon) {
+            const rawRows2D = recon.rows.map(r => r.cells);
+            const defHdrs = (recon.rows[recon.headerIdx]?.cells || []).map(c => String(c ?? ''));
+            if (hasClientHeading) {
+              const formatted = _applyClientFormattingToTable(defHdrs, rawRows2D, activeClient, res, {
+                headerIncludedInRows: true,
+                allowDeepHeaderSkip: true,
+                fallbackHeaderIdx: recon.headerIdx,
+              });
+              const maxCols = Math.max(1, formatted.headerCols.length, ...formatted.bodyRows.map(r => r.length));
+              const hdrCsv = Array.from({ length: maxCols }, (_, ci) => q(formatted.headerCols[ci] ?? '')).join(",");
+              const bodyCsv = formatted.bodyRows.map(r => Array.from({ length: maxCols }, (_, ci) => q(r[ci] ?? '')).join(",")).join("\r\n");
+              return `# ${caption || `Table ${i + 1}`} (layout reconstructed)\r\n${hdrCsv}${bodyCsv ? '\r\n' + bodyCsv : ''}`;
+            }
             const csvRows = recon.rows.map(r =>
               Array.from({length: recon.maxCols}, (_, ci) => q(r.cells[ci] || "")).join(",")
             );
@@ -3093,14 +4068,16 @@ function renderResults(res) {
   })();
   document.getElementById("resultsCard").classList.remove("hidden");
 
-  // Reset to Fused tab
-  document.querySelectorAll(".tab").forEach(t => {
-    const isFused = t.dataset.tab === "fused";
-    t.classList.toggle("active", isFused);
-    t.setAttribute("aria-selected", String(isFused));
-  });
-  document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
-  document.getElementById("tab-fused").classList.remove("hidden");
+  if (!preserveTab) {
+    // Reset to Fused tab
+    document.querySelectorAll(".tab").forEach(t => {
+      const isFused = t.dataset.tab === "fused";
+      t.classList.toggle("active", isFused);
+      t.setAttribute("aria-selected", String(isFused));
+    });
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
+    document.getElementById("tab-fused").classList.remove("hidden");
+  }
   if (res.job_id) currentJobId = res.job_id;
   const saveBtn = document.getElementById("saveDbBtn");
   if (saveBtn) {
@@ -3110,7 +4087,9 @@ function renderResults(res) {
   }
   const dlToggle = document.getElementById("dlToggle");
   if (dlToggle) dlToggle.disabled = false;
-  document.getElementById("resultsCard").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!preserveTab) {
+    document.getElementById("resultsCard").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 // Save to DB / Copy / Download buttons
@@ -3126,7 +4105,11 @@ if (saveDbBtn) {
     saveDbBtn.textContent = "Saving…";
 
     const filename = (selectedFile && selectedFile.name) || currentResult.filename || "unknown";
-    const payload = { filename, engine: selectedEngine, result: currentResult };
+    const explicitCid = document.getElementById("resultsClientSelect")?.value || document.getElementById("uploadClientSelect")?.value || "";
+    const resolvedCid = currentResult.client?.id
+      ? Number(currentResult.client.id)
+      : (explicitCid ? Number(explicitCid) : null);
+    const payload = { filename, engine: selectedEngine, client_id: resolvedCid, result: currentResult };
 
     async function doSave(base) {
       return fetch(`${base}/api/ocr/save/${encodeURIComponent(currentJobId)}`, {
@@ -3185,6 +4168,7 @@ if (saveDbBtn) {
       const saved = await r.json();
       if (saved.client) {
         currentResult.client = saved.client;
+        renderResults(currentResult, { preserveTab: true });
       }
       saveDbBtn.classList.add("saved");
       saveDbBtn.textContent = "Saved ✓";

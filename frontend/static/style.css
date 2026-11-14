@@ -194,6 +194,44 @@ body{
 .file-name{font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .preview-meta{font-size:11.5px;color:var(--muted);margin-top:2px}
 
+/* ── Upload Client OCR Selector ── */
+.upload-client-section{
+  margin-top:16px;padding:12px 14px;
+  border:1px solid var(--border);border-radius:var(--radius);
+  background:var(--surface2);
+}
+.upload-client-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.upload-client-controls{display:flex;align-items:center;gap:6px;flex:1;min-width:220px;flex-wrap:wrap}
+.upload-client-select{
+  flex:1;min-width:200px;padding:6px 10px;
+  border:1px solid var(--border2);border-radius:var(--radius-sm);
+  background:var(--surface);color:var(--text);
+  font-size:12.5px;font-weight:500;font-family:inherit;outline:none;cursor:pointer;
+  transition:border-color .12s,box-shadow .12s;
+}
+.upload-client-select:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(37,99,235,.15)}
+.upload-client-preview{
+  margin-top:10px;padding:10px 12px;
+  border:1px solid var(--accent-bd);border-radius:var(--radius-sm);
+  background:var(--surface);
+}
+.upload-client-preview-top{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;
+}
+.upload-client-mode-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:2px 8px;border-radius:20px;font-size:10.5px;font-weight:600;
+  background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;
+}
+.upload-client-mode-badge.mode-manual{
+  background:#eef2ff;color:#4338ca;border-color:#c7d2fe;
+}
+.upload-client-mode-badge.mode-auto{
+  background:#ecfdf5;color:#047857;border-color:#a7f3d0;
+}
+.upload-client-name{font-size:12.5px;font-weight:600;color:var(--text)}
+.upload-client-cols{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+
 /* ── Engine selector ── */
 .engine-row{display:flex;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap}
 .engine-label{font-size:12px;color:var(--muted);white-space:nowrap;font-weight:500}
@@ -251,7 +289,22 @@ body{
 .results-header{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .results-title{font-size:13px;font-weight:600;color:var(--text)}
 .results-meta{display:flex;gap:5px;flex-wrap:wrap;flex:1}
-.results-actions{display:flex;gap:6px}
+.results-actions{display:flex;gap:6px;flex-wrap:wrap}
+
+/* ── Results Client OCR Bar ── */
+.results-client-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:8px 12px;margin-bottom:12px;
+  background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius-sm);
+  flex-wrap:wrap;
+}
+.results-client-bar-left{
+  display:flex;align-items:center;gap:8px;flex:1;min-width:220px;flex-wrap:wrap;
+}
+.results-client-cols{
+  display:flex;align-items:center;gap:4px;flex-wrap:wrap;flex:1;min-width:160px;
+}
+.results-client-bar-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
 
 /* ── Pills ── */
 .meta-pill{
@@ -814,6 +867,14 @@ td{color:var(--muted)}
   outline:none;cursor:pointer;font-family:inherit;max-width:220px;
 }
 .xls-client-select:focus{border-color:#2563eb}
+.xls-date-label{margin-left:4px}
+.xls-date-input{
+  padding:2px 7px;border:1px solid #cbd5e1;border-radius:5px;
+  font-size:12px;font-weight:600;color:#1e293b;background:#fff;
+  outline:none;cursor:pointer;font-family:inherit;height:25px;
+  line-height:1.2;
+}
+.xls-date-input:focus{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.15)}
 .xls-client-bar-cols{
   flex:1;min-width:200px;display:flex;align-items:center;gap:4px;
   overflow-x:auto;padding:2px 0;scrollbar-width:thin;
@@ -1487,6 +1548,9 @@ td{color:var(--muted)}
   .engine-badge{font-size:10px;padding:2px 7px}
   .card{padding:16px;border-radius:10px;margin-bottom:12px}
   .drop-zone{padding:24px 12px}
+  .upload-client-row{flex-direction:column;align-items:stretch;gap:6px}
+  .upload-client-controls{width:100%}
+  .upload-client-select{min-width:100%}
   .engine-row{flex-direction:column;align-items:stretch;gap:6px}
   .toggle-group{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
   .toggle{text-align:center}
@@ -1494,6 +1558,9 @@ td{color:var(--muted)}
   .results-actions{display:flex;flex-wrap:wrap;gap:6px;width:100%}
   .results-actions .btn-sm,.results-actions .dl-dropdown{flex:1 1 auto}
   .results-actions .dl-toggle{width:100%}
+  .results-client-bar{flex-direction:column;align-items:stretch;gap:8px}
+  .results-client-bar-left{width:100%}
+  .results-client-bar-right{width:100%;justify-content:flex-end}
   .bulk-bar{flex-wrap:wrap}
 
   /* Order / Clients / Product Master views */
@@ -1528,7 +1595,7 @@ td{color:var(--muted)}
   .xls-window{width:100vw;height:100vh;height:100dvh;max-width:100vw;border-radius:0}
   .xls-cell-val{min-width:100px}
   .xls-client-bar{padding:6px 10px;gap:6px}
-  .xls-client-bar-left{width:100%;justify-content:space-between}
+  .xls-client-bar-left{width:100%;justify-content:space-between;flex-wrap:wrap;gap:6px}
   .xls-client-select{flex:1;max-width:none}
   .xls-client-bar-cols{width:100%;min-width:0;order:3}
   .xls-client-bar-actions{width:100%;display:flex;flex-wrap:wrap;gap:4px}

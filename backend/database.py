@@ -469,16 +469,117 @@ def detect_client(filename: str = "", text: str = "") -> Optional[dict]:
     }
 
 
+def parse_heading_columns(raw_cols: str) -> list[str]:
+    """Parse heading_columns string into an ordered list of non-empty column names."""
+    if not raw_cols:
+        return []
+    parts = re.split(r"\r?\n|,|、|\t|\|", str(raw_cols))
+    cols: list[str] = []
+    for part in parts:
+        cleaned = part.strip().strip('"').strip("'")
+        if cleaned:
+            cols.append(cleaned)
+    return cols
+
+
+def _client_public_dict(client: Optional[dict]) -> Optional[dict]:
+    """Normalize a client DB row into a JSON-serializable summary dict."""
+    if not isinstance(client, dict) or not client.get("id"):
+        return None
+    out = {
+        "id":              int(client["id"]),
+        "code":            client.get("code") or "",
+        "name_ja":         client.get("name_ja") or "",
+        "name_en":         client.get("name_en") or "",
+        "header_row":      max(1, int(client.get("header_row") or 1)),
+        "heading_columns": client.get("heading_columns") or "",
+    }
+    if client.get("match_score") is not None:
+        out["match_score"] = client["match_score"]
+    return out
+
+
+def apply_client_ocr_formatting(
+    result: dict,
+    client: Optional[dict],
+    filename: str = "",
+    matched_mode: str = "auto",
+) -> dict:
+    """
+    Enrich an OCR result dict with matched/selected client metadata and apply
+    the client's heading format (header_row & heading_columns) to extracted
+    tables and custom_sheets.
+    """
+    if not isinstance(result, dict):
+        return result
+
+    client_pub = _client_public_dict(client)
+    if not client_pub:
+        if matched_mode == "manual":
+            result["client"] = None
+            result.pop("client_ocr", None)
+        return result
+
+    client_cols = parse_heading_columns(client_pub.get("heading_columns", ""))
+    header_row = max(1, int(client_pub.get("header_row") or 1))
+    header_idx = header_row - 1
+
+    result["client"] = client_pub
+    result["client_ocr"] = {
+        "client_id":       client_pub["id"],
+        "code":            client_pub["code"],
+        "name_ja":         client_pub["name_ja"],
+        "name_en":         client_pub["name_en"],
+        "header_row":      header_row,
+        "heading_columns": client_pub["heading_columns"],
+        "parsed_columns":  client_cols,
+        "matched_mode":    matched_mode,
+    }
+
+    custom_sheets = result.get("custom_sheets")
+    if isinstance(custom_sheets, list):
+        for sheet in custom_sheets:
+            if not isinstance(sheet, dict) or sheet.get("name") == "Full Text":
+                continue
+            has_manual_custom = bool(sheet.get("customHeaders"))
+            if not has_manual_custom or matched_mode == "manual" or sheet.get("clientHeadingId") is None:
+                sheet["clientHeadingId"] = client_pub["id"]
+                if client_cols:
+                    sheet["clientHeaders"] = list(client_cols)
+                rows = sheet.get("rows")
+                if isinstance(rows, list) and len(rows) > 0:
+                    sheet["hasHeader"] = True
+                    sheet["headerIdx"] = min(header_idx, max(0, len(rows) - 1))
+
+    tables = result.get("tables")
+    if isinstance(tables, list):
+        for tbl in tables:
+            if isinstance(tbl, dict):
+                tbl["client_header_row"] = header_row
+                if client_cols:
+                    tbl["client_headers"] = list(client_cols)
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Public write helpers
 # ---------------------------------------------------------------------------
 
-def save_job_queued(job_id: str, filename: str, engine: str) -> Optional[dict]:
-    """Insert a new job row with status='queued' and auto-detected client_id."""
+def save_job_queued(
+    job_id: str,
+    filename: str,
+    engine: str,
+    client_id: Optional[int] = None,
+) -> Optional[dict]:
+    """Insert a new job row with status='queued' and selected or auto-detected client_id."""
     if not is_connected():
         return None
-    matched_client = detect_client(filename=filename)
-    client_id = matched_client["id"] if matched_client else None
+    if client_id is not None:
+        matched_client = _client_public_dict(get_client_by_id(int(client_id)))
+    else:
+        matched_client = detect_client(filename=filename)
+    resolved_client_id = matched_client["id"] if matched_client else client_id
     try:
         with _get_connection() as con:
             cur = con.cursor()
@@ -493,7 +594,7 @@ def save_job_queued(job_id: str, filename: str, engine: str) -> Optional[dict]:
                     client_id=COALESCE(%s, client_id),
                     updated_at=%s
                 """,
-                (job_id, filename, engine, client_id, now, now, client_id, now),
+                (job_id, filename, engine, resolved_client_id, now, now, resolved_client_id, now),
             )
             cur.close()
         return matched_client
@@ -652,21 +753,49 @@ def _insert_engine_and_table_rows(cur, job_id: str, result: dict) -> None:
         )
 
 
-def save_extracted_job(job_id: str, filename: str, engine: str, result: dict) -> dict:
+def save_extracted_job(
+    job_id: str,
+    filename: str,
+    engine: str,
+    result: dict,
+    client_id: Optional[int] = None,
+) -> dict:
     """
     Persist an already-extracted OCR result into ocr_jobs, ocr_job_engines, and ocr_tables.
-    Matches the client according to filename (with extracted text fallback) and inserts
-    a new row each time Save is clicked (generating a new UUID if job_id already exists).
+    Uses explicit client_id (or client already attached to result) if provided, otherwise
+    matches the client according to filename and extracted text.
+    Inserts a new row each time Save is clicked (generating a new UUID if job_id already exists).
     """
     if not is_connected():
         raise RuntimeError("MySQL database is not connected")
 
-    matched_client = detect_client_for_result(result, filename=filename)
-    client_id = matched_client["id"] if matched_client else None
+    result_to_store = dict(result or {})
+    matched_client = None
+    matched_mode = "auto"
 
-    result_to_store = dict(result)
-    if matched_client:
-        result_to_store["client"] = matched_client
+    if client_id is not None and int(client_id) > 0:
+        matched_client = _client_public_dict(get_client_by_id(int(client_id)))
+        matched_mode = "manual"
+    elif isinstance(result_to_store.get("client"), dict) and result_to_store["client"].get("id"):
+        cid = int(result_to_store["client"]["id"])
+        matched_client = _client_public_dict(get_client_by_id(cid)) or _client_public_dict(result_to_store["client"])
+        matched_mode = (result_to_store.get("client_ocr") or {}).get("matched_mode") or "manual"
+    else:
+        unassigned_explicit = (
+            "client" in result_to_store
+            and result_to_store.get("client") is None
+            and (result_to_store.get("client_ocr") or {}).get("matched_mode") == "unassigned"
+        )
+        if not unassigned_explicit:
+            matched_client = detect_client_for_result(result_to_store, filename=filename)
+
+    resolved_client_id = matched_client["id"] if matched_client else None
+    apply_client_ocr_formatting(
+        result_to_store,
+        matched_client,
+        filename=filename,
+        matched_mode=matched_mode,
+    )
     result_to_store["filename"] = filename
 
     now = datetime.utcnow()
@@ -675,8 +804,8 @@ def save_extracted_job(job_id: str, filename: str, engine: str, result: dict) ->
         save_id = str(uuid.uuid4())
 
     safe_filename = (filename or "unknown")[:512]
-    req_engine = (engine or result.get("engine") or result.get("primary_engine") or "all")[:64]
-    prim_engine = result.get("primary_engine") or result.get("engine")
+    req_engine = (engine or result_to_store.get("engine") or result_to_store.get("primary_engine") or "all")[:64]
+    prim_engine = result_to_store.get("primary_engine") or result_to_store.get("engine")
     if isinstance(prim_engine, str):
         prim_engine = prim_engine[:64]
 
@@ -697,13 +826,13 @@ def save_extracted_job(job_id: str, filename: str, engine: str, result: dict) ->
             """,
             (
                 save_id,
-                client_id,
+                resolved_client_id,
                 safe_filename,
                 req_engine,
                 prim_engine,
-                result.get("fused_text") or result.get("full_text") or result.get("text") or result.get("markdown", ""),
-                result.get("confidence_avg"),
-                result.get("processing_time_s"),
+                result_to_store.get("fused_text") or result_to_store.get("full_text") or result_to_store.get("text") or result_to_store.get("markdown", ""),
+                result_to_store.get("confidence_avg"),
+                result_to_store.get("processing_time_s"),
                 json.dumps(result_to_store, ensure_ascii=False, default=str),
                 now,
                 now,
@@ -719,19 +848,38 @@ def save_extracted_job(job_id: str, filename: str, engine: str, result: dict) ->
     }
 
 
-def save_job_done(job_id: str, result: dict, filename: str = "") -> Optional[dict]:
+def save_job_done(
+    job_id: str,
+    result: dict,
+    filename: str = "",
+    client_id: Optional[int] = None,
+) -> Optional[dict]:
     """
     Persist the completed OCR result.
-    Auto-detects client from filename and extracted OCR text,
-    then writes to ocr_jobs, ocr_job_engines, and ocr_tables.
+    Uses explicit client_id if provided, otherwise auto-detects client from filename
+    and extracted OCR text, then writes to ocr_jobs, ocr_job_engines, and ocr_tables.
     """
     if not is_connected():
         return None
     try:
-        matched_client = detect_client_for_result(result, filename=filename)
-        client_id = matched_client["id"] if matched_client else None
-        if matched_client and "client" not in result:
-            result["client"] = matched_client
+        matched_mode = "auto"
+        if client_id is not None and int(client_id) > 0:
+            matched_client = _client_public_dict(get_client_by_id(int(client_id)))
+            matched_mode = "manual"
+        elif isinstance(result, dict) and isinstance(result.get("client"), dict) and result["client"].get("id"):
+            cid = int(result["client"]["id"])
+            matched_client = _client_public_dict(get_client_by_id(cid)) or _client_public_dict(result["client"])
+            matched_mode = (result.get("client_ocr") or {}).get("matched_mode") or "manual"
+        else:
+            matched_client = detect_client_for_result(result, filename=filename)
+
+        resolved_client_id = matched_client["id"] if matched_client else None
+        apply_client_ocr_formatting(
+            result,
+            matched_client,
+            filename=filename,
+            matched_mode=matched_mode,
+        )
 
         with _get_connection() as con:
             cur = con.cursor()
@@ -751,7 +899,7 @@ def save_job_done(job_id: str, result: dict, filename: str = "") -> Optional[dic
                  WHERE job_id = %s
                 """,
                 (
-                    client_id,
+                    resolved_client_id,
                     result.get("primary_engine") or result.get("engine"),
                     result.get("fused_text") or result.get("full_text") or result.get("text") or result.get("markdown", ""),
                     result.get("confidence_avg"),
@@ -840,7 +988,7 @@ def get_job_result(job_id: str) -> Optional[dict]:
 
 
 def update_job_result(job_id: str, result: dict) -> bool:
-    """Persist manually edited result_json and fused_text back to ocr_jobs."""
+    """Persist manually edited result_json, fused_text, and client_id back to ocr_jobs."""
     if not is_connected():
         return False
     try:
@@ -850,6 +998,13 @@ def update_job_result(job_id: str, result: dict) -> bool:
             or result.get("text")
             or ""
         )
+        client_obj = result.get("client")
+        has_client_key = isinstance(result, dict) and ("client" in result)
+        new_client_id = (
+            int(client_obj["id"])
+            if isinstance(client_obj, dict) and client_obj.get("id")
+            else None
+        )
         result_json = json.dumps(result, ensure_ascii=False, default=str)
         with _get_connection() as con:
             cur = con.cursor()
@@ -857,16 +1012,29 @@ def update_job_result(job_id: str, result: dict) -> bool:
             if cur.fetchone() is None:
                 cur.close()
                 return False
-            cur.execute(
-                """
-                UPDATE ocr_jobs
-                   SET result_json = %s,
-                       fused_text  = %s,
-                       updated_at  = %s
-                 WHERE job_id = %s
-                """,
-                (result_json, fused_text, datetime.utcnow(), job_id),
-            )
+            if has_client_key:
+                cur.execute(
+                    """
+                    UPDATE ocr_jobs
+                       SET result_json = %s,
+                           fused_text  = %s,
+                           client_id   = %s,
+                           updated_at  = %s
+                     WHERE job_id = %s
+                    """,
+                    (result_json, fused_text, new_client_id, datetime.utcnow(), job_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE ocr_jobs
+                       SET result_json = %s,
+                           fused_text  = %s,
+                           updated_at  = %s
+                     WHERE job_id = %s
+                    """,
+                    (result_json, fused_text, datetime.utcnow(), job_id),
+                )
             cur.close()
         return True
     except Exception as exc:
