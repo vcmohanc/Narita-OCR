@@ -414,8 +414,17 @@ TODAY_ORDER_JSON = RESULT_DIR / "today_order_sheet.json"
 TODAY_ORDER_XLSX = FRONTEND_DIR / "static" / "chiba_auto_order.xlsx"
 TODAY_HAIBUKIYA_JSON = RESULT_DIR / "today_order_haibukiya.json"
 TODAY_HAIBUKIYA_XLSX = FRONTEND_DIR / "static" / "haibukiya_order.xlsx"
+TODAY_PROPS_JSON = RESULT_DIR / "today_order_props_japan.json"
+TODAY_PROPS_XLSX = FRONTEND_DIR / "static" / "props_japan_order.xlsx"
+TODAY_TSUKIJI_JSON = RESULT_DIR / "today_order_tsukiji.json"
+TODAY_TSUKIJI_XLSX = FRONTEND_DIR / "static" / "tsukiji_chiba_order.xlsx"
+TODAY_NATIONAL_AZABU_JSON = RESULT_DIR / "today_order_national_azabu.json"
+TODAY_NATIONAL_AZABU_XLSX = FRONTEND_DIR / "static" / "national_azabu_order.xlsx"
 _TODAY_ORDER_COLS = 8
 _TODAY_HAIBUKIYA_COLS = 20
+_TODAY_PROPS_COLS = 10
+_TODAY_TSUKIJI_COLS = 11
+_TODAY_NATIONAL_AZABU_COLS = 13
 _TODAY_VALID_UNITS = (
     "cs", "p", "kg", "g", "束", "袋", "箱", "本", "個",
     "玉", "パック", "ケース", "枚", "セット", "ネット", "把", "丁", "尾", "杯",
@@ -426,6 +435,12 @@ def _get_today_format_cfg(fmt: str) -> tuple[str, int, Path, Path]:
     key = (fmt or "chiba").strip().lower()
     if key in ("haibukiya", "灰吹屋"):
         return "haibukiya", _TODAY_HAIBUKIYA_COLS, TODAY_HAIBUKIYA_JSON, TODAY_HAIBUKIYA_XLSX
+    if key in ("props_japan", "props", "プロップスジャパン", "プロップス"):
+        return "props_japan", _TODAY_PROPS_COLS, TODAY_PROPS_JSON, TODAY_PROPS_XLSX
+    if key in ("tsukiji", "tsukiji_chiba", "築地", "築地産直ファーム", "築地産直ファーム（千葉分）"):
+        return "tsukiji", _TODAY_TSUKIJI_COLS, TODAY_TSUKIJI_JSON, TODAY_TSUKIJI_XLSX
+    if key in ("national_azabu", "ナショナル麻布", "national azabu"):
+        return "national_azabu", _TODAY_NATIONAL_AZABU_COLS, TODAY_NATIONAL_AZABU_JSON, TODAY_NATIONAL_AZABU_XLSX
     if key == "chiba":
         return "chiba", _TODAY_ORDER_COLS, TODAY_ORDER_JSON, TODAY_ORDER_XLSX
     raise HTTPException(status_code=400, detail=f"Unsupported today-order format '{fmt}'")
@@ -485,8 +500,78 @@ def _default_today_order_rows(fmt: str = "chiba") -> list[dict]:
         for _ in range(4):
             rows.append({"type": "data", "cells": [""] * _TODAY_HAIBUKIYA_COLS})
         return rows
+
+    if fmt == "tsukiji":
+        rows = [
+            {"type": "title",  "cells": ["発注書　築地産直ファーム（千葉分）"] + [""] * (_TODAY_TSUKIJI_COLS - 1)},
+            {"type": "meta",   "cells": ["宛先：千葉および群馬（榛東集配センター）御中"] + [""] * (_TODAY_TSUKIJI_COLS - 1)},
+            {"type": "meta",   "cells": ["納品期間：2026年10月26日（月）〜10月31日（土）"] + [""] * (_TODAY_TSUKIJI_COLS - 1)},
+            {"type": "spacer", "cells": [""] * _TODAY_TSUKIJI_COLS},
+            {"type": "header", "cells": ["区分", "産地", "品目", "単位", "10/26\n月", "10/27\n火", "10/28\n水", "10/29\n木", "10/30\n金", "10/31\n土", "備考"]},
+            {"type": "item",   "cells": ["", "千葉", "ベビーリーフ", "pc", "10", "10", "", "10", "10", "10", ""]},
+            {"type": "item",   "cells": ["", "千葉", "ルッコラ", "pc", "", "", "休止", "", "", "", ""]},
+            {"type": "item",   "cells": ["レア", "千葉", "ライフ・レアベジタブル用スイスチャード50g", "pc", "85", "", "", "", "94", "", "10/30は仮"]},
+            {"type": "item",   "cells": ["レア", "千葉", "ケールバラ5kg（アクト農場）", "箱", "1", "", "3", "", "4", "", "新規"]},
+            {"type": "item",   "cells": ["", "千葉", "人参10kg", "箱", "2", "", "2", "", "2", "", ""]},
+            {"type": "item",   "cells": ["風か様", "千葉", "ホテル風か様用・有機人参10kg", "箱", "", "", "", "", "", "", "数量記入なし"]},
+            {"type": "data",   "cells": ["", "", "箱数（原本の合計）", "", "588", "10", "311", "10", "596", "10", "千葉・群馬合算"]},
+            {"type": "data",   "cells": ["", "", "物流", "", "千葉経由", "千葉経由", "千葉経由", "千葉経由", "千葉経由", "千葉経由", ""]},
+            {"type": "spacer", "cells": [""] * _TODAY_TSUKIJI_COLS},
+            {"type": "note",   "cells": ["※ レアベジタブル・ホテル風か様分はシール貼付をお願いします。"] + [""] * (_TODAY_TSUKIJI_COLS - 1)},
+            {"type": "note",   "cells": ["※ 黄色＝レアベジタブル用　／　橙＝ホテル風か様用"] + [""] * (_TODAY_TSUKIJI_COLS - 1)},
+            {"type": "note",   "cells": ["※ 箱数は原本の数値（千葉・群馬の合算）をそのまま記載しています。"] + [""] * (_TODAY_TSUKIJI_COLS - 1)},
+        ]
         for _ in range(4):
-            rows.append({"type": "data", "cells": [""] * _TODAY_HAIBUKIYA_COLS})
+            rows.append({"type": "data", "cells": [""] * _TODAY_TSUKIJI_COLS})
+        return rows
+
+    if fmt == "national_azabu":
+        rows = [
+            {"type": "title",    "cells": ["発注書　ナショナル麻布株式会社 御中（発注分のみ）"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
+            {"type": "meta",     "cells": ["青果部 沖津様　／　発注先：㈱ベジコープ（FAX 03-6808-0900）"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
+            {"type": "meta",     "cells": ["見積期間：2026年10月19日（月）〜10月24日（土）販売分　／　単価は税別　／　作成：2026年10月13日 内藤 渉"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
+            {"type": "spacer",   "cells": [""] * _TODAY_NATIONAL_AZABU_COLS},
+            {"type": "header",   "cells": [
+                "品目", "産地", "規格・入数", "単価/p", "単価/cs", "JANコード",
+                "10/19\n月", "10/20\n火", "10/21\n水", "10/22\n木", "10/23\n金", "10/24\n土",
+                "備考・産地状況",
+            ]},
+            {"type": "category", "cells": ["果菜類"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
+            {"type": "item",     "cells": ["ズッキーニ", "長野", "1本/10p", "250", "2,500", "4514811010289", "", "1cs", "", "1cs", "", "1cs", ""]},
+            {"type": "item",     "cells": ["イエローズッキーニ", "長野", "1本/10p", "190", "1,900", "4514811011460", "", "1cs", "", "", "", "1cs", ""]},
+            {"type": "category", "cells": ["根菜類"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
+            {"type": "item",     "cells": ["人参", "青森・北海道・山梨", "400g/18p", "220", "3,960", "4514811010111", "", "1cs", "", "1cs", "1cs", "1cs", ""]},
+            {"type": "item",     "cells": ["にんにく", "栃木", "1コ/10p", "198", "1,980", "4514811011187", "1cs", "1cs", "", "1cs", "1cs", "1cs", ""]},
+            {"type": "category", "cells": ["果物類"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
+            {"type": "item",     "cells": ["レモン", "熊本", "2コ/10p", "245", "2,450", "4514811010678", "1cs", "", "", "", "", "", ""]},
+            {"type": "spacer",   "cells": [""] * _TODAY_NATIONAL_AZABU_COLS},
+            {"type": "note",     "cells": ["※ 発注数の単位はケース（cs）。10/21（水）は納品なし（グレー）。"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
+            {"type": "note",     "cells": ["※ 発注数の入っている品目のみ表示（発注なし・休止の品目は省略）。"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
+        ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _TODAY_NATIONAL_AZABU_COLS})
+        return rows
+
+    if fmt == "props_japan":
+        rows = [
+            {"type": "title",  "cells": ["注文書　株式会社プロップスジャパン（発注分のみ）"] + [""] * (_TODAY_PROPS_COLS - 1)},
+            {"type": "meta",   "cells": ["宛先：ベジコープ 御中　／　担当：井上（TEL 045-474-5221　FAX 045-474-5222）"] + [""] * (_TODAY_PROPS_COLS - 1)},
+            {"type": "meta",   "cells": ["納品期間：2026年9月21日（月）〜9月26日（土）　／　作成：2026年9月25日"] + [""] * (_TODAY_PROPS_COLS - 1)},
+            {"type": "spacer", "cells": [""] * _TODAY_PROPS_COLS},
+            {"type": "header", "cells": ["品番", "品名", "単位", "ロット", "9/21\n月", "9/22\n火", "9/23\n水", "9/24\n木", "9/25\n金", "9/26\n土"]},
+            {"type": "item",   "cells": ["Y682", "有機たまねぎ400g", "パック", "10", "", "", "", "", "", "40"]},
+            {"type": "item",   "cells": ["0636", "インカのめざめ500g", "パック", "10", "", "", "", "", "", "40"]},
+            {"type": "item",   "cells": ["0663", "シャドークイーン500g", "パック", "10", "", "", "", "", "", "10"]},
+            {"type": "item",   "cells": ["0667", "アンデスレッド500g", "パック", "10", "", "", "", "", "", "20"]},
+            {"type": "item",   "cells": ["0855", "金美にんじん400g", "パック", "10", "", "", "", "", "", "20"]},
+            {"type": "item",   "cells": ["0995", "リーキ", "パック", "10", "", "", "", "", "", "10"]},
+            {"type": "item",   "cells": ["0827", "ゆりね", "パック", "10", "", "", "", "", "", "10"]},
+            {"type": "spacer", "cells": [""] * _TODAY_PROPS_COLS},
+            {"type": "note",   "cells": ["※ 急な欠品等は携帯電話（090-9857-5210）へご連絡ください。"] + [""] * (_TODAY_PROPS_COLS - 1)},
+            {"type": "note",   "cells": ["※ 発注数の入っている品目のみ表示（発注なしの品目は省略）。"] + [""] * (_TODAY_PROPS_COLS - 1)},
+        ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _TODAY_PROPS_COLS})
         return rows
 
     rows = [
@@ -547,6 +632,29 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
         }
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
+    elif fmt == "props_japan":
+        col_widths = {
+            "A": 11.0, "B": 30.0, "C": 10.0, "D": 9.0,
+            "E": 10.0, "F": 10.0, "G": 10.0, "H": 10.0, "I": 10.0, "J": 10.0,
+        }
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
+    elif fmt == "national_azabu":
+        col_widths = {
+            "A": 20.0, "B": 14.0, "C": 12.0, "D": 9.0, "E": 9.5, "F": 16.0,
+            "G": 8.0, "H": 8.0, "I": 8.0, "J": 8.0, "K": 8.0, "L": 8.0,
+            "M": 28.0,
+        }
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
+    elif fmt == "tsukiji":
+        col_widths = {
+            "A": 9.0, "B": 9.0, "C": 34.0, "D": 8.0,
+            "E": 9.0, "F": 9.0, "G": 9.0, "H": 9.0, "I": 9.0, "J": 9.0,
+            "K": 20.0,
+        }
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
     else:
         ws.column_dimensions["A"].width = 48.0
         for col_letter in ("B", "C", "D", "E", "F", "G", "H"):
@@ -558,9 +666,14 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
     font_cat = Font(name="Arial", size=11, bold=True, color="1F3864")
     font_body = Font(name="Arial", size=11, bold=False, color="000000")
     font_note = Font(name="Arial", size=10, bold=False, color="333333")
+    font_paused = Font(name="Arial", size=11, bold=True, color="DC2626")
+    font_summary = Font(name="Arial", size=11, bold=True, color="1F3864")
     fill_hdr = PatternFill(fill_type="solid", start_color="1F3864", end_color="1F3864")
     fill_cat = PatternFill(fill_type="solid", start_color="D9E1F2", end_color="D9E1F2")
     fill_wed_off = PatternFill(fill_type="solid", start_color="E2E5EA", end_color="E2E5EA")
+    fill_rare = PatternFill(fill_type="solid", start_color="FEF9C3", end_color="FEF9C3")
+    fill_fuuka = PatternFill(fill_type="solid", start_color="FFEDD5", end_color="FFEDD5")
+    fill_summary = PatternFill(fill_type="solid", start_color="D9E1F2", end_color="D9E1F2")
     thin_side = Side(style="thin", color="333333")
     grid_side = Side(style="thin", color="D0D0D0")
 
@@ -578,7 +691,16 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
         for c_idx in range(1, ncols + 1):
             raw_val = cells[c_idx - 1] if c_idx - 1 < len(cells) else ""
             val = raw_val
-            is_num_col = (c_idx >= 3) if fmt == "chiba" else (c_idx in (5, 6) or (c_idx >= 8 and c_idx <= 19))
+            if fmt == "chiba":
+                is_num_col = (c_idx >= 3)
+            elif fmt == "props_japan":
+                is_num_col = (c_idx >= 4)
+            elif fmt == "national_azabu":
+                is_num_col = (c_idx in (4, 5) or (c_idx >= 7 and c_idx <= 12))
+            elif fmt == "tsukiji":
+                is_num_col = (5 <= c_idx <= 10)
+            else:
+                is_num_col = (c_idx in (5, 6) or (c_idx >= 8 and c_idx <= 19))
             if rtype in ("item", "data") and is_num_col and str(raw_val).strip():
                 try:
                     num = float(str(raw_val).replace(",", "").strip())
@@ -596,6 +718,12 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                 cell.fill = fill_hdr
                 if fmt == "haibukiya":
                     horiz = "left" if c_idx in (1, 2, 3, 4, 20) else ("right" if c_idx in (5, 6) else "center")
+                elif fmt == "props_japan":
+                    horiz = "left" if c_idx == 2 else ("right" if c_idx == 4 else "center")
+                elif fmt == "national_azabu":
+                    horiz = "left" if c_idx in (1, 2, 3, 13) else ("right" if c_idx in (4, 5) else "center")
+                elif fmt == "tsukiji":
+                    horiz = "center" if (1 <= c_idx <= 2 or c_idx == 4 or 5 <= c_idx <= 10) else ("left" if c_idx == 3 or c_idx == 11 else "center")
                 else:
                     horiz = "left" if c_idx == 1 else ("right" if c_idx == 2 else "center")
                 cell.alignment = Alignment(horizontal=horiz, vertical="center", wrap_text=True)
@@ -619,6 +747,42 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                         cell.alignment = Alignment(horizontal="right", vertical="center")
                     elif c_idx == 7:
                         cell.alignment = Alignment(horizontal="center", vertical="center")
+                elif fmt == "national_azabu":
+                    if c_idx == 9:
+                        cell.fill = fill_wed_off
+                    if c_idx in (4, 5) or (c_idx >= 7 and c_idx <= 12):
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    elif c_idx == 6:
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                elif fmt == "tsukiji":
+                    div_val = str(cells[0] if len(cells) > 0 else "").strip()
+                    item_val = str(cells[2] if len(cells) > 2 else "").strip()
+                    if div_val == "レア":
+                        cell.fill = fill_rare
+                    elif div_val == "風か様":
+                        cell.fill = fill_fuuka
+                    elif "箱数" in item_val:
+                        cell.fill = fill_summary
+                        cell.font = font_summary
+                    if str(raw_val).strip() == "休止":
+                        cell.font = font_paused
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                    elif c_idx in (1, 2, 4):
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                    elif 5 <= c_idx <= 10:
+                        if str(raw_val).strip() == "千葉経由":
+                            cell.alignment = Alignment(horizontal="center", vertical="center")
+                        else:
+                            cell.alignment = Alignment(horizontal="right", vertical="center")
+                    elif c_idx == 11:
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
+                elif fmt == "props_japan":
+                    if c_idx in (1, 3):
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                    elif c_idx >= 4:
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    else:
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
                 else:
                     if c_idx == 2 or c_idx >= 3:
                         cell.alignment = Alignment(horizontal="right", vertical="center")
@@ -627,16 +791,17 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
         if rtype in ("merged", "category"):
             ws.merge_cells(start_row=r_idx, start_column=1, end_row=r_idx, end_column=ncols)
 
-    if fmt == "chiba":
+    if fmt in ("chiba", "props_japan"):
         dv_units = DataValidation(
             type="list",
             formula1='"' + ",".join(_TODAY_VALID_UNITS) + '"',
             allow_blank=False,
         )
         dv_units.errorTitle = "無効な単位"
-        dv_units.error = "有効な単位を選択してください（cs, p, kg, 束, 袋, 箱, 本, 個 など）"
+        dv_units.error = "有効な単位を選択してください（cs, p, kg, 束, 袋, 箱, 本, パック など）"
         ws.add_data_validation(dv_units)
-        dv_units.add(f"B6:B{max(50, len(export_rows) + 10)}")
+        unit_col_letter = "C" if fmt == "props_japan" else "B"
+        dv_units.add(f"{unit_col_letter}6:{unit_col_letter}{max(50, len(export_rows) + 10)}")
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(target_path))
@@ -670,16 +835,18 @@ async def save_today_order(request: Request, payload: TodayOrderPayload, format:
     _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
     fmt, ncols, json_path, xlsx_path = _get_today_format_cfg(format)
     clean_rows = _normalize_today_order_rows(payload.rows, ncols=ncols)
-    if fmt == "chiba":
+    if fmt in ("chiba", "props_japan"):
+        name_idx = 1 if fmt == "props_japan" else 0
+        unit_idx = 2 if fmt == "props_japan" else 1
         for idx, row in enumerate(clean_rows, start=1):
             rtype = row.get("type", "data")
             cells = row.get("cells", [])
-            name = (cells[0] if len(cells) > 0 else "").strip()
+            name = (cells[name_idx] if len(cells) > name_idx else "").strip()
             if (rtype == "item" or (rtype == "data" and name)) and name:
-                ok, norm_unit, err_msg = _validate_today_unit(cells[1] if len(cells) > 1 else "")
+                ok, norm_unit, err_msg = _validate_today_unit(cells[unit_idx] if len(cells) > unit_idx else "")
                 if not ok:
                     raise HTTPException(status_code=400, detail=f"Row {idx} ({name}): {err_msg}")
-                cells[1] = norm_unit
+                cells[unit_idx] = norm_unit
     updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
     json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(

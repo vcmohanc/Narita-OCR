@@ -1871,7 +1871,7 @@ td{color:var(--muted)}
   width:88px;
 }
 .today-xls-table col.today-col-act{
-  width:116px;
+  width:96px;
 }
 .today-xls-table .today-th-col-a{
   width:320px;
@@ -1882,8 +1882,8 @@ td{color:var(--muted)}
   min-width:80px;
 }
 .today-xls-table .today-th-col-act{
-  width:116px;
-  min-width:110px;
+  width:96px;
+  min-width:92px;
 }
 
 /* Sticky column headers & operations for seamless responsive scrolling */
@@ -1908,6 +1908,7 @@ td{color:var(--muted)}
   z-index:6;
   background:#e2e8f0;
   box-shadow:-2px 0 4px -2px rgba(0,0,0,0.12);
+  text-align:center;
 }
 .today-xls-table td.today-xls-actions{
   position:sticky;
@@ -1915,7 +1916,7 @@ td{color:var(--muted)}
   z-index:3;
   background:#fff;
   border:1px solid #d0d0d0;
-  padding:2px 6px;
+  padding:2px 4px;
   text-align:center;
   vertical-align:middle;
   white-space:nowrap;
@@ -2032,30 +2033,487 @@ td{color:var(--muted)}
   color:#334155;
 }
 
-/* Haibukiya 20-Column Responsive Tuning */
-.today-xls-table.format-haibukiya{
-  min-width:1760px;
+/* ── Excel-Style Freeze Panes (Fixed Left Product Columns, Scrollable Dates Portion) ── */
+
+/* Sticky Text for Spanned Rows (Title, Meta, Category, Note) */
+.today-sticky-text {
+  position: sticky;
+  left: 54px;
+  display: inline-block;
+  white-space: nowrap;
+  font-family: inherit;
+  z-index: 3;
 }
-.today-xls-table.format-haibukiya col.today-col-h-0,
-.today-xls-table.format-haibukiya .today-th-h-0{width:150px;min-width:140px;}
-.today-xls-table.format-haibukiya col.today-col-h-1,
-.today-xls-table.format-haibukiya .today-th-h-1{width:155px;min-width:140px;}
-.today-xls-table.format-haibukiya col.today-col-h-2,
-.today-xls-table.format-haibukiya .today-th-h-2{width:80px;min-width:76px;}
-.today-xls-table.format-haibukiya col.today-col-h-3,
-.today-xls-table.format-haibukiya .today-th-h-3{width:98px;min-width:88px;}
-.today-xls-table.format-haibukiya col.today-col-h-4,
-.today-xls-table.format-haibukiya .today-th-h-4{width:68px;min-width:62px;}
-.today-xls-table.format-haibukiya col.today-col-h-5,
-.today-xls-table.format-haibukiya .today-th-h-5{width:76px;min-width:68px;}
-.today-xls-table.format-haibukiya col.today-col-h-6,
-.today-xls-table.format-haibukiya .today-th-h-6{width:122px;min-width:116px;}
+
+/* ── Chiba Format (8 cols): Freeze Col 0 (品目) & Col 1 (単位) ── */
+.today-xls-table:not(.format-haibukiya) col.today-col-rn { width: 44px; }
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji) col.today-col-a { width: 280px; }
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji) col.today-col-1 { width: 76px; }
+
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji) th.today-th-col-a,
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji) td.today-td-col-a {
+  position: sticky;
+  left: 44px;
+  z-index: 4;
+  background: #ffffff;
+  width: 280px;
+  min-width: 260px;
+}
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji) th.today-th-col-a {
+  z-index: 14;
+  background: #e2e8f0;
+}
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji) td.today-td-col-a.today-xls-header {
+  z-index: 12 !important;
+  background: #1F3864 !important;
+  color: #ffffff !important;
+}
+
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji) th.today-th-col-1,
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji) td.today-td-col-1 {
+  position: sticky;
+  left: 324px;
+  z-index: 4;
+  background: #ffffff;
+  width: 76px;
+  min-width: 70px;
+  border-right: 2px solid #2563eb !important;
+  box-shadow: 4px 0 8px -2px rgba(0,0,0,0.18);
+}
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji) th.today-th-col-1 {
+  z-index: 14;
+  background: #e2e8f0;
+}
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji) td.today-td-col-1.today-xls-header {
+  z-index: 12 !important;
+  background: #1F3864 !important;
+  color: #ffffff !important;
+}
+
+/* ── Haibukiya 20-Column Freeze Panes (Freeze Col 0~6: 品目〜JANコード) ── */
+.today-xls-table.format-haibukiya {
+  min-width: 1760px;
+}
+
+/* Row numbers (Col RN) */
+.today-xls-table.format-haibukiya col.today-col-rn { width: 44px; }
+.today-xls-table.format-haibukiya th.xls-th-corner {
+  width: 44px;
+  min-width: 44px;
+  left: 0;
+  z-index: 16;
+}
+.today-xls-table.format-haibukiya td.xls-td-row {
+  width: 44px;
+  min-width: 44px;
+  left: 0;
+  z-index: 6;
+}
+
+/* Col 0: 品目 (Item Name) - left: 44px */
+.today-xls-table.format-haibukiya col.today-col-h-0 { width: 140px; }
+.today-xls-table.format-haibukiya th.today-th-h-0,
+.today-xls-table.format-haibukiya td.today-td-h-0 {
+  position: sticky;
+  left: 44px;
+  z-index: 4;
+  background: #ffffff;
+  width: 140px;
+  min-width: 130px;
+}
+
+/* Col 1: 産地 (Origin) - left: 184px (44 + 140) */
+.today-xls-table.format-haibukiya col.today-col-h-1 { width: 110px; }
+.today-xls-table.format-haibukiya th.today-th-h-1,
+.today-xls-table.format-haibukiya td.today-td-h-1 {
+  position: sticky;
+  left: 184px;
+  z-index: 4;
+  background: #ffffff;
+  width: 110px;
+  min-width: 100px;
+}
+
+/* Col 2: 栽培区分 (Cultivation) - left: 294px (184 + 110) */
+.today-xls-table.format-haibukiya col.today-col-h-2 { width: 76px; }
+.today-xls-table.format-haibukiya th.today-th-h-2,
+.today-xls-table.format-haibukiya td.today-td-h-2 {
+  position: sticky;
+  left: 294px;
+  z-index: 4;
+  background: #ffffff;
+  width: 76px;
+  min-width: 70px;
+}
+
+/* Col 3: 規格・入数 (Spec) - left: 370px (294 + 76) */
+.today-xls-table.format-haibukiya col.today-col-h-3 { width: 86px; }
+.today-xls-table.format-haibukiya th.today-th-h-3,
+.today-xls-table.format-haibukiya td.today-td-h-3 {
+  position: sticky;
+  left: 370px;
+  z-index: 4;
+  background: #ffffff;
+  width: 86px;
+  min-width: 80px;
+}
+
+/* Col 4: 単価/p (Price/p) - left: 456px (370 + 86) */
+.today-xls-table.format-haibukiya col.today-col-h-4 { width: 62px; }
+.today-xls-table.format-haibukiya th.today-th-h-4,
+.today-xls-table.format-haibukiya td.today-td-h-4 {
+  position: sticky;
+  left: 456px;
+  z-index: 4;
+  background: #ffffff;
+  width: 62px;
+  min-width: 58px;
+}
+
+/* Col 5: 単価/cs (Price/cs) - left: 518px (456 + 62) */
+.today-xls-table.format-haibukiya col.today-col-h-5 { width: 66px; }
+.today-xls-table.format-haibukiya th.today-th-h-5,
+.today-xls-table.format-haibukiya td.today-td-h-5 {
+  position: sticky;
+  left: 518px;
+  z-index: 4;
+  background: #ffffff;
+  width: 66px;
+  min-width: 62px;
+}
+
+/* Col 6: JANコード (JAN Code) - left: 584px (518 + 66) -> Freeze Divider Boundary */
+.today-xls-table.format-haibukiya col.today-col-h-6 { width: 110px; }
+.today-xls-table.format-haibukiya th.today-th-h-6,
+.today-xls-table.format-haibukiya td.today-td-h-6 {
+  position: sticky;
+  left: 584px;
+  z-index: 4;
+  background: #ffffff;
+  width: 110px;
+  min-width: 100px;
+  border-right: 2px solid #2563eb !important;
+  box-shadow: 4px 0 8px -2px rgba(0,0,0,0.18);
+}
+
+/* Scrollable Date Columns (Col 7 ~ 18) */
 .today-xls-table.format-haibukiya col.today-col-h-day,
-.today-xls-table.format-haibukiya .today-th-h-day{width:66px;min-width:60px;}
+.today-xls-table.format-haibukiya .today-th-h-day { width: 66px; min-width: 60px; }
 .today-xls-table.format-haibukiya col.today-col-h-chg,
-.today-xls-table.format-haibukiya .today-th-h-chg{width:56px;min-width:50px;}
+.today-xls-table.format-haibukiya .today-th-h-chg { width: 56px; min-width: 50px; }
+
+/* Scrollable Notes Column (Col 19) */
 .today-xls-table.format-haibukiya col.today-col-h-19,
-.today-xls-table.format-haibukiya .today-th-h-19{width:260px;min-width:220px;}
+.today-xls-table.format-haibukiya .today-th-h-19 { width: 240px; min-width: 200px; }
+
+/* Props Japan (10-column format with 1-week auto-generated dates: 品番, 品名, 単位, ロット, 月〜土) */
+.today-xls-table.format-props-japan {
+  width: 100%;
+  min-width: 1080px;
+}
+.today-xls-table.format-props-japan col.today-col-rn { width: 44px; }
+.today-xls-table.format-props-japan th.xls-th-corner { width: 44px; min-width: 44px; left: 0; z-index: 16; }
+.today-xls-table.format-props-japan td.xls-td-row { width: 44px; min-width: 44px; left: 0; z-index: 6; }
+
+/* Col 0: 品番 - left: 44px */
+.today-xls-table.format-props-japan col.today-col-p-0 { width: 96px; }
+.today-xls-table.format-props-japan th.today-th-p-0,
+.today-xls-table.format-props-japan td.today-td-p-0 {
+  position: sticky; left: 44px; z-index: 4; background: #ffffff; width: 96px; min-width: 96px;
+}
+.today-xls-table.format-props-japan th.today-th-p-0 { z-index: 14; background: #e2e8f0; }
+.today-xls-table.format-props-japan td.today-td-p-0.today-xls-header { z-index: 12 !important; background: #1F3864 !important; color: #ffffff !important; }
+
+/* Col 1: 品名 - left: 140px */
+.today-xls-table.format-props-japan col.today-col-p-1 { width: 260px; }
+.today-xls-table.format-props-japan th.today-th-p-1,
+.today-xls-table.format-props-japan td.today-td-p-1 {
+  position: sticky; left: 140px; z-index: 4; background: #ffffff; width: 260px; min-width: 260px;
+}
+.today-xls-table.format-props-japan th.today-th-p-1 { z-index: 14; background: #e2e8f0; }
+.today-xls-table.format-props-japan td.today-td-p-1.today-xls-header { z-index: 12 !important; background: #1F3864 !important; color: #ffffff !important; }
+
+/* Col 2: 単位 - left: 400px */
+.today-xls-table.format-props-japan col.today-col-p-2 { width: 84px; }
+.today-xls-table.format-props-japan th.today-th-p-2,
+.today-xls-table.format-props-japan td.today-td-p-2 {
+  position: sticky; left: 400px; z-index: 4; background: #ffffff; width: 84px; min-width: 84px;
+}
+.today-xls-table.format-props-japan th.today-th-p-2 { z-index: 14; background: #e2e8f0; }
+.today-xls-table.format-props-japan td.today-td-p-2.today-xls-header { z-index: 12 !important; background: #1F3864 !important; color: #ffffff !important; }
+
+/* Col 3: ロット - left: 484px -> Freeze Divider */
+.today-xls-table.format-props-japan col.today-col-p-3 { width: 76px; }
+.today-xls-table.format-props-japan th.today-th-p-3,
+.today-xls-table.format-props-japan td.today-td-p-3 {
+  position: sticky; left: 484px; z-index: 4; background: #ffffff; width: 76px; min-width: 76px;
+  border-right: 2px solid #2563eb !important;
+  box-shadow: 4px 0 8px -2px rgba(0,0,0,0.18);
+}
+.today-xls-table.format-props-japan th.today-th-p-3 { z-index: 14; background: #e2e8f0; }
+.today-xls-table.format-props-japan td.today-td-p-3.today-xls-header { z-index: 12 !important; background: #1F3864 !important; color: #ffffff !important; }
+
+/* Scrollable 1-Week Weekday Columns (Col 4 ~ 9) — expand evenly to fill full width */
+.today-xls-table.format-props-japan col.today-col-p-day,
+.today-xls-table.format-props-japan .today-th-p-day { width: auto; min-width: 80px; }
+.today-xls-table.format-props-japan .today-xls-item-code {
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #334155;
+}
+
+/* ============================================================ */
+/* National Azabu (13-col: 品目, 産地, 規格・入数, 単価/p, 単価/cs, JANコード, 月〜土, 備考) */
+/* ============================================================ */
+.today-xls-table.format-national-azabu {
+  min-width: 1210px;
+}
+.today-xls-table.format-national-azabu col.today-col-rn { width: 44px; }
+.today-xls-table.format-national-azabu th.xls-th-corner { width: 44px; min-width: 44px; left: 0; z-index: 16; }
+.today-xls-table.format-national-azabu td.xls-td-row { width: 44px; min-width: 44px; left: 0; z-index: 6; }
+
+/* Col 0: 品目 - left: 44px */
+.today-xls-table.format-national-azabu col.today-col-na-0 { width: 150px; }
+.today-xls-table.format-national-azabu th.today-th-na-0,
+.today-xls-table.format-national-azabu td.today-td-na-0 {
+  position: sticky; left: 44px; z-index: 4; background: #ffffff; width: 150px; min-width: 140px;
+}
+
+/* Col 1: 産地 - left: 194px (44+150) */
+.today-xls-table.format-national-azabu col.today-col-na-1 { width: 110px; }
+.today-xls-table.format-national-azabu th.today-th-na-1,
+.today-xls-table.format-national-azabu td.today-td-na-1 {
+  position: sticky; left: 194px; z-index: 4; background: #ffffff; width: 110px; min-width: 100px;
+}
+
+/* Col 2: 規格・入数 - left: 304px (194+110) */
+.today-xls-table.format-national-azabu col.today-col-na-2 { width: 86px; }
+.today-xls-table.format-national-azabu th.today-th-na-2,
+.today-xls-table.format-national-azabu td.today-td-na-2 {
+  position: sticky; left: 304px; z-index: 4; background: #ffffff; width: 86px; min-width: 80px;
+}
+
+/* Col 3: 単価/p - left: 390px (304+86) */
+.today-xls-table.format-national-azabu col.today-col-na-3 { width: 62px; }
+.today-xls-table.format-national-azabu th.today-th-na-3,
+.today-xls-table.format-national-azabu td.today-td-na-3 {
+  position: sticky; left: 390px; z-index: 4; background: #ffffff; width: 62px; min-width: 58px;
+}
+
+/* Col 4: 単価/cs - left: 452px (390+62) */
+.today-xls-table.format-national-azabu col.today-col-na-4 { width: 66px; }
+.today-xls-table.format-national-azabu th.today-th-na-4,
+.today-xls-table.format-national-azabu td.today-td-na-4 {
+  position: sticky; left: 452px; z-index: 4; background: #ffffff; width: 66px; min-width: 62px;
+}
+
+/* Col 5: JANコード - left: 518px (452+66) → Freeze Divider */
+.today-xls-table.format-national-azabu col.today-col-na-5 { width: 110px; }
+.today-xls-table.format-national-azabu th.today-th-na-5,
+.today-xls-table.format-national-azabu td.today-td-na-5 {
+  position: sticky; left: 518px; z-index: 4; background: #ffffff; width: 110px; min-width: 100px;
+  border-right: 2px solid #2563eb !important;
+  box-shadow: 4px 0 8px -2px rgba(0,0,0,0.18);
+}
+
+/* Scrollable Date Columns (Col 6~11) */
+.today-xls-table.format-national-azabu col.today-col-na-day,
+.today-xls-table.format-national-azabu .today-th-na-day { width: 60px; min-width: 56px; }
+
+/* Scrollable Notes Column (Col 12) */
+.today-xls-table.format-national-azabu col.today-col-na-12,
+.today-xls-table.format-national-azabu .today-th-na-12 { width: 220px; min-width: 180px; }
+
+/* Header Row styling for sticky columns */
+.today-xls-table.format-national-azabu th.today-th-na-0,
+.today-xls-table.format-national-azabu th.today-th-na-1,
+.today-xls-table.format-national-azabu th.today-th-na-2,
+.today-xls-table.format-national-azabu th.today-th-na-3,
+.today-xls-table.format-national-azabu th.today-th-na-4,
+.today-xls-table.format-national-azabu th.today-th-na-5 {
+  z-index: 14;
+  background: #e2e8f0;
+}
+.today-xls-table.format-national-azabu td.today-xls-header.today-td-na-0,
+.today-xls-table.format-national-azabu td.today-xls-header.today-td-na-1,
+.today-xls-table.format-national-azabu td.today-xls-header.today-td-na-2,
+.today-xls-table.format-national-azabu td.today-xls-header.today-td-na-3,
+.today-xls-table.format-national-azabu td.today-xls-header.today-td-na-4,
+.today-xls-table.format-national-azabu td.today-xls-header.today-td-na-5 {
+  z-index: 12 !important;
+  background: #1F3864 !important;
+  color: #ffffff !important;
+}
+
+/* ============================================================ */
+/* Tsukiji Farm (11-col: 区分, 産地, 品目, 単位, 月〜土, 備考) */
+/* ============================================================ */
+.today-xls-table.format-tsukiji {
+  min-width: 1080px;
+}
+.today-xls-table.format-tsukiji col.today-col-rn { width: 44px; }
+.today-xls-table.format-tsukiji th.xls-th-corner { width: 44px; min-width: 44px; left: 0; z-index: 16; }
+.today-xls-table.format-tsukiji td.xls-td-row { width: 44px; min-width: 44px; left: 0; z-index: 6; }
+
+/* Col 0: 区分 - left: 44px */
+.today-xls-table.format-tsukiji col.today-col-t-0 { width: 66px; }
+.today-xls-table.format-tsukiji th.today-th-t-0,
+.today-xls-table.format-tsukiji td.today-td-t-0 {
+  position: sticky; left: 44px; z-index: 4; background: #ffffff; width: 66px; min-width: 60px; text-align: center;
+}
+
+/* Col 1: 産地 - left: 110px (44+66) */
+.today-xls-table.format-tsukiji col.today-col-t-1 { width: 66px; }
+.today-xls-table.format-tsukiji th.today-th-t-1,
+.today-xls-table.format-tsukiji td.today-td-t-1 {
+  position: sticky; left: 110px; z-index: 4; background: #ffffff; width: 66px; min-width: 60px; text-align: center;
+}
+
+/* Col 2: 品目 - left: 176px (110+66) */
+.today-xls-table.format-tsukiji col.today-col-t-2 { width: 240px; }
+.today-xls-table.format-tsukiji th.today-th-t-2,
+.today-xls-table.format-tsukiji td.today-td-t-2 {
+  position: sticky; left: 176px; z-index: 4; background: #ffffff; width: 240px; min-width: 200px;
+}
+
+/* Col 3: 単位 - left: 416px (176+240) -> Freeze Divider Boundary */
+.today-xls-table.format-tsukiji col.today-col-t-3 { width: 60px; }
+.today-xls-table.format-tsukiji th.today-th-t-3,
+.today-xls-table.format-tsukiji td.today-td-t-3 {
+  position: sticky; left: 416px; z-index: 4; background: #ffffff; width: 60px; min-width: 56px; text-align: center;
+  border-right: 2px solid #2563eb !important;
+  box-shadow: 4px 0 8px -2px rgba(0,0,0,0.18);
+}
+
+/* Scrollable Date Columns (Col 4~9) */
+.today-xls-table.format-tsukiji col.today-col-tsukiji-day,
+.today-xls-table.format-tsukiji .today-th-tsukiji-day { width: 66px; min-width: 60px; text-align: center; }
+
+/* Scrollable Notes Column (Col 10) */
+.today-xls-table.format-tsukiji col.today-col-t-10,
+.today-xls-table.format-tsukiji .today-th-t-10 { width: 180px; min-width: 140px; }
+
+/* Header Row styling for Tsukiji sticky columns */
+.today-xls-table.format-tsukiji th.today-th-t-0,
+.today-xls-table.format-tsukiji th.today-th-t-1,
+.today-xls-table.format-tsukiji th.today-th-t-2,
+.today-xls-table.format-tsukiji th.today-th-t-3 {
+  z-index: 14;
+  background: #e2e8f0;
+}
+.today-xls-table.format-tsukiji td.today-xls-header.today-td-t-0,
+.today-xls-table.format-tsukiji td.today-xls-header.today-td-t-1,
+.today-xls-table.format-tsukiji td.today-xls-header.today-td-t-2,
+.today-xls-table.format-tsukiji td.today-xls-header.today-td-t-3 {
+  z-index: 12 !important;
+  background: #1F3864 !important;
+  color: #ffffff !important;
+}
+
+/* Hover and selection on Tsukiji sticky columns */
+.today-xls-table.format-tsukiji tr.today-row-item:hover td.today-td-t-0:not(.today-xls-header),
+.today-xls-table.format-tsukiji tr.today-row-item:hover td.today-td-t-1:not(.today-xls-header),
+.today-xls-table.format-tsukiji tr.today-row-item:hover td.today-td-t-2:not(.today-xls-header),
+.today-xls-table.format-tsukiji tr.today-row-item:hover td.today-td-t-3:not(.today-xls-header) {
+  background: #f8fafc;
+}
+.today-xls-table.format-tsukiji tr.today-row-rare:hover td:not(.xls-td-row):not(.today-xls-actions) {
+  background: #fef08a !important;
+}
+.today-xls-table.format-tsukiji tr.today-row-fuuka:hover td:not(.xls-td-row):not(.today-xls-actions) {
+  background: #fed7aa !important;
+}
+.today-xls-table.format-tsukiji tr.today-row-summary:hover td:not(.xls-td-row):not(.today-xls-actions) {
+  background: #c6d9f1 !important;
+}
+
+.today-xls-table.format-tsukiji td.today-td-t-0.xls-sel,
+.today-xls-table.format-tsukiji td.today-td-t-1.xls-sel,
+.today-xls-table.format-tsukiji td.today-td-t-2.xls-sel,
+.today-xls-table.format-tsukiji td.today-td-t-3.xls-sel {
+  background: #cce0ff !important;
+  z-index: 7 !important;
+}
+
+/* Row Highlights & Cell Statuses */
+.today-xls-table tr.today-row-rare td:not(.xls-td-row):not(.today-xls-actions) {
+  background: #FEF9C3 !important;
+}
+.today-xls-table tr.today-row-fuuka td:not(.xls-td-row):not(.today-xls-actions) {
+  background: #FFEDD5 !important;
+}
+.today-xls-table tr.today-row-summary td:not(.xls-td-row):not(.today-xls-actions) {
+  background: #D9E1F2 !important;
+  font-weight: 700;
+  color: #1F3864;
+}
+.today-cell-paused {
+  color: #DC2626 !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+}
+.today-cell-logistics {
+  color: #475569;
+  text-align: center;
+  font-size: 11.5px;
+}
+
+/* Action Column (Sticky Right) */
+.today-xls-table th.today-th-col-act,
+.today-xls-table td.today-xls-actions {
+  border-left: 2px solid #2563eb !important;
+  box-shadow: -4px 0 8px -2px rgba(0,0,0,0.15);
+}
+
+/* Header Row styling for all sticky columns */
+.today-xls-table.format-haibukiya th.today-th-h-0,
+.today-xls-table.format-haibukiya th.today-th-h-1,
+.today-xls-table.format-haibukiya th.today-th-h-2,
+.today-xls-table.format-haibukiya th.today-th-h-3,
+.today-xls-table.format-haibukiya th.today-th-h-4,
+.today-xls-table.format-haibukiya th.today-th-h-5,
+.today-xls-table.format-haibukiya th.today-th-h-6 {
+  z-index: 14;
+  background: #e2e8f0;
+}
+.today-xls-table.format-haibukiya td.today-xls-header.today-td-h-0,
+.today-xls-table.format-haibukiya td.today-xls-header.today-td-h-1,
+.today-xls-table.format-haibukiya td.today-xls-header.today-td-h-2,
+.today-xls-table.format-haibukiya td.today-xls-header.today-td-h-3,
+.today-xls-table.format-haibukiya td.today-xls-header.today-td-h-4,
+.today-xls-table.format-haibukiya td.today-xls-header.today-td-h-5,
+.today-xls-table.format-haibukiya td.today-xls-header.today-td-h-6 {
+  z-index: 12 !important;
+  background: #1F3864 !important;
+  color: #ffffff !important;
+}
+
+/* Row Hover on Sticky Columns */
+.today-xls-table tr.today-row-item:hover td.today-td-col-a,
+.today-xls-table tr.today-row-item:hover td.today-td-col-1,
+.today-xls-table.format-haibukiya tr.today-row-item:hover td.today-td-h-0:not(.today-xls-header),
+.today-xls-table.format-haibukiya tr.today-row-item:hover td.today-td-h-1:not(.today-xls-header),
+.today-xls-table.format-haibukiya tr.today-row-item:hover td.today-td-h-2:not(.today-xls-header),
+.today-xls-table.format-haibukiya tr.today-row-item:hover td.today-td-h-3:not(.today-xls-header),
+.today-xls-table.format-haibukiya tr.today-row-item:hover td.today-td-h-4:not(.today-xls-header),
+.today-xls-table.format-haibukiya tr.today-row-item:hover td.today-td-h-5:not(.today-xls-header),
+.today-xls-table.format-haibukiya tr.today-row-item:hover td.today-td-h-6:not(.today-xls-header) {
+  background: #f8fafc;
+}
+
+/* Selected Cell on Sticky Columns */
+.today-xls-table td.today-td-col-a.xls-sel,
+.today-xls-table td.today-td-col-1.xls-sel,
+.today-xls-table.format-haibukiya td.today-td-h-0.xls-sel,
+.today-xls-table.format-haibukiya td.today-td-h-1.xls-sel,
+.today-xls-table.format-haibukiya td.today-td-h-2.xls-sel,
+.today-xls-table.format-haibukiya td.today-td-h-3.xls-sel,
+.today-xls-table.format-haibukiya td.today-td-h-4.xls-sel,
+.today-xls-table.format-haibukiya td.today-td-h-5.xls-sel,
+.today-xls-table.format-haibukiya td.today-td-h-6.xls-sel {
+  background: #cce0ff !important;
+  z-index: 7 !important;
+}
 
 /* Day header cells in Haibukiya: compact font, perfect centering, zero ellipsis */
 .today-xls-table.format-haibukiya .today-xls-header.today-th-h-day{
@@ -2117,32 +2575,63 @@ td{color:var(--muted)}
   gap:4px;
 }
 .today-row-act-btn{
-  background:#fff;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:24px;
+  height:24px;
+  padding:0;
+  background:#ffffff;
   border:1px solid #cbd5e1;
-  border-radius:4px;
+  border-radius:5px;
   cursor:pointer;
-  padding:2px 6px;
-  font-size:11px;
-  font-weight:500;
-  color:#334155;
-  line-height:1.3;
-  transition:all .12s;
-  font-family:inherit;
+  color:#475569;
+  transition:all .15s ease;
+  box-shadow:0 1px 2px rgba(0,0,0,0.05);
+}
+.today-row-act-btn svg{
+  pointer-events:none;
+  display:block;
 }
 .today-row-act-btn:hover{
   background:#eff6ff;
   border-color:#3b82f6;
   color:#1d4ed8;
+  transform:translateY(-1px);
+  box-shadow:0 2px 5px rgba(59,130,246,0.2);
+}
+.today-row-act-btn.add{
+  color:#059669;
+  background:#f0fdf4;
+  border-color:#bbf7d0;
 }
 .today-row-act-btn.add:hover{
-  background:#f0fdf4;
-  border-color:#16a34a;
+  background:#dcfce7;
+  border-color:#22c55e;
   color:#15803d;
+  box-shadow:0 2px 5px rgba(34,197,94,0.25);
+}
+.today-row-act-btn.edit{
+  color:#2563eb;
+  background:#eff6ff;
+  border-color:#bfdbfe;
+}
+.today-row-act-btn.edit:hover{
+  background:#dbeafe;
+  border-color:#3b82f6;
+  color:#1d4ed8;
+  box-shadow:0 2px 5px rgba(59,130,246,0.25);
+}
+.today-row-act-btn.del{
+  color:#dc2626;
+  background:#fef2f2;
+  border-color:#fecaca;
 }
 .today-row-act-btn.del:hover{
-  background:#fef2f2;
-  border-color:#dc2626;
-  color:#dc2626;
+  background:#fee2e2;
+  border-color:#ef4444;
+  color:#b91c1c;
+  box-shadow:0 2px 5px rgba(239,68,68,0.25);
 }
 .today-hdr-act-btn{
   background:rgba(255,255,255,.14);
