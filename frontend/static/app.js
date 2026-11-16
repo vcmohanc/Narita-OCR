@@ -130,20 +130,21 @@ const TODAY_PRESET_ITEMS = ['大根', '赤からし水菜', '小江戸菜', 'ス
 const TODAY_VALID_UNITS = ['cs', 'p', 'kg', 'g', '束', '袋', '箱', '本', '個', '玉', 'パック', 'ケース', '枚', 'セット', 'ネット', '把', '丁', '尾', '杯'];
 
 function _validateTodayUnit(rawUnit) {
-  const val = String(rawUnit == null ? '' : rawUnit).normalize('NFKC').trim();
+  const rawStr = String(rawUnit == null ? '' : rawUnit);
+  const val = rawStr.normalize('NFKC').trim();
   if (!val) {
     return { valid: false, normalized: '', error: '単位を入力・選択してください' };
   }
-  const lower = val.toLowerCase();
-  const matched = TODAY_VALID_UNITS.find(u => u.toLowerCase() === lower);
-  if (!matched) {
+  if (/[0-9０-９]/.test(rawStr) || /\d/.test(val)) {
     return {
       valid: false,
-      normalized: val,
-      error: `無効な単位「${val}」です（有効: cs, p, kg, 束, 袋, 箱, 本, 個 など）`,
+      normalized: val.replace(/[0-9０-９]/g, '').trim(),
+      error: '単位には数値を入力できません',
     };
   }
-  return { valid: true, normalized: matched, error: '' };
+  const lower = val.toLowerCase();
+  const matched = TODAY_VALID_UNITS.find(u => u.toLowerCase() === lower);
+  return { valid: true, normalized: matched || val, error: '' };
 }
 
 function _setTodayModalValMsg(msg) {
@@ -167,9 +168,6 @@ function _createTodayOrderInitialRows() {
     { type: 'spacer', cells: Array(TODAY_ORDER_COLS).fill('') },
     { type: 'header', cells: ['品目', '単位', '10/26\n月', '10/27\n火', '10/28\n水', '10/29\n木', '10/30\n金', '10/31\n土'] },
     { type: 'merged', cells: ['今週（10/26〜10/31）の発注はありません（全品目 休止）', '', '', '', '', '', '', ''] },
-    { type: 'spacer', cells: Array(TODAY_ORDER_COLS).fill('') },
-    { type: 'note',   cells: ['※ 発注数の入っている品目のみ表示する設定ですが、今週は該当する品目がありません。', '', '', '', '', '', '', ''] },
-    { type: 'note',   cells: ['※ 原本では大根・赤からし水菜・小江戸菜・スイスチャード・ほうれん草・キャベツが休止、ホテル風か様用は数量未記入。', '', '', '', '', '', '', ''] },
   ];
   for (let i = 0; i < 6; i++) {
     rows.push({ type: 'data', cells: Array(TODAY_ORDER_COLS).fill('') });
@@ -178,16 +176,18 @@ function _createTodayOrderInitialRows() {
 }
 
 function _normalizeTodayOrderRowsClient(rawRows) {
-  const allowed = new Set(['title', 'meta', 'spacer', 'header', 'item', 'merged', 'note', 'data']);
+  const allowed = new Set(['title', 'meta', 'spacer', 'header', 'item', 'merged', 'data']);
   if (!Array.isArray(rawRows) || !rawRows.length) return _createTodayOrderInitialRows();
-  return rawRows.map(r => {
-    const type = allowed.has(r?.type) ? r.type : 'data';
-    const cells = Array.from({ length: TODAY_ORDER_COLS }, (_, ci) => {
-      const v = r?.cells?.[ci];
-      return v != null ? String(v) : '';
+  return rawRows
+    .filter(r => r?.type !== 'note')
+    .map(r => {
+      const type = allowed.has(r?.type) ? r.type : 'data';
+      const cells = Array.from({ length: TODAY_ORDER_COLS }, (_, ci) => {
+        const v = r?.cells?.[ci];
+        return v != null ? String(v) : '';
+      });
+      return { type, cells };
     });
-    return { type, cells };
-  });
 }
 
 function _markTodayOrderDirty(dirty) {
@@ -486,7 +486,22 @@ function _appendTodayModalItemRow(itemData = null) {
     return res.error;
   };
 
+  unitInp.addEventListener('keydown', (e) => {
+    if (/^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      unitInp.classList.remove('today-input-valid');
+      unitInp.classList.add('today-input-error');
+      _setTodayModalValMsg('単位には数値を入力できません');
+    }
+  });
   unitInp.addEventListener('input', () => {
+    if (/[0-9０-９]/.test(unitInp.value)) {
+      unitInp.value = unitInp.value.replace(/[0-9０-９]/g, '');
+      unitInp.classList.remove('today-input-valid');
+      unitInp.classList.add('today-input-error');
+      _setTodayModalValMsg('単位には数値を入力できません');
+      return;
+    }
     const raw = unitInp.value.trim();
     if (!raw) {
       unitInp.classList.remove('today-input-error', 'today-input-valid');
@@ -788,8 +803,11 @@ function _renderTodayOrderGrid() {
       const check = _validateTodayUnit(newVal);
       if (check.valid) {
         finalVal = check.normalized;
-      } else if (showErrToast) {
-        showToast(check.error, true);
+      } else {
+        if (/[0-9０-９]/.test(String(newVal || ''))) {
+          finalVal = check.normalized;
+        }
+        if (showErrToast) showToast(check.error, true);
       }
     }
     if (prevVal === finalVal && !isUnitCell) return;
@@ -822,6 +840,11 @@ function _renderTodayOrderGrid() {
 
   function startInlineEdit(ri, ci, initialChar = null) {
     if (_isTodayRowSpanned(rows[ri])) ci = 0;
+    const isUnitCol = ci === 1 && rows[ri]?.type !== 'header';
+    if (isUnitCol && initialChar !== null && /^[0-9０-９]$/.test(initialChar)) {
+      showToast('単位列には数値を入力できません', true);
+      return;
+    }
     selectCell(ri, ci, false);
     const td = cellMatrix[ri]?.[ci];
     if (!td || td.classList.contains('xls-editing')) return;
@@ -847,6 +870,10 @@ function _renderTodayOrderGrid() {
 
     let committed = false;
     input.addEventListener('input', () => {
+      if (isUnitCol && /[0-9０-９]/.test(input.value)) {
+        input.value = input.value.replace(/[0-9０-９]/g, '');
+        showToast('単位列には数値を入力できません', true);
+      }
       if (cellValEl) cellValEl.value = input.value;
     });
 
@@ -867,6 +894,11 @@ function _renderTodayOrderGrid() {
 
     input.addEventListener('blur', () => finishEdit(true));
     input.addEventListener('keydown', (e) => {
+      if (isUnitCol && /^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        showToast('単位列には数値を入力できません', true);
+        return;
+      }
       if (e.key === 'Enter') {
         e.preventDefault();
         finishEdit(true, 'down');
@@ -1017,6 +1049,10 @@ function _renderTodayOrderGrid() {
     };
     cellValEl.oninput = () => {
       if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
+        if (selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /[0-9０-９]/.test(cellValEl.value)) {
+          cellValEl.value = cellValEl.value.replace(/[0-9０-９]/g, '');
+          showToast('単位列には数値を入力できません', true);
+        }
         updateCellValue(selectedRowIdx, selectedColIdx, cellValEl.value, false);
       }
     };
@@ -1026,6 +1062,11 @@ function _renderTodayOrderGrid() {
       }
     };
     cellValEl.onkeydown = (e) => {
+      if (selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        showToast('単位列には数値を入力できません', true);
+        return;
+      }
       if (e.key === 'Enter') {
         e.preventDefault();
         if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
@@ -1063,6 +1104,10 @@ function _renderTodayOrderGrid() {
       if (cellValEl) cellValEl.value = '';
     } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
+      if (selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key)) {
+        showToast('単位列には数値を入力できません', true);
+        return;
+      }
       startInlineEdit(selectedRowIdx, selectedColIdx, e.key);
     }
   };

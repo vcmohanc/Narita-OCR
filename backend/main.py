@@ -420,14 +420,17 @@ _TODAY_VALID_UNITS = (
 
 
 def _validate_today_unit(raw_unit: str) -> tuple[bool, str, str]:
-    val = unicodedata.normalize("NFKC", str(raw_unit or "")).strip()
+    raw_str = str(raw_unit or "")
+    val = unicodedata.normalize("NFKC", raw_str).strip()
     if not val:
         return False, "", "単位を入力・選択してください"
+    if any(ch.isdigit() for ch in raw_str) or any(ch.isdigit() for ch in val):
+        return False, val, "単位には数値を入力できません"
     lower = val.lower()
     for unit in _TODAY_VALID_UNITS:
         if unit.lower() == lower:
             return True, unit, ""
-    return False, val, f"無効な単位「{val}」です（有効: cs, p, kg, 束, 袋, 箱, 本, 個 など）"
+    return True, val, ""
 
 
 def _default_today_order_rows() -> list[dict]:
@@ -438,9 +441,6 @@ def _default_today_order_rows() -> list[dict]:
         {"type": "spacer", "cells": [""] * _TODAY_ORDER_COLS},
         {"type": "header", "cells": ["品目", "単位", "10/26\n月", "10/27\n火", "10/28\n水", "10/29\n木", "10/30\n金", "10/31\n土"]},
         {"type": "merged", "cells": ["今週（10/26〜10/31）の発注はありません（全品目 休止）", "", "", "", "", "", "", ""]},
-        {"type": "spacer", "cells": [""] * _TODAY_ORDER_COLS},
-        {"type": "note",   "cells": ["※ 発注数の入っている品目のみ表示する設定ですが、今週は該当する品目がありません。", "", "", "", "", "", "", ""]},
-        {"type": "note",   "cells": ["※ 原本では大根・赤からし水菜・小江戸菜・スイスチャード・ほうれん草・キャベツが休止、ホテル風か様用は数量未記入。", "", "", "", "", "", "", ""]},
     ]
     for _ in range(6):
         rows.append({"type": "data", "cells": [""] * _TODAY_ORDER_COLS})
@@ -448,10 +448,12 @@ def _default_today_order_rows() -> list[dict]:
 
 
 def _normalize_today_order_rows(raw_rows: list) -> list[dict]:
-    allowed_types = {"title", "meta", "spacer", "header", "item", "merged", "note", "data"}
+    allowed_types = {"title", "meta", "spacer", "header", "item", "merged", "data"}
     clean = []
     for r in raw_rows:
         rtype = (r.get("type") if isinstance(r, dict) else getattr(r, "type", "data")) or "data"
+        if rtype == "note":
+            continue
         if rtype not in allowed_types:
             rtype = "data"
         raw_cells = r.get("cells") if isinstance(r, dict) else getattr(r, "cells", [])
