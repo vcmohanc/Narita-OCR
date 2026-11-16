@@ -123,11 +123,61 @@ async function initOrderView() {
   _orderLoaded = true;
 }
 
-// ── Today Order view (CRUD + Multi-Product + Date) ───────────
-const TODAY_ORDER_COLS = 8;
-const TODAY_ORDER_STORAGE_KEY = 'ocr_today_order_sheet_v1';
+// ── Today Order view (Multi-Format: Chiba + Haibukiya CRUD) ───
+const TODAY_ORDER_FORMATS = {
+  chiba: {
+    cols: 8,
+    dayStartCol: 2,
+    storageKey: 'ocr_today_order_sheet_v1_chiba',
+    legacyStorageKey: 'ocr_today_order_sheet_v1',
+    xlsxFile: 'chiba_auto_order.xlsx',
+    downloadName: '千葉自動発注書（発注分のみ）.xlsx',
+    csvName: '千葉自動発注書_発注書.csv',
+    defaultDate: '2026-10-26',
+  },
+  haibukiya: {
+    cols: 13,
+    dayStartCol: 6,
+    storageKey: 'ocr_today_order_sheet_v1_haibukiya',
+    xlsxFile: 'haibukiya_order.xlsx',
+    downloadName: '発注書_株式会社灰吹屋御中.xlsx',
+    csvName: '灰吹屋_発注書.csv',
+    defaultDate: '2026-10-19',
+  },
+};
 const TODAY_PRESET_ITEMS = ['大根', '赤からし水菜', '小江戸菜', 'スイスチャード', 'ほうれん草', 'キャベツ', 'ホテル風か様用'];
+const TODAY_HAIBUKIYA_CATEGORIES = ['葉物類', '葉菜類', '根菜類', '果物類', 'イタリア・レストラン野菜'];
+const TODAY_HAIBUKIYA_PRESETS = [
+  { category: '葉物類', name: '水菜', origin: '千葉', spec: '150g/5p', priceP: '165', priceCs: '825', jan: '4514811010524', days: ['1', '', '', '6→1', '', ''], note: '生育不良により欠品の可能性あり' },
+  { category: '葉物類', name: 'ベビーリーフ', origin: '千葉', spec: '40g/5p', priceP: '165', priceCs: '825', jan: '4514811010470', days: ['1', '', '', '1→6', '', ''], note: '生育不良により欠品の可能性あり' },
+  { category: '葉菜類', name: 'サニーレタス', origin: '群馬・長野', spec: 'L/5玉', priceP: '190', priceCs: '950', jan: '4514811010036', days: ['5', '', '', '5', '', ''], note: '' },
+  { category: '根菜類', name: '人参', origin: '青森・北海道・山梨', spec: '400g/5p', priceP: '225', priceCs: '1,125', jan: '4514811010111', days: ['1', '', '', '', '', ''], note: '' },
+  { category: '根菜類', name: 'じゃが芋', origin: '青森・岩手・北海道', spec: '約500g/5p', priceP: '275', priceCs: '1,375', jan: '4514811010128', days: ['', '', '', '1', '', ''], note: '' },
+  { category: '根菜類', name: '玉ねぎ', origin: '北海道', spec: '500g/5p', priceP: '280', priceCs: '1,400', jan: '4514811050339', days: ['', '', '', '1', '', ''], note: '' },
+  { category: '根菜類', name: '生姜', origin: '熊本・千葉', spec: '50g/5p', priceP: '145', priceCs: '725', jan: '4514811013730', days: ['1', '', '', '', '', ''], note: '' },
+  { category: '根菜類', name: 'にんにく', origin: '長野', spec: '1〜2コ/5p', priceP: '198', priceCs: '990', jan: '4514811011187', days: ['1', '', '', '', '', ''], note: '群馬県産終了' },
+  { category: '果物類', name: 'レモン', origin: '香川', spec: '2コ/5p', priceP: '245', priceCs: '1,225', jan: '4514811010678', days: ['1', '', '', '', '', ''], note: '' },
+  { category: 'イタリア・レストラン野菜', name: 'カリーノケール', origin: '群馬・長野', spec: '100g/5p', priceP: '155', priceCs: '775', jan: '4514811014966', days: ['3', '', '', '3', '', ''], note: '生育不良により欠品の可能性あり' },
+];
 const TODAY_VALID_UNITS = ['cs', 'p', 'kg', 'g', '束', '袋', '箱', '本', '個', '玉', 'パック', 'ケース', '枚', 'セット', 'ネット', '把', '丁', '尾', '杯'];
+
+let _todayOrderCurrentFormat = 'chiba';
+let _todayOrderInitialized = false;
+let _todayOrderRows = [];
+let _todayOrderSelRow = 0;
+let _todayOrderSelCol = 0;
+let _todayOrderDirty = false;
+let _todayOrderEditRowIdx = null;
+
+function _todayFmtCfg(fmt = _todayOrderCurrentFormat) {
+  return TODAY_ORDER_FORMATS[fmt] || TODAY_ORDER_FORMATS.chiba;
+}
+function _todayColCount(fmt = _todayOrderCurrentFormat) {
+  return _todayFmtCfg(fmt).cols;
+}
+function _todayDayStartCol(fmt = _todayOrderCurrentFormat) {
+  return _todayFmtCfg(fmt).dayStartCol;
+}
 
 function _validateTodayUnit(rawUnit) {
   const rawStr = String(rawUnit == null ? '' : rawUnit);
@@ -153,41 +203,73 @@ function _setTodayModalValMsg(msg) {
   el.textContent = msg || '';
   el.classList.toggle('hidden', !msg);
 }
-let _todayOrderInitialized = false;
-let _todayOrderRows = [];
-let _todayOrderSelRow = 0;
-let _todayOrderSelCol = 0;
-let _todayOrderDirty = false;
-let _todayOrderEditRowIdx = null;
 
-function _createTodayOrderInitialRows() {
+function _createTodayOrderInitialRows(fmt = _todayOrderCurrentFormat) {
+  if (fmt === 'haibukiya') {
+    const ncols = TODAY_ORDER_FORMATS.haibukiya.cols;
+    const pad = (text) => [text, ...Array(ncols - 1).fill('')];
+    const rows = [
+      { type: 'title',    cells: pad('発注書　株式会社灰吹屋 御中（発注分のみ）') },
+      { type: 'meta',     cells: pad('販売部 部長 石川様　／　宮前平店 店長 佐藤様　／　発注先：㈱ベジコープ（FAX 03-6808-0900）') },
+      { type: 'meta',     cells: pad('見積期間：2026年10月19日（月）〜10月24日（土）販売分　／　価格は店着価格（税別）　／　作成：2026年10月19日 佐藤・栗山') },
+      { type: 'spacer',   cells: Array(ncols).fill('') },
+      { type: 'header',   cells: ['品目', '産地', '規格・入数', '単価/p', '単価/cs', 'JANコード', '10/19\n月', '10/20\n火', '10/21\n水', '10/22\n木', '10/23\n金', '10/24\n土', '備考・産地状況'] },
+      { type: 'category', cells: pad('葉物類') },
+      { type: 'item',     cells: ['水菜', '千葉', '150g/5p', '165', '825', '4514811010524', '1', '', '', '6→1', '', '', '生育不良により欠品の可能性あり'] },
+      { type: 'item',     cells: ['ベビーリーフ', '千葉', '40g/5p', '165', '825', '4514811010470', '1', '', '', '1→6', '', '', '生育不良により欠品の可能性あり'] },
+      { type: 'category', cells: pad('葉菜類') },
+      { type: 'item',     cells: ['サニーレタス', '群馬・長野', 'L/5玉', '190', '950', '4514811010036', '5', '', '', '5', '', '', ''] },
+      { type: 'category', cells: pad('根菜類') },
+      { type: 'item',     cells: ['人参', '青森・北海道・山梨', '400g/5p', '225', '1,125', '4514811010111', '1', '', '', '', '', '', ''] },
+      { type: 'item',     cells: ['じゃが芋', '青森・岩手・北海道', '約500g/5p', '275', '1,375', '4514811010128', '', '', '', '1', '', '', ''] },
+      { type: 'item',     cells: ['玉ねぎ', '北海道', '500g/5p', '280', '1,400', '4514811050339', '', '', '', '1', '', '', ''] },
+      { type: 'item',     cells: ['生姜', '熊本・千葉', '50g/5p', '145', '725', '4514811013730', '1', '', '', '', '', '', ''] },
+      { type: 'item',     cells: ['にんにく', '長野', '1〜2コ/5p', '198', '990', '4514811011187', '1', '', '', '', '', '', '群馬県産終了'] },
+      { type: 'category', cells: pad('果物類') },
+      { type: 'item',     cells: ['レモン', '香川', '2コ/5p', '245', '1,225', '4514811010678', '1', '', '', '', '', '', ''] },
+      { type: 'category', cells: pad('イタリア・レストラン野菜') },
+      { type: 'item',     cells: ['カリーノケール', '群馬・長野', '100g/5p', '155', '775', '4514811014966', '3', '', '', '3', '', '', '生育不良により欠品の可能性あり'] },
+      { type: 'spacer',   cells: Array(ncols).fill('') },
+      { type: 'note',     cells: pad('※ 「6→1」は原本の「変更」欄による修正（元の数量→変更後）。') },
+      { type: 'note',     cells: pad('※ 10/21（水）は納品なし（グレー）。店舗直納のため、1回あたりの発注合計は8,000円以上でお願いします。') },
+      { type: 'note',     cells: pad('※ 発注数の入っている品目のみ表示（発注なし・休止の品目は省略）。') },
+    ];
+    for (let i = 0; i < 4; i++) {
+      rows.push({ type: 'data', cells: Array(ncols).fill('') });
+    }
+    return rows;
+  }
+
+  const ncols = TODAY_ORDER_FORMATS.chiba.cols;
   const rows = [
     { type: 'title',  cells: ['千葉自動発注書（発注分のみ）', '', '', '', '', '', '', ''] },
     { type: 'meta',   cells: ['宛先：千葉成田センター\u3000／\u3000発注先：葛西産直ファーム', '', '', '', '', '', '', ''] },
     { type: 'meta',   cells: ['対象期間：2026年10月26日（月）〜10月31日（土）', '', '', '', '', '', '', ''] },
-    { type: 'spacer', cells: Array(TODAY_ORDER_COLS).fill('') },
+    { type: 'spacer', cells: Array(ncols).fill('') },
     { type: 'header', cells: ['品目', '単位', '10/26\n月', '10/27\n火', '10/28\n水', '10/29\n木', '10/30\n金', '10/31\n土'] },
     { type: 'merged', cells: ['今週（10/26〜10/31）の発注はありません（全品目 休止）', '', '', '', '', '', '', ''] },
+    { type: 'spacer', cells: Array(ncols).fill('') },
+    { type: 'note',   cells: ['※ 発注数の入っている品目のみ表示する設定ですが、今週は該当する品目がありません。', '', '', '', '', '', '', ''] },
+    { type: 'note',   cells: ['※ 原本では大根・赤からし水菜・小江戸菜・スイスチャード・ほうれん草・キャベツが休止、ホテル風か様用は数量未記入。', '', '', '', '', '', '', ''] },
   ];
   for (let i = 0; i < 6; i++) {
-    rows.push({ type: 'data', cells: Array(TODAY_ORDER_COLS).fill('') });
+    rows.push({ type: 'data', cells: Array(ncols).fill('') });
   }
   return rows;
 }
 
-function _normalizeTodayOrderRowsClient(rawRows) {
-  const allowed = new Set(['title', 'meta', 'spacer', 'header', 'item', 'merged', 'data']);
-  if (!Array.isArray(rawRows) || !rawRows.length) return _createTodayOrderInitialRows();
-  return rawRows
-    .filter(r => r?.type !== 'note')
-    .map(r => {
-      const type = allowed.has(r?.type) ? r.type : 'data';
-      const cells = Array.from({ length: TODAY_ORDER_COLS }, (_, ci) => {
-        const v = r?.cells?.[ci];
-        return v != null ? String(v) : '';
-      });
-      return { type, cells };
+function _normalizeTodayOrderRowsClient(rawRows, fmt = _todayOrderCurrentFormat) {
+  const ncols = _todayColCount(fmt);
+  const allowed = new Set(['title', 'meta', 'spacer', 'header', 'category', 'item', 'merged', 'note', 'data']);
+  if (!Array.isArray(rawRows) || !rawRows.length) return _createTodayOrderInitialRows(fmt);
+  return rawRows.map(r => {
+    const type = allowed.has(r?.type) ? r.type : 'data';
+    const cells = Array.from({ length: ncols }, (_, ci) => {
+      const v = r?.cells?.[ci];
+      return v != null ? String(v) : '';
     });
+    return { type, cells };
+  });
 }
 
 function _markTodayOrderDirty(dirty) {
@@ -198,36 +280,40 @@ function _markTodayOrderDirty(dirty) {
   saveBtn.textContent = _todayOrderDirty ? '💾 保存*' : '💾 保存';
 }
 
-function _persistTodayOrderLocal() {
+function _persistTodayOrderLocal(fmt = _todayOrderCurrentFormat) {
   try {
-    localStorage.setItem(TODAY_ORDER_STORAGE_KEY, JSON.stringify(_todayOrderRows));
+    const cfg = _todayFmtCfg(fmt);
+    localStorage.setItem(cfg.storageKey, JSON.stringify(_todayOrderRows));
   } catch {}
 }
 
 async function saveTodayOrderSheet(silent = false) {
-  for (let i = 0; i < _todayOrderRows.length; i++) {
-    const r = _todayOrderRows[i];
-    const hasName = !!String(r.cells?.[0] || '').trim();
-    if ((r.type === 'item' || (r.type === 'data' && hasName)) && hasName) {
-      const check = _validateTodayUnit(r.cells?.[1]);
-      if (!check.valid) {
-        _todayOrderSelRow = i;
-        _todayOrderSelCol = 1;
-        _renderTodayOrderGrid();
-        showToast(`${i + 1} 行目（${r.cells[0]}）: ${check.error}`, true);
-        return false;
+  const fmt = _todayOrderCurrentFormat;
+  if (fmt === 'chiba') {
+    for (let i = 0; i < _todayOrderRows.length; i++) {
+      const r = _todayOrderRows[i];
+      const hasName = !!String(r.cells?.[0] || '').trim();
+      if ((r.type === 'item' || (r.type === 'data' && hasName)) && hasName) {
+        const check = _validateTodayUnit(r.cells?.[1]);
+        if (!check.valid) {
+          _todayOrderSelRow = i;
+          _todayOrderSelCol = 1;
+          _renderTodayOrderGrid();
+          showToast(`${i + 1} 行目（${r.cells[0]}）: ${check.error}`, true);
+          return false;
+        }
+        r.cells[1] = check.normalized;
       }
-      r.cells[1] = check.normalized;
     }
   }
-  _persistTodayOrderLocal();
+  _persistTodayOrderLocal(fmt);
   const saveBtn = document.getElementById('todayOrderSaveBtn');
   if (saveBtn) {
     saveBtn.disabled = true;
     saveBtn.textContent = '保存中…';
   }
   try {
-    const r = await fetch(`${API_BASE}/api/today-order`, {
+    const r = await fetch(`${API_BASE}/api/today-order?format=${encodeURIComponent(fmt)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rows: _todayOrderRows }),
@@ -249,29 +335,110 @@ async function saveTodayOrderSheet(silent = false) {
   }
 }
 
-async function loadTodayOrderSheet() {
+async function loadTodayOrderSheet(fmt = _todayOrderCurrentFormat) {
+  const cfg = _todayFmtCfg(fmt);
   try {
-    const r = await fetch(`${API_BASE}/api/today-order`);
+    const r = await fetch(`${API_BASE}/api/today-order?format=${encodeURIComponent(fmt)}`);
     if (r.ok) {
       const data = await r.json();
       if (data && !data.is_default && Array.isArray(data.rows) && data.rows.length) {
-        _todayOrderRows = _normalizeTodayOrderRowsClient(data.rows);
-        _persistTodayOrderLocal();
+        _todayOrderRows = _normalizeTodayOrderRowsClient(data.rows, fmt);
+        _persistTodayOrderLocal(fmt);
         return;
       }
     }
   } catch {}
   try {
-    const cached = localStorage.getItem(TODAY_ORDER_STORAGE_KEY);
+    const cached = localStorage.getItem(cfg.storageKey) || (cfg.legacyStorageKey ? localStorage.getItem(cfg.legacyStorageKey) : null);
     if (cached) {
       const parsed = JSON.parse(cached);
       if (Array.isArray(parsed) && parsed.length) {
-        _todayOrderRows = _normalizeTodayOrderRowsClient(parsed);
+        _todayOrderRows = _normalizeTodayOrderRowsClient(parsed, fmt);
         return;
       }
     }
   } catch {}
-  _todayOrderRows = _createTodayOrderInitialRows();
+  _todayOrderRows = _createTodayOrderInitialRows(fmt);
+}
+
+function _renderTodayPresetChips() {
+  const quickEl = document.getElementById('todayOrderQuickPresets');
+  const modalEl = document.getElementById('todayItemPresetChips');
+  const isHaibukiya = _todayOrderCurrentFormat === 'haibukiya';
+  const items = isHaibukiya ? TODAY_HAIBUKIYA_PRESETS.map(p => p.name) : TODAY_PRESET_ITEMS;
+
+  if (quickEl) {
+    quickEl.innerHTML =
+      '<span class="today-preset-label">クイック追加:</span>' +
+      items.map(n => `<button type="button" class="today-preset-chip" data-preset="${esc(n)}">+ ${esc(n)}</button>`).join('') +
+      `<button type="button" class="today-preset-chip today-preset-chip-all" id="todayOrderAddAllPresetsBtn">+ 全${items.length}品目を一括追加</button>`;
+    quickEl.querySelectorAll('.today-preset-chip[data-preset]').forEach(btn => {
+      btn.addEventListener('click', () => openTodayOrderItemModal(null, btn.dataset.preset || ''));
+    });
+    document.getElementById('todayOrderAddAllPresetsBtn')?.addEventListener('click', () => {
+      openTodayOrderItemModal(null, '', { fillAllPresets: true });
+    });
+  }
+
+  if (modalEl) {
+    modalEl.innerHTML =
+      items.map(n => `<button type="button" class="today-preset-chip" data-preset="${esc(n)}">+ ${esc(n)}</button>`).join('') +
+      `<button type="button" class="today-preset-chip today-preset-chip-all" id="todayModalFillAllPresetsBtn">+ 全${items.length}品目をセット</button>`;
+    modalEl.querySelectorAll('.today-preset-chip[data-preset]').forEach(btn => {
+      btn.addEventListener('click', () => _fillTodayModalPreset(btn.dataset.preset || ''));
+    });
+    document.getElementById('todayModalFillAllPresetsBtn')?.addEventListener('click', () => {
+      const tbody = document.getElementById('todayModalItemsBody');
+      if (!tbody) return;
+      Array.from(tbody.children).forEach(tr => {
+        const nameVal = (tr.querySelector('.today-m-name')?.value || '').trim();
+        if (!nameVal) tr.remove();
+      });
+      const existing = new Set(
+        Array.from(tbody.querySelectorAll('.today-m-name')).map(inp => inp.value.trim()).filter(Boolean)
+      );
+      let firstAdded = null;
+      if (_todayOrderCurrentFormat === 'haibukiya') {
+        TODAY_HAIBUKIYA_PRESETS.forEach(p => {
+          if (!existing.has(p.name)) {
+            const tr = _appendTodayModalItemRow({ ...p, days: [...p.days] });
+            if (!firstAdded) firstAdded = tr;
+          }
+        });
+      } else {
+        TODAY_PRESET_ITEMS.forEach(pName => {
+          if (!existing.has(pName)) {
+            const tr = _appendTodayModalItemRow({ name: pName, unit: '', days: ['', '', '', '', '', ''] });
+            if (!firstAdded) firstAdded = tr;
+          }
+        });
+      }
+      _renumberTodayModalRows();
+      (firstAdded?.querySelector('.today-m-unit') || firstAdded?.querySelector('.today-m-day'))?.focus();
+    });
+  }
+}
+
+async function switchTodayOrderFormat(fmt) {
+  const nextFmt = fmt === 'haibukiya' ? 'haibukiya' : 'chiba';
+  _todayOrderCurrentFormat = nextFmt;
+
+  const sel = document.getElementById('todayOrderFormatSelect');
+  if (sel) sel.value = nextFmt;
+
+  document.querySelectorAll('#todayOrderSheetTabs .xls-sheet-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.format === nextFmt);
+  });
+
+  const addCatBtn = document.getElementById('todayOrderAddCategoryBtn');
+  if (addCatBtn) addCatBtn.classList.toggle('hidden', nextFmt !== 'haibukiya');
+
+  _renderTodayPresetChips();
+  await loadTodayOrderSheet(nextFmt);
+  _todayOrderSelRow = 0;
+  _todayOrderSelCol = 0;
+  _markTodayOrderDirty(false);
+  _renderTodayOrderGrid();
 }
 
 function _countTodayOrderItems() {
@@ -281,12 +448,7 @@ function _countTodayOrderItems() {
 }
 
 function _updateTodayOrderHeaderBadges() {
-  const titleBadge = document.getElementById('todayOrderTitleBadge');
   const countBadge = document.getElementById('todayOrderItemCount');
-  const titleRow = _todayOrderRows.find(r => r.type === 'title');
-  if (titleBadge && titleRow?.cells?.[0]) {
-    titleBadge.textContent = titleRow.cells[0];
-  }
   if (countBadge) {
     countBadge.textContent = `${_countTodayOrderItems()} 品目`;
   }
@@ -294,13 +456,15 @@ function _updateTodayOrderHeaderBadges() {
 
 function _getTodayHeaderDateSpan() {
   const hdr = _todayOrderRows.find(r => r.type === 'header');
-  if (!hdr) return '10/26〜10/31';
-  const startRaw = String(hdr.cells[2] || '').split('\n')[0].trim() || '10/26';
-  const endRaw = String(hdr.cells[7] || '').split('\n')[0].trim() || '10/31';
+  const startCol = _todayDayStartCol();
+  if (!hdr) return _todayOrderCurrentFormat === 'haibukiya' ? '10/19〜10/24' : '10/26〜10/31';
+  const startRaw = String(hdr.cells[startCol] || '').split('\n')[0].trim() || '10/26';
+  const endRaw = String(hdr.cells[startCol + 5] || '').split('\n')[0].trim() || '10/31';
   return `${startRaw}〜${endRaw}`;
 }
 
 function _syncTodayOrderMergedNotice() {
+  if (_todayOrderCurrentFormat === 'haibukiya') return;
   const hasItems = _todayOrderRows.some(r => r.type === 'item');
   if (hasItems) {
     _todayOrderRows = _todayOrderRows.filter(r => r.type !== 'merged');
@@ -313,29 +477,42 @@ function _syncTodayOrderMergedNotice() {
     const span = _getTodayHeaderDateSpan();
     _todayOrderRows.splice(insertAt, 0, {
       type: 'merged',
-      cells: [`今週（${span}）の発注はありません（全品目 休止）`, '', '', '', '', '', '', ''],
+      cells: [`今週（${span}）の発注はありません（全品目 休止）`, ...Array(_todayColCount() - 1).fill('')],
     });
   }
 }
 
 function _isTodayRowSpanned(rowObj) {
   if (!rowObj) return false;
-  if (!['title', 'meta', 'merged', 'note'].includes(rowObj.type)) return false;
+  if (!['title', 'meta', 'category', 'merged', 'note'].includes(rowObj.type)) return false;
   return rowObj.cells.slice(1).every(v => !String(v || '').trim());
 }
 
 function _getTodayRowCellClass(rowObj, ci, val) {
+  const isHaibukiya = _todayOrderCurrentFormat === 'haibukiya';
   let cls = 'xls-cell';
   if (rowObj.type === 'title') cls += ' today-xls-title';
   else if (rowObj.type === 'meta') cls += ' today-xls-meta';
+  else if (rowObj.type === 'category') cls += ' today-xls-category';
   else if (rowObj.type === 'header') {
     cls += ' today-xls-header';
-    if (ci === 0) cls += ' today-xls-header-left';
-    else if (ci === 1) cls += ' today-xls-header-right';
-    else cls += ' today-xls-header-center';
+    if (isHaibukiya) {
+      if (ci === 0 || ci === 1 || ci === 2 || ci === 12) cls += ' today-xls-header-left';
+      else if (ci === 3 || ci === 4) cls += ' today-xls-header-right';
+      else cls += ' today-xls-header-center';
+    } else {
+      if (ci === 0) cls += ' today-xls-header-left';
+      else if (ci === 1) cls += ' today-xls-header-right';
+      else cls += ' today-xls-header-center';
+    }
   } else if (rowObj.type === 'merged') cls += ' today-xls-merged';
   else if (rowObj.type === 'note') cls += ' today-xls-note';
-  else {
+  else if (isHaibukiya) {
+    if (rowObj.type === 'item' && ci === 0) cls += ' today-xls-item-name';
+    else if (ci === 5) cls += ' today-xls-jan';
+    else if (ci === 3 || ci === 4 || (ci >= 6 && ci <= 11)) cls += ' today-xls-num';
+    if (ci === 8 && (rowObj.type === 'item' || rowObj.type === 'data')) cls += ' today-xls-wed-off';
+  } else {
     if (rowObj.type === 'item' && ci === 0) cls += ' today-xls-item-name';
     else if (ci === 1 && (rowObj.type === 'item' || String(rowObj.cells?.[0] || '').trim())) {
       cls += ' today-xls-item-unit';
@@ -355,13 +532,14 @@ function _extractTodayBaseIsoDate() {
     }
   }
   const hdr = _todayOrderRows.find(r => r.type === 'header');
+  const startCol = _todayDayStartCol();
   if (hdr) {
-    const m = String(hdr.cells?.[2] || '').match(/(\d{1,2})\/(\d{1,2})/);
+    const m = String(hdr.cells?.[startCol] || '').match(/(\d{1,2})\/(\d{1,2})/);
     if (m) {
       return `2026-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`;
     }
   }
-  return '2026-10-26';
+  return _todayFmtCfg().defaultDate;
 }
 
 function _formatTodayPeriodString(isoDateStr) {
@@ -370,32 +548,121 @@ function _formatTodayPeriodString(isoDateStr) {
   const startDt = new Date(y, m - 1, d);
   const endDt = new Date(y, m - 1, d + 5);
   const wdays = ['日', '月', '火', '水', '木', '金', '土'];
-  return `対象期間：${startDt.getFullYear()}年${startDt.getMonth() + 1}月${startDt.getDate()}日（${wdays[startDt.getDay()]}）〜${endDt.getMonth() + 1}月${endDt.getDate()}日（${wdays[endDt.getDay()]}）`;
+  const span = `${startDt.getFullYear()}年${startDt.getMonth() + 1}月${startDt.getDate()}日（${wdays[startDt.getDay()]}）〜${endDt.getMonth() + 1}月${endDt.getDate()}日（${wdays[endDt.getDay()]}）`;
+  if (_todayOrderCurrentFormat === 'haibukiya') {
+    return `見積期間：${span}販売分`;
+  }
+  return `対象期間：${span}`;
 }
 
 function _applyBaseDateToTodaySheet(isoDateStr) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDateStr || '')) return false;
   const [y, m, d] = isoDateStr.split('-').map(Number);
   const wdays = ['日', '月', '火', '水', '木', '金', '土'];
+  const startCol = _todayDayStartCol();
 
   const metaRows = _todayOrderRows.filter(r => r.type === 'meta');
   if (metaRows[1]) {
-    metaRows[1].cells[0] = _formatTodayPeriodString(isoDateStr);
+    if (_todayOrderCurrentFormat === 'haibukiya') {
+      const oldMeta = String(metaRows[1].cells[0] || '');
+      const parts = oldMeta.split('／');
+      const newPrefix = _formatTodayPeriodString(isoDateStr);
+      metaRows[1].cells[0] = parts.length > 1 ? `${newPrefix}　／${parts.slice(1).join('／')}` : newPrefix;
+    } else {
+      metaRows[1].cells[0] = _formatTodayPeriodString(isoDateStr);
+    }
   }
   const hdr = _todayOrderRows.find(r => r.type === 'header');
   if (hdr) {
     for (let offset = 0; offset < 6; offset++) {
       const dt = new Date(y, m - 1, d + offset);
-      hdr.cells[2 + offset] = `${dt.getMonth() + 1}/${dt.getDate()}\n${wdays[dt.getDay()]}`;
+      hdr.cells[startCol + offset] = `${dt.getMonth() + 1}/${dt.getDate()}\n${wdays[dt.getDay()]}`;
     }
   }
-  const mergedRow = _todayOrderRows.find(r => r.type === 'merged');
-  if (mergedRow) {
-    mergedRow.cells[0] = `今週（${_getTodayHeaderDateSpan()}）の発注はありません（全品目 休止）`;
+  if (_todayOrderCurrentFormat === 'haibukiya') {
+    const wedDt = new Date(y, m - 1, d + 2);
+    const wedLabel = `${wedDt.getMonth() + 1}/${wedDt.getDate()}（${wdays[wedDt.getDay()]}）`;
+    const note2 = _todayOrderRows.find(r => r.type === 'note' && String(r.cells[0] || '').includes('納品なし'));
+    if (note2) {
+      note2.cells[0] = note2.cells[0].replace(/\d{1,2}\/\d{1,2}（[^）]+）/, wedLabel);
+    }
+  } else {
+    const mergedRow = _todayOrderRows.find(r => r.type === 'merged');
+    if (mergedRow) {
+      mergedRow.cells[0] = `今週（${_getTodayHeaderDateSpan()}）の発注はありません（全品目 休止）`;
+    }
   }
   const inlineDateEl = document.getElementById('todayOrderInlineDate');
   if (inlineDateEl) inlineDateEl.value = isoDateStr;
   return true;
+}
+
+function _getHaibukiyaCategoriesInSheet() {
+  const cats = new Set(TODAY_HAIBUKIYA_CATEGORIES);
+  _todayOrderRows.forEach(r => {
+    if (r.type === 'category' && String(r.cells[0] || '').trim()) {
+      cats.add(String(r.cells[0]).trim());
+    }
+  });
+  return Array.from(cats);
+}
+
+function _getRowPrecedingCategory(ri) {
+  for (let i = ri - 1; i >= 0; i--) {
+    if (_todayOrderRows[i]?.type === 'category') {
+      return String(_todayOrderRows[i].cells[0] || '').trim();
+    }
+    if (_todayOrderRows[i]?.type === 'header') break;
+  }
+  return '';
+}
+
+function _renderTodayModalTableHead(isoDateStr) {
+  const thead = document.getElementById('todayModalItemsHead');
+  if (!thead) return;
+  const wdays = ['日', '月', '火', '水', '木', '金', '土'];
+  const dayLabels = [];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoDateStr || '')) {
+    const [y, m, d] = isoDateStr.split('-').map(Number);
+    for (let offset = 0; offset < 6; offset++) {
+      const dt = new Date(y, m - 1, d + offset);
+      dayLabels.push(`${dt.getMonth() + 1}/${dt.getDate()} (${wdays[dt.getDay()]})`);
+    }
+  } else {
+    const hdr = _todayOrderRows.find(r => r.type === 'header');
+    const startCol = _todayDayStartCol();
+    for (let offset = 0; offset < 6; offset++) {
+      const rawHdr = String(hdr?.cells?.[startCol + offset] || '').trim();
+      dayLabels.push(rawHdr ? rawHdr.replace(/\n+/g, ' (') + (rawHdr.includes('\n') ? ')' : '') : `日 ${offset + 1}`);
+    }
+  }
+
+  if (_todayOrderCurrentFormat === 'haibukiya') {
+    const catOpts = _getHaibukiyaCategoriesInSheet().map(c => `<option value="${esc(c)}"></option>`).join('');
+    thead.innerHTML =
+      `<tr>
+        <th style="width:28px">#</th>
+        <th style="min-width:110px">カテゴリ<datalist id="todayHaibukiyaCatList">${catOpts}</datalist></th>
+        <th style="min-width:120px">品目名 <span class="required">*</span></th>
+        <th style="min-width:100px">産地</th>
+        <th style="min-width:85px">規格・入数</th>
+        <th style="width:68px">単価/p</th>
+        <th style="width:72px">単価/cs</th>
+        <th style="min-width:112px">JANコード</th>
+        ${dayLabels.map((lbl, idx) => `<th id="todayModalDayHdr${idx}" style="width:62px">${esc(lbl)}</th>`).join('')}
+        <th style="min-width:130px">備考・産地状況</th>
+        <th style="width:36px"></th>
+      </tr>`;
+  } else {
+    thead.innerHTML =
+      `<tr>
+        <th style="width:32px">#</th>
+        <th style="min-width:170px">品目名 <span class="required">*</span></th>
+        <th style="width:96px">単位 <span class="required">*</span></th>
+        ${dayLabels.map((lbl, idx) => `<th id="todayModalDayHdr${idx}">${esc(lbl)}</th>`).join('')}
+        <th style="width:42px"></th>
+      </tr>`;
+  }
 }
 
 function _updateTodayModalDateHeaders(isoDateStr) {
@@ -412,10 +679,11 @@ function _updateTodayModalDateHeaders(isoDateStr) {
   } else {
     const hdr = _todayOrderRows.find(r => r.type === 'header');
     const metaRows = _todayOrderRows.filter(r => r.type === 'meta');
+    const startCol = _todayDayStartCol();
     if (previewEl) previewEl.textContent = metaRows[1]?.cells?.[0] || '';
     for (let offset = 0; offset < 6; offset++) {
       const th = document.getElementById(`todayModalDayHdr${offset}`);
-      const rawHdr = String(hdr?.cells?.[2 + offset] || '').trim();
+      const rawHdr = String(hdr?.cells?.[startCol + offset] || '').trim();
       if (th) th.textContent = rawHdr ? rawHdr.replace(/\n+/g, ' (') + (rawHdr.includes('\n') ? ')' : '') : `日 ${offset + 1}`;
     }
   }
@@ -433,7 +701,8 @@ function _renumberTodayModalRows() {
 function _appendTodayModalItemRow(itemData = null) {
   const tbody = document.getElementById('todayModalItemsBody');
   if (!tbody) return null;
-  const data = itemData || { name: '', unit: '', days: ['', '', '', '', '', ''] };
+  const isHaibukiya = _todayOrderCurrentFormat === 'haibukiya';
+  const data = itemData || { category: '', name: '', unit: '', origin: '', spec: '', priceP: '', priceCs: '', jan: '', days: ['', '', '', '', '', ''], note: '' };
   const tr = document.createElement('tr');
 
   const numTd = document.createElement('td');
@@ -441,112 +710,130 @@ function _appendTodayModalItemRow(itemData = null) {
   numTd.textContent = String(tbody.children.length + 1);
   tr.appendChild(numTd);
 
-  const nameTd = document.createElement('td');
-  const nameInp = document.createElement('input');
-  nameInp.type = 'text';
-  nameInp.className = 'today-m-input today-m-name';
-  nameInp.placeholder = '品目名（例: 大根）';
-  nameInp.autocomplete = 'off';
-  nameInp.value = data.name || '';
-  nameInp.addEventListener('input', () => {
-    nameInp.classList.remove('today-input-error');
-    _setTodayModalValMsg('');
-  });
-  nameTd.appendChild(nameInp);
-  tr.appendChild(nameTd);
-
-  const unitTd = document.createElement('td');
-  const unitInp = document.createElement('input');
-  unitInp.type = 'text';
-  unitInp.className = 'today-m-input today-m-unit';
-  unitInp.setAttribute('list', 'todayItemUnitList');
-  unitInp.placeholder = '例: cs / 束';
-  unitInp.autocomplete = 'off';
-  unitInp.value = data.unit || '';
-
-  const validateUnitInput = (allowEmptyWhenBlankRow = true) => {
-    const raw = unitInp.value.trim();
-    const rowHasOther = Boolean(
-      nameInp.value.trim() ||
-      Array.from(tr.querySelectorAll('.today-m-day')).some(inp => inp.value.trim())
-    );
-    if (!raw && allowEmptyWhenBlankRow && !rowHasOther) {
-      unitInp.classList.remove('today-input-error', 'today-input-valid');
-      return true;
-    }
-    const res = _validateTodayUnit(raw);
-    if (res.valid) {
-      unitInp.value = res.normalized;
-      unitInp.classList.remove('today-input-error');
-      unitInp.classList.add('today-input-valid');
-      return true;
-    }
-    unitInp.classList.remove('today-input-valid');
-    unitInp.classList.add('today-input-error');
-    return res.error;
-  };
-
-  unitInp.addEventListener('keydown', (e) => {
-    if (/^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      unitInp.classList.remove('today-input-valid');
-      unitInp.classList.add('today-input-error');
-      _setTodayModalValMsg('単位には数値を入力できません');
-    }
-  });
-  unitInp.addEventListener('input', () => {
-    if (/[0-9０-９]/.test(unitInp.value)) {
-      unitInp.value = unitInp.value.replace(/[0-9０-９]/g, '');
-      unitInp.classList.remove('today-input-valid');
-      unitInp.classList.add('today-input-error');
-      _setTodayModalValMsg('単位には数値を入力できません');
-      return;
-    }
-    const raw = unitInp.value.trim();
-    if (!raw) {
-      unitInp.classList.remove('today-input-error', 'today-input-valid');
-      _setTodayModalValMsg('');
-      return;
-    }
-    const res = _validateTodayUnit(raw);
-    if (res.valid) {
-      unitInp.classList.remove('today-input-error');
-      unitInp.classList.add('today-input-valid');
-      _setTodayModalValMsg('');
-    } else {
-      unitInp.classList.remove('today-input-valid');
-    }
-  });
-  unitInp.addEventListener('change', () => {
-    const check = validateUnitInput(true);
-    if (check !== true) _setTodayModalValMsg(check);
-    else _setTodayModalValMsg('');
-  });
-  unitInp.addEventListener('blur', () => {
-    const check = validateUnitInput(true);
-    if (check !== true) _setTodayModalValMsg(check);
-  });
-  if (data.unit && _validateTodayUnit(data.unit).valid) {
-    unitInp.classList.add('today-input-valid');
-  }
-
-  unitTd.appendChild(unitInp);
-  tr.appendChild(unitTd);
-
-  for (let d = 0; d < 6; d++) {
-    const dayTd = document.createElement('td');
-    const dayInp = document.createElement('input');
-    dayInp.type = 'text';
-    dayInp.className = 'today-m-input today-m-day';
-    dayInp.placeholder = '0';
-    dayInp.autocomplete = 'off';
-    dayInp.value = (data.days && data.days[d] != null) ? String(data.days[d]) : '';
-    dayInp.addEventListener('input', () => {
-      dayInp.classList.remove('today-input-error');
+  const makeInput = (cls, placeholder, val, listId = null) => {
+    const td = document.createElement('td');
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'today-m-input ' + cls;
+    inp.placeholder = placeholder;
+    inp.autocomplete = 'off';
+    inp.value = val || '';
+    if (listId) inp.setAttribute('list', listId);
+    inp.addEventListener('input', () => {
+      inp.classList.remove('today-input-error');
       _setTodayModalValMsg('');
     });
-    dayTd.appendChild(dayInp);
-    tr.appendChild(dayTd);
+    td.appendChild(inp);
+    return { td, inp };
+  };
+
+  if (isHaibukiya) {
+    const { td: catTd } = makeInput('today-m-cat', '葉物類', data.category || '', 'todayHaibukiyaCatList');
+    const { td: nameTd } = makeInput('today-m-name', '品目名', data.name || '');
+    const { td: origTd } = makeInput('today-m-origin', '産地', data.origin || '');
+    const { td: specTd } = makeInput('today-m-spec', '150g/5p', data.spec || '');
+    const { td: ppTd } = makeInput('today-m-pricep today-m-day', '165', data.priceP || '');
+    const { td: pcsTd } = makeInput('today-m-pricecs today-m-day', '825', data.priceCs || '');
+    const { td: janTd } = makeInput('today-m-jan', '4514811...', data.jan || '');
+    tr.appendChild(catTd);
+    tr.appendChild(nameTd);
+    tr.appendChild(origTd);
+    tr.appendChild(specTd);
+    tr.appendChild(ppTd);
+    tr.appendChild(pcsTd);
+    tr.appendChild(janTd);
+    for (let d = 0; d < 6; d++) {
+      const { td: dayTd } = makeInput('today-m-day', '0', (data.days && data.days[d] != null) ? String(data.days[d]) : '');
+      tr.appendChild(dayTd);
+    }
+    const { td: noteTd } = makeInput('today-m-note', '備考', data.note || '');
+    tr.appendChild(noteTd);
+  } else {
+    const { td: nameTd, inp: nameInp } = makeInput('today-m-name', '品目名（例: 大根）', data.name || '');
+    tr.appendChild(nameTd);
+
+    const unitTd = document.createElement('td');
+    const unitInp = document.createElement('input');
+    unitInp.type = 'text';
+    unitInp.className = 'today-m-input today-m-unit';
+    unitInp.setAttribute('list', 'todayItemUnitList');
+    unitInp.placeholder = '例: cs / 束';
+    unitInp.autocomplete = 'off';
+    unitInp.value = data.unit || '';
+
+    const validateUnitInput = (allowEmptyWhenBlankRow = true) => {
+      const raw = unitInp.value.trim();
+      const rowHasOther = Boolean(
+        nameInp.value.trim() ||
+        Array.from(tr.querySelectorAll('.today-m-day')).some(inp => inp.value.trim())
+      );
+      if (!raw && allowEmptyWhenBlankRow && !rowHasOther) {
+        unitInp.classList.remove('today-input-error', 'today-input-valid');
+        return true;
+      }
+      const res = _validateTodayUnit(raw);
+      if (res.valid) {
+        unitInp.value = res.normalized;
+        unitInp.classList.remove('today-input-error');
+        unitInp.classList.add('today-input-valid');
+        return true;
+      }
+      unitInp.classList.remove('today-input-valid');
+      unitInp.classList.add('today-input-error');
+      return res.error;
+    };
+
+    unitInp.addEventListener('keydown', (e) => {
+      if (/^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        unitInp.classList.remove('today-input-valid');
+        unitInp.classList.add('today-input-error');
+        _setTodayModalValMsg('単位には数値を入力できません');
+      }
+    });
+    unitInp.addEventListener('input', () => {
+      if (/[0-9０-９]/.test(unitInp.value)) {
+        unitInp.value = unitInp.value.replace(/[0-9０-９]/g, '');
+        unitInp.classList.remove('today-input-valid');
+        unitInp.classList.add('today-input-error');
+        _setTodayModalValMsg('単位には数値を入力できません');
+        return;
+      }
+      const raw = unitInp.value.trim();
+      if (!raw) {
+        unitInp.classList.remove('today-input-error', 'today-input-valid');
+        _setTodayModalValMsg('');
+        return;
+      }
+      const res = _validateTodayUnit(raw);
+      if (res.valid) {
+        unitInp.classList.remove('today-input-error');
+        unitInp.classList.add('today-input-valid');
+        _setTodayModalValMsg('');
+      } else {
+        unitInp.classList.remove('today-input-valid');
+      }
+    });
+    unitInp.addEventListener('change', () => {
+      const check = validateUnitInput(true);
+      if (check !== true) _setTodayModalValMsg(check);
+      else _setTodayModalValMsg('');
+    });
+    unitInp.addEventListener('blur', () => {
+      const check = validateUnitInput(true);
+      if (check !== true) _setTodayModalValMsg(check);
+    });
+    if (data.unit && _validateTodayUnit(data.unit).valid) {
+      unitInp.classList.add('today-input-valid');
+    }
+
+    unitTd.appendChild(unitInp);
+    tr.appendChild(unitTd);
+
+    for (let d = 0; d < 6; d++) {
+      const { td: dayTd } = makeInput('today-m-day', '0', (data.days && data.days[d] != null) ? String(data.days[d]) : '');
+      tr.appendChild(dayTd);
+    }
   }
 
   const delTd = document.createElement('td');
@@ -573,27 +860,57 @@ function _appendTodayModalItemRow(itemData = null) {
 function _fillTodayModalPreset(presetName) {
   const tbody = document.getElementById('todayModalItemsBody');
   if (!tbody || !presetName) return;
+  const presetObj = _todayOrderCurrentFormat === 'haibukiya'
+    ? (TODAY_HAIBUKIYA_PRESETS.find(p => p.name === presetName) || { name: presetName, days: ['', '', '', '', '', ''] })
+    : { name: presetName, unit: '', days: ['', '', '', '', '', ''] };
+
   const emptyRow = Array.from(tbody.children).find(tr => {
     const inp = tr.querySelector('.today-m-name');
     return inp && !inp.value.trim();
   });
   if (emptyRow) {
-    emptyRow.querySelector('.today-m-name').value = presetName;
-    emptyRow.querySelector('.today-m-unit')?.focus();
+    if (_todayOrderCurrentFormat === 'haibukiya') {
+      if (emptyRow.querySelector('.today-m-cat')) emptyRow.querySelector('.today-m-cat').value = presetObj.category || '';
+      emptyRow.querySelector('.today-m-name').value = presetObj.name || '';
+      if (emptyRow.querySelector('.today-m-origin')) emptyRow.querySelector('.today-m-origin').value = presetObj.origin || '';
+      if (emptyRow.querySelector('.today-m-spec')) emptyRow.querySelector('.today-m-spec').value = presetObj.spec || '';
+      if (emptyRow.querySelector('.today-m-pricep')) emptyRow.querySelector('.today-m-pricep').value = presetObj.priceP || '';
+      if (emptyRow.querySelector('.today-m-pricecs')) emptyRow.querySelector('.today-m-pricecs').value = presetObj.priceCs || '';
+      if (emptyRow.querySelector('.today-m-jan')) emptyRow.querySelector('.today-m-jan').value = presetObj.jan || '';
+      const dayInps = Array.from(emptyRow.querySelectorAll('.today-m-day')).slice(2);
+      dayInps.forEach((inp, idx) => { inp.value = (presetObj.days && presetObj.days[idx]) || ''; });
+      if (emptyRow.querySelector('.today-m-note')) emptyRow.querySelector('.today-m-note').value = presetObj.note || '';
+      dayInps[0]?.focus();
+    } else {
+      emptyRow.querySelector('.today-m-name').value = presetName;
+      emptyRow.querySelector('.today-m-unit')?.focus();
+    }
     return;
   }
-  const newTr = _appendTodayModalItemRow({ name: presetName, unit: '', days: ['', '', '', '', '', ''] });
-  newTr?.querySelector('.today-m-unit')?.focus();
+  const newTr = _appendTodayModalItemRow(presetObj);
+  (newTr?.querySelector('.today-m-unit') || newTr?.querySelector('.today-m-day'))?.focus();
 }
 
 function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
   const backdrop = document.getElementById('todayOrderItemModalBackdrop');
   if (!backdrop) return;
   _todayOrderEditRowIdx = rowIdx;
+  const isHaibukiya = _todayOrderCurrentFormat === 'haibukiya';
+
+  const modalBox = backdrop.querySelector('.modal-box');
+  if (modalBox) modalBox.classList.toggle('today-modal-box-haibukiya', isHaibukiya);
+
+  const hintEl = document.getElementById('todayModalHint');
+  if (hintEl) {
+    hintEl.textContent = isHaibukiya
+      ? '※ 品目名を入力して保存すると、指定したカテゴリ配下に追加されます（数量は「6→1」表記も可）。'
+      : '※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。';
+  }
 
   const baseIso = _extractTodayBaseIsoDate();
   const modalDateInp = document.getElementById('todayItemModalBaseDate');
   if (modalDateInp) modalDateInp.value = baseIso;
+  _renderTodayModalTableHead(baseIso);
   _updateTodayModalDateHeaders(baseIso);
 
   const titleEl = document.getElementById('todayOrderItemModalTitle');
@@ -607,30 +924,57 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
   if (rowIdx !== null && _todayOrderRows[rowIdx] && _todayOrderRows[rowIdx].type !== 'merged') {
     const row = _todayOrderRows[rowIdx];
     if (titleEl) titleEl.textContent = `発注品目を編集（${rowIdx + 1} 行目）`;
-    const tr = _appendTodayModalItemRow({
-      name: row.cells[0] || '',
-      unit: row.cells[1] || '',
-      days: row.cells.slice(2, 8),
-    });
+    const tr = isHaibukiya
+      ? _appendTodayModalItemRow({
+          category: _getRowPrecedingCategory(rowIdx),
+          name: row.cells[0] || '',
+          origin: row.cells[1] || '',
+          spec: row.cells[2] || '',
+          priceP: row.cells[3] || '',
+          priceCs: row.cells[4] || '',
+          jan: row.cells[5] || '',
+          days: row.cells.slice(6, 12),
+          note: row.cells[12] || '',
+        })
+      : _appendTodayModalItemRow({
+          name: row.cells[0] || '',
+          unit: row.cells[1] || '',
+          days: row.cells.slice(2, 8),
+        });
     if (delBtn) delBtn.classList.remove('hidden');
     focusEl = tr?.querySelector('.today-m-name');
   } else if (options.fillAllPresets) {
     if (titleEl) titleEl.textContent = '複数品目を一括追加（日付・数量入力）';
-    TODAY_PRESET_ITEMS.forEach((pName, idx) => {
-      const tr = _appendTodayModalItemRow({ name: pName, unit: '', days: ['', '', '', '', '', ''] });
-      if (idx === 0) focusEl = tr?.querySelector('.today-m-unit');
-    });
+    if (isHaibukiya) {
+      TODAY_HAIBUKIYA_PRESETS.forEach((p, idx) => {
+        const tr = _appendTodayModalItemRow({ ...p, days: [...p.days] });
+        if (idx === 0) focusEl = tr?.querySelector('.today-m-name');
+      });
+    } else {
+      TODAY_PRESET_ITEMS.forEach((pName, idx) => {
+        const tr = _appendTodayModalItemRow({ name: pName, unit: '', days: ['', '', '', '', '', ''] });
+        if (idx === 0) focusEl = tr?.querySelector('.today-m-unit');
+      });
+    }
     if (delBtn) delBtn.classList.add('hidden');
   } else {
     if (titleEl) titleEl.textContent = '発注品目を追加（複数品目・日付設定）';
+    const defCat = options.defaultCategory || '';
     if (presetName) {
-      const tr1 = _appendTodayModalItemRow({ name: presetName, unit: '', days: ['', '', '', '', '', ''] });
-      _appendTodayModalItemRow();
-      focusEl = tr1?.querySelector('.today-m-unit');
+      if (isHaibukiya) {
+        const pObj = TODAY_HAIBUKIYA_PRESETS.find(p => p.name === presetName) || { category: defCat, name: presetName, days: ['', '', '', '', '', ''] };
+        const tr1 = _appendTodayModalItemRow({ ...pObj, days: [...(pObj.days || ['', '', '', '', '', ''])] });
+        _appendTodayModalItemRow({ category: pObj.category || defCat, name: '', days: ['', '', '', '', '', ''] });
+        focusEl = tr1?.querySelector('.today-m-name');
+      } else {
+        const tr1 = _appendTodayModalItemRow({ name: presetName, unit: '', days: ['', '', '', '', '', ''] });
+        _appendTodayModalItemRow();
+        focusEl = tr1?.querySelector('.today-m-unit');
+      }
     } else {
-      const tr1 = _appendTodayModalItemRow();
-      _appendTodayModalItemRow();
-      _appendTodayModalItemRow();
+      const tr1 = _appendTodayModalItemRow({ category: defCat, name: '', unit: '', days: ['', '', '', '', '', ''] });
+      _appendTodayModalItemRow({ category: defCat, name: '', unit: '', days: ['', '', '', '', '', ''] });
+      _appendTodayModalItemRow({ category: defCat, name: '', unit: '', days: ['', '', '', '', '', ''] });
       focusEl = tr1?.querySelector('.today-m-name');
     }
     if (delBtn) delBtn.classList.add('hidden');
@@ -690,7 +1034,7 @@ async function deleteTodayOrderRow(ri, skipConfirm = false) {
   if (!skipConfirm && !confirm(`${label} を削除しますか？`)) return;
 
   if (_todayOrderRows.length <= 1) {
-    _todayOrderRows[0].cells = Array(TODAY_ORDER_COLS).fill('');
+    _todayOrderRows[0].cells = Array(_todayColCount()).fill('');
     _todayOrderSelRow = 0;
   } else {
     _todayOrderRows.splice(ri, 1);
@@ -711,12 +1055,15 @@ function _renderTodayOrderGrid() {
   const searchQ   = (document.getElementById('todayOrderSearch')?.value || '').trim().toLowerCase();
   if (!gridWrap) return;
 
+  const isHaibukiya = _todayOrderCurrentFormat === 'haibukiya';
+  const ncols = _todayColCount();
+
   _updateTodayOrderHeaderBadges();
   const inlineDateEl = document.getElementById('todayOrderInlineDate');
   if (inlineDateEl) inlineDateEl.value = _extractTodayBaseIsoDate();
 
   const rows = _todayOrderRows;
-  const colLetters = Array.from({ length: TODAY_ORDER_COLS }, (_, i) => _colLetter(i));
+  const colLetters = Array.from({ length: ncols }, (_, i) => _colLetter(i));
   const cellMatrix = [];
   const rowNumCells = [];
   let selectedTd = null;
@@ -724,15 +1071,19 @@ function _renderTodayOrderGrid() {
   let selectedRowIdx = -1;
 
   const table = document.createElement('table');
-  table.className = 'xls-table today-xls-table';
+  table.className = 'xls-table today-xls-table' + (isHaibukiya ? ' format-haibukiya' : '');
 
   const colgroup = document.createElement('colgroup');
   const rnCol = document.createElement('col');
   rnCol.className = 'today-col-rn';
   colgroup.appendChild(rnCol);
-  for (let ci = 0; ci < TODAY_ORDER_COLS; ci++) {
+  for (let ci = 0; ci < ncols; ci++) {
     const colEl = document.createElement('col');
-    colEl.className = ci === 0 ? 'today-col-a' : 'today-col-other';
+    if (isHaibukiya) {
+      colEl.className = (ci >= 6 && ci <= 11) ? 'today-col-h-day' : `today-col-h-${ci}`;
+    } else {
+      colEl.className = ci === 0 ? 'today-col-a' : 'today-col-other';
+    }
     colgroup.appendChild(colEl);
   }
   const actCol = document.createElement('col');
@@ -748,7 +1099,12 @@ function _renderTodayOrderGrid() {
 
   const colHeaders = colLetters.map((letter, ci) => {
     const th = document.createElement('th');
-    th.className = 'xls-th-col ' + (ci === 0 ? 'today-th-col-a' : 'today-th-col-other');
+    if (isHaibukiya) {
+      const hCls = (ci >= 6 && ci <= 11) ? 'today-th-h-day' : `today-th-h-${ci}`;
+      th.className = 'xls-th-col ' + hCls;
+    } else {
+      th.className = 'xls-th-col ' + (ci === 0 ? 'today-th-col-a' : 'today-th-col-other');
+    }
     th.innerHTML = `<div class="xls-th-letter">${letter}</div>`;
     colHeaderRow.appendChild(th);
     return th;
@@ -765,7 +1121,7 @@ function _renderTodayOrderGrid() {
   function selectCell(ri, ci, focusGrid = false) {
     if (!rows.length) return;
     ri = Math.max(0, Math.min(rows.length - 1, ri));
-    ci = Math.max(0, Math.min(TODAY_ORDER_COLS - 1, ci));
+    ci = Math.max(0, Math.min(ncols - 1, ci));
     if (_isTodayRowSpanned(rows[ri])) ci = 0;
 
     if (selectedTd) {
@@ -795,10 +1151,10 @@ function _renderTodayOrderGrid() {
   function updateCellValue(ri, ci, newVal, showErrToast = true) {
     const rowObj = rows[ri];
     if (!rowObj) return;
-    while (rowObj.cells.length < TODAY_ORDER_COLS) rowObj.cells.push('');
+    while (rowObj.cells.length < ncols) rowObj.cells.push('');
     const prevVal = rowObj.cells[ci] != null ? String(rowObj.cells[ci]) : '';
     let finalVal = newVal;
-    const isUnitCell = ci === 1 && (rowObj.type === 'item' || String(rowObj.cells[0] || '').trim());
+    const isUnitCell = !isHaibukiya && ci === 1 && (rowObj.type === 'item' || String(rowObj.cells[0] || '').trim());
     if (isUnitCell) {
       const check = _validateTodayUnit(newVal);
       if (check.valid) {
@@ -821,7 +1177,7 @@ function _renderTodayOrderGrid() {
       td.textContent = finalVal;
       td.title = finalVal;
     }
-    if (ci === 0) {
+    if (!isHaibukiya && ci === 0) {
       const unitTd = cellMatrix[ri]?.[1];
       if (unitTd) {
         const unitVal = rowObj.cells[1] != null ? String(rowObj.cells[1]) : '';
@@ -840,7 +1196,7 @@ function _renderTodayOrderGrid() {
 
   function startInlineEdit(ri, ci, initialChar = null) {
     if (_isTodayRowSpanned(rows[ri])) ci = 0;
-    const isUnitCol = ci === 1 && rows[ri]?.type !== 'header';
+    const isUnitCol = !isHaibukiya && ci === 1 && rows[ri]?.type !== 'header';
     if (isUnitCol && initialChar !== null && /^[0-9０-９]$/.test(initialChar)) {
       showToast('単位列には数値を入力できません', true);
       return;
@@ -855,7 +1211,7 @@ function _renderTodayOrderGrid() {
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'xls-cell-input';
-    if (ci === 1 && (rows[ri]?.type === 'item' || rows[ri]?.type === 'data')) {
+    if (isUnitCol && (rows[ri]?.type === 'item' || rows[ri]?.type === 'data')) {
       input.setAttribute('list', 'todayItemUnitList');
     }
     input.value = initialChar !== null ? initialChar : origVal;
@@ -887,7 +1243,7 @@ function _renderTodayOrderGrid() {
       if (save) updateCellValue(ri, ci, finalVal);
       if (cellValEl) cellValEl.value = rows[ri]?.cells?.[ci] != null ? String(rows[ri].cells[ci]) : '';
       if (nextAction === 'down') selectCell(Math.min(rows.length - 1, ri + 1), ci, true);
-      else if (nextAction === 'right') selectCell(ri, Math.min(TODAY_ORDER_COLS - 1, ci + 1), true);
+      else if (nextAction === 'right') selectCell(ri, Math.min(ncols - 1, ci + 1), true);
       else if (nextAction === 'left') selectCell(ri, Math.max(0, ci - 1), true);
       else gridWrap.focus({ preventScroll: true });
     }
@@ -913,12 +1269,14 @@ function _renderTodayOrderGrid() {
     });
   }
 
+  const dayStartCol = _todayDayStartCol();
+
   rows.forEach((rowObj, ri) => {
     const tr = document.createElement('tr');
     const rowText = rowObj.cells.join(' ').toLowerCase();
     const matchesSearch = searchQ && rowText.includes(searchQ);
     if (rowObj.type === 'item') tr.classList.add('today-row-item');
-    if (matchesSearch && ['item', 'data', 'merged', 'note'].includes(rowObj.type)) {
+    if (matchesSearch && ['item', 'data', 'category', 'merged', 'note'].includes(rowObj.type)) {
       tr.classList.add('today-row-match');
     }
     if (searchQ && rowObj.type === 'item' && !matchesSearch) {
@@ -939,7 +1297,7 @@ function _renderTodayOrderGrid() {
     if (_isTodayRowSpanned(rowObj)) {
       const td = document.createElement('td');
       const val = rowObj.cells[0] != null ? String(rowObj.cells[0]) : '';
-      td.colSpan = TODAY_ORDER_COLS;
+      td.colSpan = ncols;
       td.className = _getTodayRowCellClass(rowObj, 0, val);
       td.title = val;
       td.textContent = val;
@@ -949,9 +1307,9 @@ function _renderTodayOrderGrid() {
         startInlineEdit(ri, 0);
       });
       tr.appendChild(td);
-      for (let c = 0; c < TODAY_ORDER_COLS; c++) cellMatrix[ri][c] = td;
+      for (let c = 0; c < ncols; c++) cellMatrix[ri][c] = td;
     } else {
-      for (let ci = 0; ci < TODAY_ORDER_COLS; ci++) {
+      for (let ci = 0; ci < ncols; ci++) {
         const td = document.createElement('td');
         const val = rowObj.cells[ci] != null ? String(rowObj.cells[ci]) : '';
         td.className = _getTodayRowCellClass(rowObj, ci, val);
@@ -960,7 +1318,7 @@ function _renderTodayOrderGrid() {
         td.addEventListener('click', () => selectCell(ri, ci, true));
         td.addEventListener('dblclick', (e) => {
           e.stopPropagation();
-          if (rowObj.type === 'header' && ci >= 2) {
+          if (rowObj.type === 'header' && ci >= dayStartCol && ci < dayStartCol + 6) {
             openTodayOrderMetaModal('date');
             return;
           }
@@ -992,6 +1350,27 @@ function _renderTodayOrderGrid() {
       grp.appendChild(dateBtn);
       grp.appendChild(addBtn);
       actTd.appendChild(grp);
+    } else if (rowObj.type === 'category') {
+      const grp = document.createElement('div');
+      grp.className = 'today-row-act-group';
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'today-row-act-btn add';
+      addBtn.title = 'このカテゴリに品目を追加';
+      addBtn.textContent = '+ 品目';
+      addBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openTodayOrderItemModal(null, '', { defaultCategory: rowObj.cells[0] || '' });
+      });
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'today-row-act-btn del';
+      delBtn.title = 'このカテゴリ行を削除';
+      delBtn.textContent = '🗑';
+      delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteTodayOrderRow(ri); });
+      grp.appendChild(addBtn);
+      grp.appendChild(delBtn);
+      actTd.appendChild(grp);
     } else if (rowObj.type === 'title' || rowObj.type === 'meta' || rowObj.type === 'note') {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -1016,7 +1395,10 @@ function _renderTodayOrderGrid() {
       addBtn.className = 'today-row-act-btn add';
       addBtn.title = '複数品目を追加';
       addBtn.textContent = '＋';
-      addBtn.addEventListener('click', (e) => { e.stopPropagation(); openTodayOrderItemModal(null); });
+      addBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openTodayOrderItemModal(null, '', { defaultCategory: _getRowPrecedingCategory(ri) });
+      });
       const editBtn = document.createElement('button');
       editBtn.type = 'button';
       editBtn.className = 'today-row-act-btn';
@@ -1049,7 +1431,7 @@ function _renderTodayOrderGrid() {
     };
     cellValEl.oninput = () => {
       if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
-        if (selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /[0-9０-９]/.test(cellValEl.value)) {
+        if (!isHaibukiya && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /[0-9０-９]/.test(cellValEl.value)) {
           cellValEl.value = cellValEl.value.replace(/[0-9０-９]/g, '');
           showToast('単位列には数値を入力できません', true);
         }
@@ -1062,7 +1444,7 @@ function _renderTodayOrderGrid() {
       }
     };
     cellValEl.onkeydown = (e) => {
-      if (selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (!isHaibukiya && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         showToast('単位列には数値を入力できません', true);
         return;
@@ -1091,10 +1473,10 @@ function _renderTodayOrderGrid() {
     if (e.key === 'ArrowUp') { e.preventDefault(); selectCell(Math.max(0, selectedRowIdx - 1), selectedColIdx, false); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); selectCell(Math.min(rows.length - 1, selectedRowIdx + 1), selectedColIdx, false); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); selectCell(selectedRowIdx, Math.max(0, selectedColIdx - 1), false); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); selectCell(selectedRowIdx, Math.min(TODAY_ORDER_COLS - 1, selectedColIdx + 1), false); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); selectCell(selectedRowIdx, Math.min(ncols - 1, selectedColIdx + 1), false); }
     else if (e.key === 'Tab') {
       e.preventDefault();
-      selectCell(selectedRowIdx, Math.max(0, Math.min(TODAY_ORDER_COLS - 1, selectedColIdx + (e.shiftKey ? -1 : 1))), false);
+      selectCell(selectedRowIdx, Math.max(0, Math.min(ncols - 1, selectedColIdx + (e.shiftKey ? -1 : 1))), false);
     } else if (e.key === 'Enter' || e.key === 'F2') {
       e.preventDefault();
       startInlineEdit(selectedRowIdx, selectedColIdx);
@@ -1104,7 +1486,7 @@ function _renderTodayOrderGrid() {
       if (cellValEl) cellValEl.value = '';
     } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-      if (selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key)) {
+      if (!isHaibukiya && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key)) {
         showToast('単位列には数値を入力できません', true);
         return;
       }
@@ -1116,18 +1498,67 @@ function _renderTodayOrderGrid() {
 
   if (statusEl) {
     const itemCount = _countTodayOrderItems();
-    statusEl.textContent = `${rows.length} rows × ${TODAY_ORDER_COLS} cols · ${itemCount} 品目 · 発注書`;
+    const fmtLabel = isHaibukiya ? '灰吹屋 発注書' : '千葉自動発注書';
+    statusEl.textContent = `${rows.length} rows × ${ncols} cols · ${itemCount} 品目 · ${fmtLabel}`;
   }
+}
+
+function _insertHaibukiyaItemUnderCategory(categoryName, cells) {
+  const cat = String(categoryName || '').trim();
+  if (cat) {
+    const catIdx = _todayOrderRows.findIndex(r => r.type === 'category' && String(r.cells[0] || '').trim() === cat);
+    if (catIdx >= 0) {
+      let insertAt = catIdx + 1;
+      while (insertAt < _todayOrderRows.length && _todayOrderRows[insertAt].type === 'item') {
+        insertAt++;
+      }
+      _todayOrderRows.splice(insertAt, 0, { type: 'item', cells });
+      return insertAt;
+    }
+  }
+  const spacerIdx = _todayOrderRows.findIndex((r, idx) => idx > 4 && (r.type === 'spacer' || r.type === 'note'));
+  const baseIdx = spacerIdx >= 0 ? spacerIdx : _todayOrderRows.length;
+  if (cat) {
+    _todayOrderRows.splice(baseIdx, 0, { type: 'category', cells: [cat, ...Array(_todayColCount() - 1).fill('')] });
+    _todayOrderRows.splice(baseIdx + 1, 0, { type: 'item', cells });
+    return baseIdx + 1;
+  }
+  _todayOrderRows.splice(baseIdx, 0, { type: 'item', cells });
+  return baseIdx;
 }
 
 async function initTodayOrderView() {
   if (!_todayOrderInitialized) {
-    await loadTodayOrderSheet();
-    _todayOrderSelRow = 0;
-    _todayOrderSelCol = 0;
+    await switchTodayOrderFormat(_todayOrderCurrentFormat);
+
+    document.getElementById('todayOrderFormatSelect')?.addEventListener('change', (e) => {
+      switchTodayOrderFormat(e.target.value);
+    });
+
+    document.querySelectorAll('#todayOrderSheetTabs .xls-sheet-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        if (tab.dataset.format && tab.dataset.format !== _todayOrderCurrentFormat) {
+          switchTodayOrderFormat(tab.dataset.format);
+        }
+      });
+    });
 
     document.getElementById('todayOrderAddItemBtn')?.addEventListener('click', () => {
       openTodayOrderItemModal(null);
+    });
+
+    document.getElementById('todayOrderAddCategoryBtn')?.addEventListener('click', async () => {
+      const catName = (prompt('追加するカテゴリ名を入力してください（例: 葉物類、根菜類、果物類）') || '').trim();
+      if (!catName) return;
+      const spacerIdx = _todayOrderRows.findIndex((r, idx) => idx > 4 && (r.type === 'spacer' || r.type === 'note'));
+      const insertAt = spacerIdx >= 0 ? spacerIdx : _todayOrderRows.length;
+      _todayOrderRows.splice(insertAt, 0, { type: 'category', cells: [catName, ...Array(_todayColCount() - 1).fill('')] });
+      _todayOrderSelRow = insertAt;
+      _todayOrderSelCol = 0;
+      _markTodayOrderDirty(true);
+      _renderTodayOrderGrid();
+      await saveTodayOrderSheet(true);
+      showToast(`カテゴリ「${catName}」を追加しました`);
     });
 
     document.getElementById('todayOrderEditRowBtn')?.addEventListener('click', () => {
@@ -1141,7 +1572,7 @@ async function initTodayOrderView() {
     });
 
     document.getElementById('todayOrderAddRowBtn')?.addEventListener('click', () => {
-      _todayOrderRows.push({ type: 'data', cells: Array(TODAY_ORDER_COLS).fill('') });
+      _todayOrderRows.push({ type: 'data', cells: Array(_todayColCount()).fill('') });
       _todayOrderSelRow = _todayOrderRows.length - 1;
       _todayOrderSelCol = 0;
       _markTodayOrderDirty(true);
@@ -1164,12 +1595,14 @@ async function initTodayOrderView() {
     });
 
     document.getElementById('todayOrderResetBtn')?.addEventListener('click', async () => {
-      if (!confirm('本日の発注書を初期状態にリセットしますか？')) return;
-      try { localStorage.removeItem(TODAY_ORDER_STORAGE_KEY); } catch {}
+      if (!confirm('表示中の発注書を初期状態にリセットしますか？')) return;
+      const fmt = _todayOrderCurrentFormat;
+      const cfg = _todayFmtCfg(fmt);
+      try { localStorage.removeItem(cfg.storageKey); } catch {}
       try {
-        await fetch(`${API_BASE}/api/today-order`, { method: 'DELETE' });
+        await fetch(`${API_BASE}/api/today-order?format=${encodeURIComponent(fmt)}`, { method: 'DELETE' });
       } catch {}
-      _todayOrderRows = _createTodayOrderInitialRows();
+      _todayOrderRows = _createTodayOrderInitialRows(fmt);
       _todayOrderSelRow = 0;
       _todayOrderSelCol = 0;
       _markTodayOrderDirty(false);
@@ -1190,47 +1623,8 @@ async function initTodayOrderView() {
       showToast('対象期間と曜日日付を更新しました');
     });
 
-    document.querySelectorAll('#todayOrderQuickPresets .today-preset-chip[data-preset]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        openTodayOrderItemModal(null, btn.dataset.preset || '');
-      });
-    });
-
-    document.getElementById('todayOrderAddAllPresetsBtn')?.addEventListener('click', () => {
-      openTodayOrderItemModal(null, '', { fillAllPresets: true });
-    });
-
     document.getElementById('todayItemModalBaseDate')?.addEventListener('change', (e) => {
       _updateTodayModalDateHeaders((e.target.value || '').trim());
-    });
-
-    document.querySelectorAll('#todayItemPresetChips .today-preset-chip[data-preset]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        _fillTodayModalPreset(btn.dataset.preset || '');
-      });
-    });
-
-    document.getElementById('todayModalFillAllPresetsBtn')?.addEventListener('click', () => {
-      const tbody = document.getElementById('todayModalItemsBody');
-      if (!tbody) return;
-      Array.from(tbody.children).forEach(tr => {
-        const nameVal = (tr.querySelector('.today-m-name')?.value || '').trim();
-        const unitVal = (tr.querySelector('.today-m-unit')?.value || '').trim();
-        const anyDay = Array.from(tr.querySelectorAll('.today-m-day')).some(inp => inp.value.trim());
-        if (!nameVal && !unitVal && !anyDay) tr.remove();
-      });
-      const existing = new Set(
-        Array.from(tbody.querySelectorAll('.today-m-name')).map(inp => inp.value.trim()).filter(Boolean)
-      );
-      let firstAdded = null;
-      TODAY_PRESET_ITEMS.forEach(pName => {
-        if (!existing.has(pName)) {
-          const tr = _appendTodayModalItemRow({ name: pName, unit: '', days: ['', '', '', '', '', ''] });
-          if (!firstAdded) firstAdded = tr;
-        }
-      });
-      _renumberTodayModalRows();
-      firstAdded?.querySelector('.today-m-unit')?.focus();
     });
 
     document.getElementById('todayModalAddRowBtn')?.addEventListener('click', () => {
@@ -1253,6 +1647,7 @@ async function initTodayOrderView() {
     document.getElementById('todayItemFormSave')?.addEventListener('click', async () => {
       const tbody = document.getElementById('todayModalItemsBody');
       const modalBaseDate = (document.getElementById('todayItemModalBaseDate')?.value || '').trim();
+      const isHaibukiya = _todayOrderCurrentFormat === 'haibukiya';
       const collected = [];
       let validationError = '';
       let errorFocusEl = null;
@@ -1267,49 +1662,89 @@ async function initTodayOrderView() {
         for (let idx = 0; idx < trs.length; idx++) {
           const tr = trs[idx];
           const nameInp = tr.querySelector('.today-m-name');
-          const unitInp = tr.querySelector('.today-m-unit');
-          const dayInps = Array.from(tr.querySelectorAll('.today-m-day'));
-
           const name = (nameInp?.value || '').trim();
-          const unitRaw = (unitInp?.value || '').trim();
-          const daysRaw = dayInps.map(inp => (inp.value || '').trim());
-          const hasAny = Boolean(name || unitRaw || daysRaw.some(Boolean));
-          if (!hasAny) continue;
 
-          if (!name) {
-            nameInp?.classList.add('today-input-error');
-            validationError = `${idx + 1} 行目: 品目名を入力してください`;
-            errorFocusEl = nameInp;
-            break;
-          }
+          if (isHaibukiya) {
+            const cat = (tr.querySelector('.today-m-cat')?.value || '').trim();
+            const origin = (tr.querySelector('.today-m-origin')?.value || '').trim();
+            const spec = (tr.querySelector('.today-m-spec')?.value || '').trim();
+            const priceP = (tr.querySelector('.today-m-pricep')?.value || '').trim();
+            const priceCs = (tr.querySelector('.today-m-pricecs')?.value || '').trim();
+            const jan = (tr.querySelector('.today-m-jan')?.value || '').trim();
+            const note = (tr.querySelector('.today-m-note')?.value || '').trim();
+            const allDayInputs = Array.from(tr.querySelectorAll('.today-m-day'));
+            const dayInps = allDayInputs.slice(2, 8);
+            const daysRaw = dayInps.map(inp => (inp.value || '').trim());
+            const hasAny = Boolean(cat || name || origin || spec || priceP || priceCs || jan || note || daysRaw.some(Boolean));
+            if (!hasAny) continue;
 
-          const unitCheck = _validateTodayUnit(unitRaw);
-          if (!unitCheck.valid) {
-            unitInp?.classList.add('today-input-error');
-            unitInp?.classList.remove('today-input-valid');
-            validationError = `${idx + 1} 行目（${name}）: ${unitCheck.error}`;
-            errorFocusEl = unitInp;
-            break;
-          }
-          if (unitInp) {
-            unitInp.value = unitCheck.normalized;
-            unitInp.classList.add('today-input-valid');
-          }
-
-          const normalizedDays = [];
-          for (let d = 0; d < 6; d++) {
-            const rawD = (daysRaw[d] || '').normalize('NFKC').trim();
-            if (rawD && !/^\d+(\.\d+)?$/.test(rawD)) {
-              dayInps[d]?.classList.add('today-input-error');
-              validationError = `${idx + 1} 行目（${name}）: 数量は0以上の数値で入力してください`;
-              errorFocusEl = dayInps[d];
+            if (!name) {
+              nameInp?.classList.add('today-input-error');
+              validationError = `${idx + 1} 行目: 品目名を入力してください`;
+              errorFocusEl = nameInp;
               break;
             }
-            normalizedDays.push(rawD);
-          }
-          if (validationError) break;
 
-          collected.push([name, unitCheck.normalized, ...normalizedDays]);
+            const normalizedDays = [];
+            for (let d = 0; d < 6; d++) {
+              const rawD = (daysRaw[d] || '').normalize('NFKC').trim();
+              if (rawD && !/^\d+(?:\.\d+)?(?:\s*(?:→|->)+\s*\d+(?:\.\d+)?)?$/.test(rawD)) {
+                dayInps[d]?.classList.add('today-input-error');
+                validationError = `${idx + 1} 行目（${name}）: 数量は数値または「6→1」形式で入力してください`;
+                errorFocusEl = dayInps[d];
+                break;
+              }
+              normalizedDays.push(rawD.replace(/\s*->+\s*/g, '→').replace(/\s*→\s*/g, '→'));
+            }
+            if (validationError) break;
+
+            collected.push({
+              category: cat,
+              cells: [name, origin, spec, priceP, priceCs, jan, ...normalizedDays, note],
+            });
+          } else {
+            const unitInp = tr.querySelector('.today-m-unit');
+            const dayInps = Array.from(tr.querySelectorAll('.today-m-day'));
+            const unitRaw = (unitInp?.value || '').trim();
+            const daysRaw = dayInps.map(inp => (inp.value || '').trim());
+            const hasAny = Boolean(name || unitRaw || daysRaw.some(Boolean));
+            if (!hasAny) continue;
+
+            if (!name) {
+              nameInp?.classList.add('today-input-error');
+              validationError = `${idx + 1} 行目: 品目名を入力してください`;
+              errorFocusEl = nameInp;
+              break;
+            }
+
+            const unitCheck = _validateTodayUnit(unitRaw);
+            if (!unitCheck.valid) {
+              unitInp?.classList.add('today-input-error');
+              unitInp?.classList.remove('today-input-valid');
+              validationError = `${idx + 1} 行目（${name}）: ${unitCheck.error}`;
+              errorFocusEl = unitInp;
+              break;
+            }
+            if (unitInp) {
+              unitInp.value = unitCheck.normalized;
+              unitInp.classList.add('today-input-valid');
+            }
+
+            const normalizedDays = [];
+            for (let d = 0; d < 6; d++) {
+              const rawD = (daysRaw[d] || '').normalize('NFKC').trim();
+              if (rawD && !/^\d+(\.\d+)?$/.test(rawD)) {
+                dayInps[d]?.classList.add('today-input-error');
+                validationError = `${idx + 1} 行目（${name}）: 数量は0以上の数値で入力してください`;
+                errorFocusEl = dayInps[d];
+                break;
+              }
+              normalizedDays.push(rawD);
+            }
+            if (validationError) break;
+
+            collected.push({ category: '', cells: [name, unitCheck.normalized, ...normalizedDays] });
+          }
         }
       }
 
@@ -1321,7 +1756,7 @@ async function initTodayOrderView() {
       }
 
       if (!collected.length) {
-        const msg = '品目名と単位を1件以上入力してください';
+        const msg = isHaibukiya ? '品目名を1件以上入力してください' : '品目名と単位を1件以上入力してください';
         _setTodayModalValMsg(msg);
         showToast(msg, true);
         tbody?.querySelector('.today-m-name')?.focus();
@@ -1334,14 +1769,22 @@ async function initTodayOrderView() {
 
       if (_todayOrderEditRowIdx !== null && _todayOrderRows[_todayOrderEditRowIdx] && _todayOrderRows[_todayOrderEditRowIdx].type !== 'merged') {
         _todayOrderRows[_todayOrderEditRowIdx].type = 'item';
-        _todayOrderRows[_todayOrderEditRowIdx].cells = collected[0];
+        _todayOrderRows[_todayOrderEditRowIdx].cells = collected[0].cells;
         if (collected.length > 1) {
-          const extraItems = collected.slice(1).map(cells => ({ type: 'item', cells }));
+          const extraItems = collected.slice(1).map(item => ({ type: 'item', cells: item.cells }));
           _todayOrderRows.splice(_todayOrderEditRowIdx + 1, 0, ...extraItems);
         }
         _todayOrderSelRow = _todayOrderEditRowIdx;
         _todayOrderSelCol = 0;
-        showToast(collected.length === 1 ? `品目「${collected[0][0]}」を更新しました` : `${collected.length} 件の品目を更新・追加しました`);
+        showToast(collected.length === 1 ? `品目「${collected[0].cells[0]}」を更新しました` : `${collected.length} 件の品目を更新・追加しました`);
+      } else if (isHaibukiya) {
+        let lastInserted = 0;
+        collected.forEach(item => {
+          lastInserted = _insertHaibukiyaItemUnderCategory(item.category, item.cells);
+        });
+        _todayOrderSelRow = lastInserted;
+        _todayOrderSelCol = 0;
+        showToast(collected.length === 1 ? `品目「${collected[0].cells[0]}」を追加しました` : `${collected.length} 件の品目を追加しました`);
       } else {
         _todayOrderRows = _todayOrderRows.filter(r => r.type !== 'merged');
         let insertIdx = -1;
@@ -1352,11 +1795,11 @@ async function initTodayOrderView() {
           insertIdx = _todayOrderRows.findIndex(r => r.type === 'header');
         }
         const targetIdx = insertIdx >= 0 ? insertIdx + 1 : Math.min(5, _todayOrderRows.length);
-        const newRows = collected.map(cells => ({ type: 'item', cells }));
+        const newRows = collected.map(item => ({ type: 'item', cells: item.cells }));
         _todayOrderRows.splice(targetIdx, 0, ...newRows);
         _todayOrderSelRow = targetIdx;
         _todayOrderSelCol = 0;
-        showToast(collected.length === 1 ? `品目「${collected[0][0]}」を追加しました` : `${collected.length} 件の品目を追加しました`);
+        showToast(collected.length === 1 ? `品目「${collected[0].cells[0]}」を追加しました` : `${collected.length} 件の品目を追加しました`);
       }
 
       closeTodayOrderItemModal();
@@ -1369,13 +1812,15 @@ async function initTodayOrderView() {
     metaBaseDate?.addEventListener('change', () => {
       const val = (metaBaseDate.value || '').trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return;
-      const [y, m, d] = val.split('-').map(Number);
-      const startDt = new Date(y, m - 1, d);
-      const endDt = new Date(y, m - 1, d + 5);
       const periodInp = document.getElementById('todayMetaPeriod');
       if (periodInp) {
-        const wdays = ['日', '月', '火', '水', '木', '金', '土'];
-        periodInp.value = `対象期間：${startDt.getFullYear()}年${startDt.getMonth() + 1}月${startDt.getDate()}日（${wdays[startDt.getDay()]}）〜${endDt.getMonth() + 1}月${endDt.getDate()}日（${wdays[endDt.getDay()]}）`;
+        if (_todayOrderCurrentFormat === 'haibukiya') {
+          const parts = periodInp.value.split('／');
+          const prefix = _formatTodayPeriodString(val);
+          periodInp.value = parts.length > 1 ? `${prefix}　／${parts.slice(1).join('／')}` : prefix;
+        } else {
+          periodInp.value = _formatTodayPeriodString(val);
+        }
       }
     });
 
@@ -1403,12 +1848,13 @@ async function initTodayOrderView() {
 
       if (/^\d{4}-\d{2}-\d{2}$/.test(baseVal)) {
         const hdr = _todayOrderRows.find(r => r.type === 'header');
+        const startCol = _todayDayStartCol();
         if (hdr) {
           const [y, m, d] = baseVal.split('-').map(Number);
           const wdays = ['日', '月', '火', '水', '木', '金', '土'];
           for (let offset = 0; offset < 6; offset++) {
             const dt = new Date(y, m - 1, d + offset);
-            hdr.cells[2 + offset] = `${dt.getMonth() + 1}/${dt.getDate()}\n${wdays[dt.getDay()]}`;
+            hdr.cells[startCol + offset] = `${dt.getMonth() + 1}/${dt.getDate()}\n${wdays[dt.getDay()]}`;
           }
         }
         const mergedRow = _todayOrderRows.find(r => r.type === 'merged');
@@ -1426,6 +1872,7 @@ async function initTodayOrderView() {
     });
 
     document.getElementById('todayOrderCsvBtn')?.addEventListener('click', () => {
+      const cfg = _todayFmtCfg();
       let lastNonEmpty = -1;
       _todayOrderRows.forEach((r, idx) => {
         if (r.cells.some(v => String(v || '').trim())) lastNonEmpty = idx;
@@ -1435,7 +1882,7 @@ async function initTodayOrderView() {
       const csv = exportRows.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(',')).join('\r\n');
       const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
-      const a = Object.assign(document.createElement('a'), { href: url, download: '千葉自動発注書_発注書.csv' });
+      const a = Object.assign(document.createElement('a'), { href: url, download: cfg.csvName });
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1444,12 +1891,13 @@ async function initTodayOrderView() {
     });
 
     document.getElementById('todayOrderXlsxBtn')?.addEventListener('click', async () => {
+      const cfg = _todayFmtCfg();
       if (_todayOrderDirty) {
         await saveTodayOrderSheet(true);
       }
       const a = Object.assign(document.createElement('a'), {
-        href: `${API_BASE}/static/chiba_auto_order.xlsx?t=${Date.now()}`,
-        download: '千葉自動発注書（発注分のみ）.xlsx',
+        href: `${API_BASE}/static/${cfg.xlsxFile}?t=${Date.now()}`,
+        download: cfg.downloadName,
       });
       document.body.appendChild(a);
       a.click();

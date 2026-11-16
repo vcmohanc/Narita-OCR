@@ -6,7 +6,7 @@
   <title>OCR System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=24" />
+  <link rel="stylesheet" href="/static/style.css?v=25" />
 </head>
 <body>
 
@@ -323,10 +323,14 @@
             </svg>
             本日の発注書
           </div>
-          <span class="order-row-count" id="todayOrderTitleBadge">千葉自動発注書（発注分のみ）</span>
+          <select class="filter-select today-format-select" id="todayOrderFormatSelect" aria-label="発注書フォーマット選択" title="表示する発注書フォーマットを選択">
+            <option value="chiba">千葉自動発注書（葛西産直ファーム）</option>
+            <option value="haibukiya">発注書 株式会社灰吹屋 御中（ベジコープ）</option>
+          </select>
           <span class="order-row-count today-item-count" id="todayOrderItemCount">0 品目</span>
           <div class="order-toolbar-actions">
             <button class="btn-sm btn-add-client" id="todayOrderAddItemBtn" type="button" title="新しい発注品目を追加">+ 品目を追加</button>
+            <button class="btn-sm hidden" id="todayOrderAddCategoryBtn" type="button" title="新しいカテゴリ見出し行を追加">+ カテゴリ追加</button>
             <button class="btn-sm" id="todayOrderEditRowBtn" type="button" title="選択中の行を編集">✎ 編集</button>
             <button class="btn-sm" id="todayOrderAddRowBtn" type="button" title="末尾に新しい行を追加">+ 行追加</button>
             <button class="btn-sm btn-del-rc" id="todayOrderDelRowBtn" type="button" title="選択中の行を削除">🗑 行削除</button>
@@ -375,8 +379,9 @@
 
         <!-- Bottom Sheet tab bar -->
         <div class="xls-sheetbar">
-          <div class="xls-sheet-tabs">
-            <div class="xls-sheet-tab active" data-sheet="発注書">発注書</div>
+          <div class="xls-sheet-tabs" id="todayOrderSheetTabs">
+            <div class="xls-sheet-tab active" data-format="chiba">千葉自動発注書</div>
+            <div class="xls-sheet-tab" data-format="haibukiya">灰吹屋 発注書</div>
           </div>
           <div class="xls-sheetbar-status" id="todayOrderStatusBar">15 rows × 8 cols · 発注書</div>
         </div>
@@ -721,7 +726,7 @@
             <option value="杯"></option>
           </datalist>
           <table class="today-modal-items-table" id="todayModalItemsTable">
-            <thead>
+            <thead id="todayModalItemsHead">
               <tr>
                 <th style="width:32px">#</th>
                 <th style="min-width:170px">品目名 <span class="required">*</span></th>
@@ -740,7 +745,7 @@
         </div>
         <div class="today-modal-table-actions">
           <button class="btn-sm" id="todayModalAddRowBtn" type="button">+ 品目行を追加</button>
-          <span class="today-modal-hint">※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。</span>
+          <span class="today-modal-hint" id="todayModalHint">※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。</span>
         </div>
         <div class="today-modal-val-msg hidden" id="todayModalValidationMsg" role="alert"></div>
       </div>
@@ -791,6 +796,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=40"></script>
+  <script src="/static/app.js?v=42"></script>
 </body>
 </html>

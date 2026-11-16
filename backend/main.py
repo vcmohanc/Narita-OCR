@@ -412,11 +412,23 @@ class TodayOrderPayload(BaseModel):
 
 TODAY_ORDER_JSON = RESULT_DIR / "today_order_sheet.json"
 TODAY_ORDER_XLSX = FRONTEND_DIR / "static" / "chiba_auto_order.xlsx"
+TODAY_HAIBUKIYA_JSON = RESULT_DIR / "today_order_haibukiya.json"
+TODAY_HAIBUKIYA_XLSX = FRONTEND_DIR / "static" / "haibukiya_order.xlsx"
 _TODAY_ORDER_COLS = 8
+_TODAY_HAIBUKIYA_COLS = 13
 _TODAY_VALID_UNITS = (
     "cs", "p", "kg", "g", "束", "袋", "箱", "本", "個",
     "玉", "パック", "ケース", "枚", "セット", "ネット", "把", "丁", "尾", "杯",
 )
+
+
+def _get_today_format_cfg(fmt: str) -> tuple[str, int, Path, Path]:
+    key = (fmt or "chiba").strip().lower()
+    if key == "haibukiya":
+        return "haibukiya", _TODAY_HAIBUKIYA_COLS, TODAY_HAIBUKIYA_JSON, TODAY_HAIBUKIYA_XLSX
+    if key == "chiba":
+        return "chiba", _TODAY_ORDER_COLS, TODAY_ORDER_JSON, TODAY_ORDER_XLSX
+    raise HTTPException(status_code=400, detail=f"Unsupported today-order format '{fmt}'")
 
 
 def _validate_today_unit(raw_unit: str) -> tuple[bool, str, str]:
@@ -433,7 +445,38 @@ def _validate_today_unit(raw_unit: str) -> tuple[bool, str, str]:
     return True, val, ""
 
 
-def _default_today_order_rows() -> list[dict]:
+def _default_today_order_rows(fmt: str = "chiba") -> list[dict]:
+    if fmt == "haibukiya":
+        rows = [
+            {"type": "title",    "cells": ["発注書　株式会社灰吹屋 御中（発注分のみ）"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "meta",     "cells": ["販売部 部長 石川様　／　宮前平店 店長 佐藤様　／　発注先：㈱ベジコープ（FAX 03-6808-0900）"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "meta",     "cells": ["見積期間：2026年10月19日（月）〜10月24日（土）販売分　／　価格は店着価格（税別）　／　作成：2026年10月19日 佐藤・栗山"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "spacer",   "cells": [""] * _TODAY_HAIBUKIYA_COLS},
+            {"type": "header",   "cells": ["品目", "産地", "規格・入数", "単価/p", "単価/cs", "JANコード", "10/19\n月", "10/20\n火", "10/21\n水", "10/22\n木", "10/23\n金", "10/24\n土", "備考・産地状況"]},
+            {"type": "category", "cells": ["葉物類"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "item",     "cells": ["水菜", "千葉", "150g/5p", "165", "825", "4514811010524", "1", "", "", "6→1", "", "", "生育不良により欠品の可能性あり"]},
+            {"type": "item",     "cells": ["ベビーリーフ", "千葉", "40g/5p", "165", "825", "4514811010470", "1", "", "", "1→6", "", "", "生育不良により欠品の可能性あり"]},
+            {"type": "category", "cells": ["葉菜類"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "item",     "cells": ["サニーレタス", "群馬・長野", "L/5玉", "190", "950", "4514811010036", "5", "", "", "5", "", "", ""]},
+            {"type": "category", "cells": ["根菜類"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "item",     "cells": ["人参", "青森・北海道・山梨", "400g/5p", "225", "1,125", "4514811010111", "1", "", "", "", "", "", ""]},
+            {"type": "item",     "cells": ["じゃが芋", "青森・岩手・北海道", "約500g/5p", "275", "1,375", "4514811010128", "", "", "", "1", "", "", ""]},
+            {"type": "item",     "cells": ["玉ねぎ", "北海道", "500g/5p", "280", "1,400", "4514811050339", "", "", "", "1", "", "", ""]},
+            {"type": "item",     "cells": ["生姜", "熊本・千葉", "50g/5p", "145", "725", "4514811013730", "1", "", "", "", "", "", ""]},
+            {"type": "item",     "cells": ["にんにく", "長野", "1〜2コ/5p", "198", "990", "4514811011187", "1", "", "", "", "", "", "群馬県産終了"]},
+            {"type": "category", "cells": ["果物類"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "item",     "cells": ["レモン", "香川", "2コ/5p", "245", "1,225", "4514811010678", "1", "", "", "", "", "", ""]},
+            {"type": "category", "cells": ["イタリア・レストラン野菜"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "item",     "cells": ["カリーノケール", "群馬・長野", "100g/5p", "155", "775", "4514811014966", "3", "", "", "3", "", "", "生育不良により欠品の可能性あり"]},
+            {"type": "spacer",   "cells": [""] * _TODAY_HAIBUKIYA_COLS},
+            {"type": "note",     "cells": ["※ 「6→1」は原本の「変更」欄による修正（元の数量→変更後）。"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "note",     "cells": ["※ 10/21（水）は納品なし（グレー）。店舗直納のため、1回あたりの発注合計は8,000円以上でお願いします。"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "note",     "cells": ["※ 発注数の入っている品目のみ表示（発注なし・休止の品目は省略）。"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+        ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _TODAY_HAIBUKIYA_COLS})
+        return rows
+
     rows = [
         {"type": "title",  "cells": ["千葉自動発注書（発注分のみ）", "", "", "", "", "", "", ""]},
         {"type": "meta",   "cells": ["宛先：千葉成田センター\u3000／\u3000発注先：葛西産直ファーム", "", "", "", "", "", "", ""]},
@@ -441,33 +484,37 @@ def _default_today_order_rows() -> list[dict]:
         {"type": "spacer", "cells": [""] * _TODAY_ORDER_COLS},
         {"type": "header", "cells": ["品目", "単位", "10/26\n月", "10/27\n火", "10/28\n水", "10/29\n木", "10/30\n金", "10/31\n土"]},
         {"type": "merged", "cells": ["今週（10/26〜10/31）の発注はありません（全品目 休止）", "", "", "", "", "", "", ""]},
+        {"type": "spacer", "cells": [""] * _TODAY_ORDER_COLS},
+        {"type": "note",   "cells": ["※ 発注数の入っている品目のみ表示する設定ですが、今週は該当する品目がありません。", "", "", "", "", "", "", ""]},
+        {"type": "note",   "cells": ["※ 原本では大根・赤からし水菜・小江戸菜・スイスチャード・ほうれん草・キャベツが休止、ホテル風か様用は数量未記入。", "", "", "", "", "", "", ""]},
     ]
     for _ in range(6):
         rows.append({"type": "data", "cells": [""] * _TODAY_ORDER_COLS})
     return rows
 
 
-def _normalize_today_order_rows(raw_rows: list) -> list[dict]:
-    allowed_types = {"title", "meta", "spacer", "header", "item", "merged", "data"}
+def _normalize_today_order_rows(raw_rows: list, ncols: int = _TODAY_ORDER_COLS) -> list[dict]:
+    allowed_types = {"title", "meta", "spacer", "header", "category", "item", "merged", "note", "data"}
     clean = []
     for r in raw_rows:
         rtype = (r.get("type") if isinstance(r, dict) else getattr(r, "type", "data")) or "data"
-        if rtype == "note":
-            continue
         if rtype not in allowed_types:
             rtype = "data"
         raw_cells = r.get("cells") if isinstance(r, dict) else getattr(r, "cells", [])
-        cells = [str(c) if c is not None else "" for c in (raw_cells or [])[:_TODAY_ORDER_COLS]]
-        while len(cells) < _TODAY_ORDER_COLS:
+        cells = [str(c) if c is not None else "" for c in (raw_cells or [])[:ncols]]
+        while len(cells) < ncols:
             cells.append("")
         clean.append({"type": rtype, "cells": cells})
     return clean
 
 
-def _write_today_order_xlsx(rows: list[dict]) -> None:
+def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Optional[Path] = None) -> None:
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.worksheet.datavalidation import DataValidation
+
+    _, ncols, _, default_xlsx = _get_today_format_cfg(fmt)
+    target_path = xlsx_path or default_xlsx
 
     last_non_empty = -1
     for idx, r in enumerate(rows):
@@ -479,16 +526,27 @@ def _write_today_order_xlsx(rows: list[dict]) -> None:
     ws = wb.active
     ws.title = "発注書"
 
-    ws.column_dimensions["A"].width = 48.0
-    for col_letter in ("B", "C", "D", "E", "F", "G", "H"):
-        ws.column_dimensions[col_letter].width = 10.0
+    if fmt == "haibukiya":
+        col_widths = {
+            "A": 20.0, "B": 18.0, "C": 14.0, "D": 10.0, "E": 10.0, "F": 16.0,
+            "G": 9.0, "H": 9.0, "I": 9.0, "J": 9.0, "K": 9.0, "L": 9.0, "M": 32.0,
+        }
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
+    else:
+        ws.column_dimensions["A"].width = 48.0
+        for col_letter in ("B", "C", "D", "E", "F", "G", "H"):
+            ws.column_dimensions[col_letter].width = 10.0
 
     font_title = Font(name="Arial", size=18, bold=True, color="1F3864")
     font_meta = Font(name="Arial", size=11, bold=False, color="333333")
     font_hdr = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+    font_cat = Font(name="Arial", size=11, bold=True, color="1F3864")
     font_body = Font(name="Arial", size=11, bold=False, color="000000")
     font_note = Font(name="Arial", size=10, bold=False, color="333333")
     fill_hdr = PatternFill(fill_type="solid", start_color="1F3864", end_color="1F3864")
+    fill_cat = PatternFill(fill_type="solid", start_color="D9E1F2", end_color="D9E1F2")
+    fill_wed_off = PatternFill(fill_type="solid", start_color="E2E5EA", end_color="E2E5EA")
     thin_side = Side(style="thin", color="333333")
     grid_side = Side(style="thin", color="D0D0D0")
 
@@ -500,11 +558,14 @@ def _write_today_order_xlsx(rows: list[dict]) -> None:
             ws.row_dimensions[r_idx].height = 36.0
         elif rtype == "merged":
             ws.row_dimensions[r_idx].height = 28.0
+        elif rtype == "category":
+            ws.row_dimensions[r_idx].height = 22.0
 
-        for c_idx in range(1, _TODAY_ORDER_COLS + 1):
+        for c_idx in range(1, ncols + 1):
             raw_val = cells[c_idx - 1] if c_idx - 1 < len(cells) else ""
             val = raw_val
-            if rtype in ("item", "data") and c_idx >= 3 and raw_val.strip():
+            is_num_col = (c_idx >= 3) if fmt == "chiba" else (c_idx in (4, 5, 7, 8, 9, 10, 11, 12))
+            if rtype in ("item", "data") and is_num_col and raw_val.strip():
                 try:
                     num = float(raw_val.replace(",", "").strip())
                     val = int(num) if num.is_integer() else num
@@ -519,8 +580,16 @@ def _write_today_order_xlsx(rows: list[dict]) -> None:
             elif rtype == "header":
                 cell.font = font_hdr
                 cell.fill = fill_hdr
-                horiz = "left" if c_idx == 1 else ("right" if c_idx == 2 else "center")
+                if fmt == "haibukiya":
+                    horiz = "left" if c_idx in (1, 2, 3, 13) else ("right" if c_idx in (4, 5) else "center")
+                else:
+                    horiz = "left" if c_idx == 1 else ("right" if c_idx == 2 else "center")
                 cell.alignment = Alignment(horizontal=horiz, vertical="center", wrap_text=True)
+            elif rtype == "category":
+                cell.font = font_cat
+                cell.fill = fill_cat
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+                cell.border = Border(top=grid_side, bottom=grid_side, left=grid_side, right=grid_side)
             elif rtype == "merged":
                 cell.font = font_body
                 cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -529,86 +598,104 @@ def _write_today_order_xlsx(rows: list[dict]) -> None:
                 cell.font = font_note
             elif rtype in ("item", "data"):
                 cell.font = font_body
-                if c_idx == 2:
-                    cell.alignment = Alignment(horizontal="right", vertical="center")
-                elif c_idx >= 3:
-                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                if fmt == "haibukiya":
+                    if c_idx == 9:
+                        cell.fill = fill_wed_off
+                    if c_idx in (4, 5, 7, 8, 9, 10, 11, 12):
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    elif c_idx == 6:
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                else:
+                    if c_idx == 2 or c_idx >= 3:
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
                 cell.border = Border(top=grid_side, bottom=grid_side, left=grid_side, right=grid_side)
 
-        if rtype == "merged":
-            ws.merge_cells(start_row=r_idx, start_column=1, end_row=r_idx, end_column=_TODAY_ORDER_COLS)
+        if rtype in ("merged", "category"):
+            ws.merge_cells(start_row=r_idx, start_column=1, end_row=r_idx, end_column=ncols)
 
-    dv_units = DataValidation(
-        type="list",
-        formula1='"' + ",".join(_TODAY_VALID_UNITS) + '"',
-        allow_blank=False,
-    )
-    dv_units.errorTitle = "無効な単位"
-    dv_units.error = "有効な単位を選択してください（cs, p, kg, 束, 袋, 箱, 本, 個 など）"
-    ws.add_data_validation(dv_units)
-    dv_units.add(f"B6:B{max(50, len(export_rows) + 10)}")
+    if fmt == "chiba":
+        dv_units = DataValidation(
+            type="list",
+            formula1='"' + ",".join(_TODAY_VALID_UNITS) + '"',
+            allow_blank=False,
+        )
+        dv_units.errorTitle = "無効な単位"
+        dv_units.error = "有効な単位を選択してください（cs, p, kg, 束, 袋, 箱, 本, 個 など）"
+        ws.add_data_validation(dv_units)
+        dv_units.add(f"B6:B{max(50, len(export_rows) + 10)}")
 
-    TODAY_ORDER_XLSX.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(str(TODAY_ORDER_XLSX))
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(str(target_path))
 
 
 @app.get("/api/today-order", dependencies=[Depends(_require_api_key)])
-async def get_today_order():
-    """Return the persisted Today Order spreadsheet rows (or defaults if none saved yet)."""
-    if TODAY_ORDER_JSON.exists():
+async def get_today_order(format: str = Query(default="chiba")):
+    """Return the persisted Today Order spreadsheet rows for the selected format."""
+    fmt, ncols, json_path, xlsx_path = _get_today_format_cfg(format)
+    if json_path.exists():
         try:
-            data = json.loads(TODAY_ORDER_JSON.read_text(encoding="utf-8"))
-            rows = _normalize_today_order_rows(data.get("rows") or [])
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            rows = _normalize_today_order_rows(data.get("rows") or [], ncols=ncols)
             if rows:
-                return {"rows": rows, "updated_at": data.get("updated_at"), "is_default": False}
+                return {"format": fmt, "rows": rows, "updated_at": data.get("updated_at"), "is_default": False}
         except Exception as exc:
-            logger.warning("Failed to read today_order_sheet.json: %s", exc)
-    return {"rows": _default_today_order_rows(), "updated_at": None, "is_default": True}
+            logger.warning("Failed to read %s: %s", json_path.name, exc)
+    default_rows = _default_today_order_rows(fmt)
+    if not xlsx_path.exists():
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, _write_today_order_xlsx, default_rows, fmt, xlsx_path)
+        except Exception as exc:
+            logger.warning("Failed to generate default %s: %s", xlsx_path.name, exc)
+    return {"format": fmt, "rows": default_rows, "updated_at": None, "is_default": True}
 
 
 @app.put("/api/today-order", dependencies=[Depends(_require_api_key)])
-async def save_today_order(request: Request, payload: TodayOrderPayload):
-    """Save Today Order spreadsheet rows to disk and regenerate chiba_auto_order.xlsx."""
+async def save_today_order(request: Request, payload: TodayOrderPayload, format: str = Query(default="chiba")):
+    """Save Today Order spreadsheet rows to disk and regenerate the format's .xlsx."""
     _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
-    clean_rows = _normalize_today_order_rows(payload.rows)
-    for idx, row in enumerate(clean_rows, start=1):
-        rtype = row.get("type", "data")
-        cells = row.get("cells", [])
-        name = (cells[0] if len(cells) > 0 else "").strip()
-        if (rtype == "item" or (rtype == "data" and name)) and name:
-            ok, norm_unit, err_msg = _validate_today_unit(cells[1] if len(cells) > 1 else "")
-            if not ok:
-                raise HTTPException(status_code=400, detail=f"Row {idx} ({name}): {err_msg}")
-            cells[1] = norm_unit
+    fmt, ncols, json_path, xlsx_path = _get_today_format_cfg(format)
+    clean_rows = _normalize_today_order_rows(payload.rows, ncols=ncols)
+    if fmt == "chiba":
+        for idx, row in enumerate(clean_rows, start=1):
+            rtype = row.get("type", "data")
+            cells = row.get("cells", [])
+            name = (cells[0] if len(cells) > 0 else "").strip()
+            if (rtype == "item" or (rtype == "data" and name)) and name:
+                ok, norm_unit, err_msg = _validate_today_unit(cells[1] if len(cells) > 1 else "")
+                if not ok:
+                    raise HTTPException(status_code=400, detail=f"Row {idx} ({name}): {err_msg}")
+                cells[1] = norm_unit
     updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
-    TODAY_ORDER_JSON.parent.mkdir(parents=True, exist_ok=True)
-    TODAY_ORDER_JSON.write_text(
-        json.dumps({"rows": clean_rows, "updated_at": updated_at}, ensure_ascii=False, indent=2),
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(
+        json.dumps({"format": fmt, "rows": clean_rows, "updated_at": updated_at}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     try:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _write_today_order_xlsx, clean_rows)
+        await loop.run_in_executor(None, _write_today_order_xlsx, clean_rows, fmt, xlsx_path)
     except Exception as exc:
-        logger.warning("Failed to regenerate chiba_auto_order.xlsx: %s", exc)
-    _audit(request, "today_order_save", f"rows={len(clean_rows)}")
-    return {"saved": True, "row_count": len(clean_rows), "updated_at": updated_at}
+        logger.warning("Failed to regenerate %s: %s", xlsx_path.name, exc)
+    _audit(request, "today_order_save", f"format={fmt} rows={len(clean_rows)}")
+    return {"format": fmt, "saved": True, "row_count": len(clean_rows), "updated_at": updated_at}
 
 
 @app.delete("/api/today-order", dependencies=[Depends(_require_api_key)])
-async def reset_today_order(request: Request):
-    """Delete saved Today Order overrides and restore default workbook."""
+async def reset_today_order(request: Request, format: str = Query(default="chiba")):
+    """Delete saved Today Order overrides and restore default workbook for the selected format."""
     _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
-    if TODAY_ORDER_JSON.exists():
-        TODAY_ORDER_JSON.unlink()
-    default_rows = _default_today_order_rows()
+    fmt, _, json_path, xlsx_path = _get_today_format_cfg(format)
+    if json_path.exists():
+        json_path.unlink()
+    default_rows = _default_today_order_rows(fmt)
     try:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _write_today_order_xlsx, default_rows)
+        await loop.run_in_executor(None, _write_today_order_xlsx, default_rows, fmt, xlsx_path)
     except Exception as exc:
-        logger.warning("Failed to reset chiba_auto_order.xlsx: %s", exc)
-    _audit(request, "today_order_reset", "")
-    return {"reset": True, "rows": default_rows}
+        logger.warning("Failed to reset %s: %s", xlsx_path.name, exc)
+    _audit(request, "today_order_reset", f"format={fmt}")
+    return {"format": fmt, "reset": True, "rows": default_rows}
 
 
 @app.post("/api/ocr/save/{job_id}", dependencies=[Depends(_require_api_key)])

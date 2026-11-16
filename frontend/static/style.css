@@ -1772,6 +1772,17 @@ td{color:var(--muted)}
   border-color:#bfdbfe;
   font-weight:600;
 }
+.today-format-select{
+  flex:0 0 auto;
+  padding:4px 10px;
+  font-size:12.5px;
+  font-weight:600;
+  color:#1F3864;
+  background:#eff6ff;
+  border:1px solid #bfdbfe;
+  border-radius:6px;
+  max-width:290px;
+}
 #todayOrderItemCount{
   flex:0 0 auto;
   margin-right:auto;
@@ -1946,6 +1957,51 @@ td{color:var(--muted)}
 .today-xls-table .today-xls-item-unit{
   text-align:right;
   color:#334155;
+}
+.today-xls-table .today-xls-category{
+  background:#d9e1f2 !important;
+  color:#1F3864 !important;
+  font-weight:700;
+  font-size:13.5px;
+  height:28px;
+  padding:4px 10px;
+  vertical-align:middle;
+}
+.today-xls-table .today-xls-wed-off{
+  background:#e2e5ea !important;
+  color:#64748b;
+}
+.today-xls-table .today-xls-center{
+  text-align:center;
+}
+.today-xls-table .today-xls-jan{
+  text-align:center;
+  font-variant-numeric:tabular-nums;
+  font-size:12px;
+  color:#334155;
+}
+.today-xls-table.format-haibukiya{
+  min-width:1420px;
+}
+.today-xls-table.format-haibukiya col.today-col-h-0,
+.today-xls-table.format-haibukiya .today-th-h-0{width:170px;min-width:150px;}
+.today-xls-table.format-haibukiya col.today-col-h-1,
+.today-xls-table.format-haibukiya .today-th-h-1{width:128px;min-width:110px;}
+.today-xls-table.format-haibukiya col.today-col-h-2,
+.today-xls-table.format-haibukiya .today-th-h-2{width:96px;min-width:86px;}
+.today-xls-table.format-haibukiya col.today-col-h-3,
+.today-xls-table.format-haibukiya .today-th-h-3{width:72px;min-width:68px;}
+.today-xls-table.format-haibukiya col.today-col-h-4,
+.today-xls-table.format-haibukiya .today-th-h-4{width:76px;min-width:72px;}
+.today-xls-table.format-haibukiya col.today-col-h-5,
+.today-xls-table.format-haibukiya .today-th-h-5{width:120px;min-width:112px;}
+.today-xls-table.format-haibukiya col.today-col-h-day,
+.today-xls-table.format-haibukiya .today-th-h-day{width:64px;min-width:60px;}
+.today-xls-table.format-haibukiya col.today-col-h-12,
+.today-xls-table.format-haibukiya .today-th-h-12{width:225px;min-width:180px;}
+.today-modal-box-haibukiya{
+  width:1180px;
+  max-width:97vw;
 }
 .today-xls-table tr.today-row-item:hover td:not(.today-xls-header):not(.xls-td-row){
   background:#f8fafc;
