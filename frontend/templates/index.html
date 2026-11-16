@@ -6,7 +6,7 @@
   <title>OCR System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=18" />
+  <link rel="stylesheet" href="/static/style.css?v=24" />
 </head>
 <body>
 
@@ -33,6 +33,10 @@
         <button class="nav-item" data-view="order">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
           <span>発注書一覧</span>
+        </button>
+        <button class="nav-item" data-view="todayOrder">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/></svg>
+          <span>本日の発注書</span>
         </button>
         <button class="nav-item" data-view="clients">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -308,6 +312,76 @@
         </div>
       </div>
 
+      <!-- TODAY ORDER VIEW -->
+      <div class="view hidden" id="viewTodayOrder">
+        <!-- Top bar -->
+        <div class="order-topbar">
+          <div class="order-topbar-title">
+            <svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0">
+              <rect width="18" height="18" rx="3" fill="#217346"/>
+              <path d="M4 4h4l1.5 3L11 4h3l-3 5 3 5h-3l-1.5-3L8 14H4l3-5L4 4z" fill="white"/>
+            </svg>
+            本日の発注書
+          </div>
+          <span class="order-row-count" id="todayOrderTitleBadge">千葉自動発注書（発注分のみ）</span>
+          <span class="order-row-count today-item-count" id="todayOrderItemCount">0 品目</span>
+          <div class="order-toolbar-actions">
+            <button class="btn-sm btn-add-client" id="todayOrderAddItemBtn" type="button" title="新しい発注品目を追加">+ 品目を追加</button>
+            <button class="btn-sm" id="todayOrderEditRowBtn" type="button" title="選択中の行を編集">✎ 編集</button>
+            <button class="btn-sm" id="todayOrderAddRowBtn" type="button" title="末尾に新しい行を追加">+ 行追加</button>
+            <button class="btn-sm btn-del-rc" id="todayOrderDelRowBtn" type="button" title="選択中の行を削除">🗑 行削除</button>
+            <button class="btn-sm" id="todayOrderMetaBtn" type="button" title="タイトル・期間・備考を編集">⚙ ヘッダー編集</button>
+            <button class="btn-sm btn-save-xls" id="todayOrderSaveBtn" type="button" title="変更内容を保存">💾 保存</button>
+            <button class="btn-sm" id="todayOrderResetBtn" type="button" title="初期データにリセット">↺ リセット</button>
+            <button class="btn-sm" id="todayOrderCsvBtn" type="button" title="CSVエクスポート">↓ CSV出力</button>
+            <button class="btn-sm" id="todayOrderXlsxBtn" type="button" title="Excel (.xlsx) をダウンロード">↓ Excel出力</button>
+          </div>
+        </div>
+
+        <!-- Search, Date & Quick Add filter bar -->
+        <div class="order-filterbar today-order-filterbar">
+          <div class="filter-search-wrap">
+            <svg class="filter-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="filter-search" id="todayOrderSearch" type="search" placeholder="品目・単位・備考で検索…" />
+          </div>
+          <div class="today-inline-date-wrap">
+            <label class="today-preset-label" for="todayOrderInlineDate">📅 対象週 (開始日):</label>
+            <input type="date" class="xls-date-input" id="todayOrderInlineDate" title="開始日を変更すると対象期間と曜日見出し（月〜土）が自動更新されます" />
+          </div>
+          <div class="today-preset-bar" id="todayOrderQuickPresets">
+            <span class="today-preset-label">クイック追加:</span>
+            <button type="button" class="today-preset-chip" data-preset="大根">+ 大根</button>
+            <button type="button" class="today-preset-chip" data-preset="赤からし水菜">+ 赤からし水菜</button>
+            <button type="button" class="today-preset-chip" data-preset="小江戸菜">+ 小江戸菜</button>
+            <button type="button" class="today-preset-chip" data-preset="スイスチャード">+ スイスチャード</button>
+            <button type="button" class="today-preset-chip" data-preset="ほうれん草">+ ほうれん草</button>
+            <button type="button" class="today-preset-chip" data-preset="キャベツ">+ キャベツ</button>
+            <button type="button" class="today-preset-chip" data-preset="ホテル風か様用">+ ホテル風か様用</button>
+            <button type="button" class="today-preset-chip today-preset-chip-all" id="todayOrderAddAllPresetsBtn" title="全7品目をまとめて登録モーダルに読み込み">+ 全品目を一括追加</button>
+          </div>
+        </div>
+
+        <!-- Formula bar -->
+        <div class="xls-formulabar">
+          <div class="xls-cell-ref" id="todayOrderCellRef">A1</div>
+          <div class="xls-formulabar-sep">fx</div>
+          <input type="text" class="xls-cell-val" id="todayOrderCellVal" placeholder="セルを選択して値を編集…" autocomplete="off" />
+        </div>
+
+        <!-- Main Excel sheet grid -->
+        <div class="xls-main today-xls-main">
+          <div class="xls-grid-wrap today-xls-wrap" id="todayOrderGridWrap" tabindex="0"></div>
+        </div>
+
+        <!-- Bottom Sheet tab bar -->
+        <div class="xls-sheetbar">
+          <div class="xls-sheet-tabs">
+            <div class="xls-sheet-tab active" data-sheet="発注書">発注書</div>
+          </div>
+          <div class="xls-sheetbar-status" id="todayOrderStatusBar">15 rows × 8 cols · 発注書</div>
+        </div>
+      </div>
+
       <!-- CLIENTS VIEW -->
       <div class="view hidden" id="viewClients">
         <!-- Top bar -->
@@ -453,6 +527,7 @@
       </div>
       <div class="xls-main">
         <div class="xls-loading" id="xlsLoading">読み込み中…</div>
+        <div class="xls-doc-wrap hidden" id="xlsDocWrap"></div>
         <div class="xls-grid-wrap hidden" id="xlsGridWrap"></div>
       </div>
       <div class="xls-sheetbar">
@@ -598,6 +673,124 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=31"></script>
+  <!-- Today Order Item Add/Edit Modal (Multi-Product + Date) -->
+  <div class="modal-backdrop hidden" id="todayOrderItemModalBackdrop">
+    <div class="modal-box today-modal-box today-modal-box-wide">
+      <div class="modal-title" id="todayOrderItemModalTitle">発注品目を追加（複数品目・日付設定）</div>
+      <div class="modal-body">
+        <div class="today-modal-date-bar">
+          <div class="today-modal-date-field">
+            <label class="modal-label" for="todayItemModalBaseDate">📅 対象週 開始日:</label>
+            <input type="date" class="xls-date-input" id="todayItemModalBaseDate" title="開始日を変更すると下の曜日見出し（月〜土）とシートの日付が連動して更新されます" />
+          </div>
+          <div class="today-modal-period-preview" id="todayItemModalPeriodPreview">対象期間：2026年10月26日（月）〜10月31日（土）</div>
+        </div>
+        <div class="modal-field" id="todayItemPresetsWrap">
+          <label class="modal-label">よく使う品目（クリックで追加／一括セット）</label>
+          <div class="today-modal-presets" id="todayItemPresetChips">
+            <button type="button" class="today-preset-chip" data-preset="大根">+ 大根</button>
+            <button type="button" class="today-preset-chip" data-preset="赤からし水菜">+ 赤からし水菜</button>
+            <button type="button" class="today-preset-chip" data-preset="小江戸菜">+ 小江戸菜</button>
+            <button type="button" class="today-preset-chip" data-preset="スイスチャード">+ スイスチャード</button>
+            <button type="button" class="today-preset-chip" data-preset="ほうれん草">+ ほうれん草</button>
+            <button type="button" class="today-preset-chip" data-preset="キャベツ">+ キャベツ</button>
+            <button type="button" class="today-preset-chip" data-preset="ホテル風か様用">+ ホテル風か様用</button>
+            <button type="button" class="today-preset-chip today-preset-chip-all" id="todayModalFillAllPresetsBtn">+ 全7品目をセット</button>
+          </div>
+        </div>
+        <div class="today-modal-items-wrap">
+          <datalist id="todayItemUnitList">
+            <option value="cs"></option>
+            <option value="p"></option>
+            <option value="kg"></option>
+            <option value="g"></option>
+            <option value="束"></option>
+            <option value="袋"></option>
+            <option value="箱"></option>
+            <option value="本"></option>
+            <option value="個"></option>
+            <option value="玉"></option>
+            <option value="パック"></option>
+            <option value="ケース"></option>
+            <option value="枚"></option>
+            <option value="セット"></option>
+            <option value="ネット"></option>
+            <option value="把"></option>
+            <option value="丁"></option>
+            <option value="尾"></option>
+            <option value="杯"></option>
+          </datalist>
+          <table class="today-modal-items-table" id="todayModalItemsTable">
+            <thead>
+              <tr>
+                <th style="width:32px">#</th>
+                <th style="min-width:170px">品目名 <span class="required">*</span></th>
+                <th style="width:96px">単位 <span class="required">*</span></th>
+                <th id="todayModalDayHdr0">10/26 (月)</th>
+                <th id="todayModalDayHdr1">10/27 (火)</th>
+                <th id="todayModalDayHdr2">10/28 (水)</th>
+                <th id="todayModalDayHdr3">10/29 (木)</th>
+                <th id="todayModalDayHdr4">10/30 (金)</th>
+                <th id="todayModalDayHdr5">10/31 (土)</th>
+                <th style="width:42px"></th>
+              </tr>
+            </thead>
+            <tbody id="todayModalItemsBody"></tbody>
+          </table>
+        </div>
+        <div class="today-modal-table-actions">
+          <button class="btn-sm" id="todayModalAddRowBtn" type="button">+ 品目行を追加</button>
+          <span class="today-modal-hint">※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。</span>
+        </div>
+        <div class="today-modal-val-msg hidden" id="todayModalValidationMsg" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm btn-danger hidden" id="todayItemFormDelete" type="button" style="margin-right:auto">🗑 この行を削除</button>
+        <button class="btn-sm" id="todayItemFormCancel" type="button">キャンセル</button>
+        <button class="btn-primary modal-save-btn" id="todayItemFormSave" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Today Order Header / Meta Edit Modal -->
+  <div class="modal-backdrop hidden" id="todayOrderMetaModalBackdrop">
+    <div class="modal-box today-modal-box">
+      <div class="modal-title">発注書ヘッダー・期間・備考の編集</div>
+      <div class="modal-body">
+        <div class="modal-field">
+          <label class="modal-label" for="todayMetaTitle">タイトル</label>
+          <input class="modal-input" id="todayMetaTitle" />
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="todayMetaDest">宛先・発注先</label>
+          <input class="modal-input" id="todayMetaDest" />
+        </div>
+        <div class="modal-row" style="display:flex;gap:12px">
+          <div class="modal-field" style="flex:2">
+            <label class="modal-label" for="todayMetaPeriod">対象期間</label>
+            <input class="modal-input" id="todayMetaPeriod" />
+          </div>
+          <div class="modal-field" style="flex:1">
+            <label class="modal-label" for="todayMetaBaseDate">基準日 (月曜)</label>
+            <input class="modal-input" id="todayMetaBaseDate" type="date" title="月曜日を選ぶと期間と曜日列（月〜土）を自動更新します" />
+          </div>
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="todayMetaNote1">備考 1</label>
+          <input class="modal-input" id="todayMetaNote1" />
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="todayMetaNote2">備考 2</label>
+          <input class="modal-input" id="todayMetaNote2" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm" id="todayMetaCancel" type="button">キャンセル</button>
+        <button class="btn-primary modal-save-btn" id="todayMetaSave" type="button">反映して保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=40"></script>
 </body>
 </html>

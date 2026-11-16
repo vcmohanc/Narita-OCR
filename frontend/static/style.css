@@ -482,7 +482,7 @@ td{color:var(--muted)}
 /* ─────────────────────────────────────────────
    ORDER, CLIENTS & PRODUCT MASTER VIEWS
 ───────────────────────────────────────────── */
-#viewOrder, #viewClients, #viewProductMaster{display:flex;flex-direction:column;height:100%}
+#viewOrder, #viewTodayOrder, #viewClients, #viewProductMaster{display:flex;flex-direction:column;height:100%}
 
 .client-kw-tag{
   display:inline-block;
@@ -1048,73 +1048,54 @@ td{color:var(--muted)}
 .xls-sheet-tab.active{background:#fff;color:#000;font-weight:600;border-color:#c0c0c0}
 .xls-sheetbar-status{font-size:11px;color:#555;white-space:nowrap;flex-shrink:0}
 
-/* ── Live Heading Preview Bar (National Azabu Order Sheet Style) ── */
+/* ── Live Heading Preview Bar (Document View Style) ── */
 .heading-live-preview-wrap {
-  border: 1px solid #1e3a63;
+  border: 1px solid #c5d3e8;
   border-radius: var(--radius-sm);
   overflow-x: auto;
   overflow-y: hidden;
-  background: #0b1a2e;
-  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4);
+  background: #fff;
   scrollbar-width: thin;
-  scrollbar-color: #23477a #0b1a2e;
+  scrollbar-color: #c5d3e8 #f0f4fa;
 }
-.heading-live-preview-wrap::-webkit-scrollbar {
-  height: 6px;
+.heading-live-preview-wrap::-webkit-scrollbar { height: 5px }
+.heading-live-preview-wrap::-webkit-scrollbar-track { background: #f0f4fa }
+.heading-live-preview-wrap::-webkit-scrollbar-thumb { background: #c5d3e8; border-radius: 3px }
+.heading-live-preview-bar { display: block; }
+
+/* Document-view style table header in preview */
+.heading-doc-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: max-content;
+  font-family: 'Noto Sans JP','Hiragino Kaku Gothic ProN','Meiryo',sans-serif;
 }
-.heading-live-preview-wrap::-webkit-scrollbar-track {
-  background: #0b1a2e;
-}
-.heading-live-preview-wrap::-webkit-scrollbar-thumb {
-  background: #23477a;
-  border-radius: 3px;
-}
-.heading-live-preview-bar {
-  display: inline-flex;
-  min-width: 100%;
-  background: #132e56;
-  border-top: 1px solid #23477a;
-  border-bottom: 2px solid #081528;
-}
-.heading-live-preview-cell {
-  padding: 8px 12px;
-  border-right: 1px solid #23477a;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+.heading-doc-th {
+  background: #1e3a5f;
+  color: #fff;
+  padding: 7px 12px;
+  border: 1px solid #163152;
   text-align: center;
-  color: #ffffff;
+  white-space: nowrap;
   min-width: 72px;
-  user-select: none;
-  position: relative;
-  transition: background 0.12s;
-  flex-shrink: 0;
+  vertical-align: middle;
 }
-.heading-live-preview-cell:last-child {
-  border-right: none;
-}
-.heading-live-preview-cell:hover {
-  background: #1b3e73;
-}
-.heading-cell-idx {
+.heading-doc-th-num {
   font-size: 9px;
   font-weight: 700;
-  color: #60a5fa;
-  opacity: 0.85;
+  opacity: .55;
   margin-bottom: 3px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: .05em;
 }
-.heading-cell-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+.heading-doc-th-label {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
 }
+
 .heading-live-preview-empty {
-  padding: 24px 16px;
-  color: #94a3b8;
+  padding: 20px 16px;
+  color: #9ca3af;
   font-size: 12px;
   text-align: center;
   width: 100%;
@@ -1564,7 +1545,7 @@ td{color:var(--muted)}
   .bulk-bar{flex-wrap:wrap}
 
   /* Order / Clients / Product Master views */
-  #viewOrder,#viewClients,#viewProductMaster{height:auto;min-height:calc(100dvh - 64px)}
+  #viewOrder,#viewTodayOrder,#viewClients,#viewProductMaster{height:auto;min-height:calc(100dvh - 64px)}
   .order-topbar{padding:10px 12px;gap:8px}
   .order-row-count{flex:0 0 auto;margin-left:auto}
   .order-toolbar-actions{width:100%;display:flex;flex-wrap:wrap;gap:6px}
@@ -1656,4 +1637,563 @@ td{color:var(--muted)}
   }
   .xls-window{height:100vh;height:100dvh;max-height:100dvh}
 }
+
+/* ── Document View ── */
+.xls-formulabar.xls-formulabar-hidden,
+.xls-client-bar.xls-client-bar-hidden{display:none!important}
+
+.xls-sheet-tab-doc{font-weight:600;border-top:2px solid transparent}
+.xls-sheet-tab-doc.active{border-top-color:#1e3a5f;color:#1e3a5f!important}
+
+.xls-doc-wrap{
+  flex:1;overflow:auto;
+  background:#eef1f5;
+  padding:24px 20px;
+  display:flex;flex-direction:column;align-items:center;
+}
+
+.doc-view{
+  width:100%;max-width:960px;
+  background:#fff;
+  border-radius:6px;
+  box-shadow:0 2px 14px rgba(0,0,0,.12);
+  overflow:hidden;
+  font-family:'Noto Sans JP','Hiragino Kaku Gothic ProN','Meiryo',sans-serif;
+}
+
+.doc-header{
+  padding:22px 28px 16px;
+  border-bottom:3px solid #1e3a5f;
+  background:#fff;
+}
+
+.doc-title{
+  font-size:1.25rem;font-weight:700;
+  color:#1e3a5f;letter-spacing:.03em;
+  margin-bottom:8px;
+}
+
+.doc-client-name{
+  font-size:.95rem;font-weight:600;
+  color:#1e3a5f;opacity:.8;margin-bottom:6px;
+}
+
+.doc-meta{margin-top:8px;display:flex;flex-direction:column;gap:3px}
+
+.doc-meta-row{display:flex;flex-wrap:wrap;gap:20px}
+
+.doc-meta-item{
+  font-size:.8rem;color:#374151;
+  padding:1px 0;
+}
+
+.doc-table-wrap{overflow-x:auto;padding:0 28px 24px}
+
+.doc-table{
+  width:100%;border-collapse:collapse;
+  margin-top:16px;font-size:.82rem;
+}
+
+.doc-th{
+  background:#1e3a5f;color:#fff;
+  font-weight:600;padding:8px 11px;
+  text-align:left;border:1px solid #163152;
+  white-space:nowrap;
+}
+
+.doc-td{
+  padding:5px 11px;
+  border:1px solid #d9dfe8;
+  color:#1a1a2e;
+  vertical-align:middle;
+}
+
+.doc-td-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.doc-row-alt td{background:#f7f9fc}
+
+.doc-row-total td{
+  background:#dbeafe;font-weight:700;
+  color:#1e3a5f;border-top:2px solid #1e3a5f;
+}
+
+.doc-row-category td{
+  background:#e8f0fb;font-weight:600;
+  color:#1e3a5f;font-size:.79rem;
+  letter-spacing:.02em;
+}
+
+.doc-notes{
+  padding:12px 28px 20px;
+  border-top:1px solid #dee2e6;
+  background:#fafafa;
+}
+
+.doc-note{font-size:.77rem;color:#6b7280;line-height:1.65}
+
+.doc-empty{
+  display:flex;align-items:center;justify-content:center;
+  height:200px;color:#9ca3af;font-size:.9rem;
+}
+
+.doc-fulltext{padding:20px 28px}
+.doc-fulltext pre{font-size:.79rem;color:#374151;white-space:pre-wrap;word-break:break-word}
+
+/* ── 風水プロジェクト 発注書 Template ── */
+.doc-fusui-hanchu{font-family:'Hiragino Kaku Gothic Pro','Meiryo','Yu Gothic',sans-serif}
+.fusui-hanchu-header{background:#1a2744;color:#fff;padding:20px 28px 16px}
+.fusui-hanchu-title{font-size:1.7rem;font-weight:700;letter-spacing:.08em}
+.fusui-hanchu-company{font-size:.95rem;margin-top:4px;opacity:.88}
+.fusui-hanchu-info{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid #dee2e6}
+.fusui-hanchu-info-left{padding:14px 16px 14px 28px;border-right:1px solid #dee2e6}
+.fusui-hanchu-info-right{padding:14px 28px 14px 16px}
+.fusui-hanchu-info-label{font-size:.72rem;font-weight:700;color:#1a2744;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.fusui-hanchu-recipient{font-size:1.05rem;font-weight:600;color:#111;margin-top:2px}
+.fusui-hanchu-addr-line{font-size:.82rem;color:#374151;line-height:1.6;margin-top:1px}
+.fusui-hanchu-dates{display:flex;flex-wrap:wrap;gap:24px;padding:10px 28px;background:#f1f5fb;border-bottom:1px solid #dee2e6;font-size:.83rem}
+.fusui-hanchu-date-item{display:flex;gap:6px;align-items:center}
+.fusui-hanchu-date-label{font-weight:600;color:#1a2744;white-space:nowrap}
+.fusui-hanchu-table-wrap{overflow-x:auto;padding:0 28px 24px}
+.fusui-hanchu-table{width:100%;border-collapse:collapse;margin-top:16px;font-size:.82rem}
+.fusui-hanchu-th{background:#1a2744;color:#fff;font-weight:600;padding:9px 11px;text-align:left;border:1px solid #142033;white-space:nowrap}
+.fusui-hanchu-th-num{text-align:right}
+.fusui-hanchu-td{padding:7px 11px;border:1px solid #dee2e6;vertical-align:top}
+.fusui-hanchu-td-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.fusui-hanchu-row-alt .fusui-hanchu-td{background:#f7f9fc}
+.fusui-hanchu-row-total .fusui-hanchu-td{background:#dbeafe;font-weight:700;color:#1a2744;border-top:2px solid #1a2744}
+.fusui-hanchu-notes{padding:12px 28px 20px;border-top:1px solid #dee2e6;background:#fafafa}
+.fusui-hanchu-note{font-size:.77rem;color:#6b7280;line-height:1.65}
+
+/* ── Today Order (本日の発注書) Excel Sheet & CRUD ── */
+#todayOrderTitleBadge{
+  flex:0 0 auto;
+  color:#1F3864;
+  background:#eff6ff;
+  border-color:#bfdbfe;
+  font-weight:600;
+}
+#todayOrderItemCount{
+  flex:0 0 auto;
+  margin-right:auto;
+  color:#166534;
+  background:#f0fdf4;
+  border-color:#86efac;
+  font-weight:600;
+}
+.today-order-filterbar{
+  gap:10px 14px;
+  padding:8px 16px;
+}
+.today-inline-date-wrap{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  background:#f8fafc;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:3px 8px;
+  flex-shrink:0;
+}
+.today-preset-bar,
+.today-modal-presets{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.today-preset-label{
+  font-size:11px;
+  font-weight:600;
+  color:var(--muted);
+  white-space:nowrap;
+}
+.today-preset-chip{
+  padding:3px 9px;
+  font-size:11.5px;
+  font-weight:500;
+  border:1px solid #cbd5e1;
+  border-radius:999px;
+  background:#f8fafc;
+  color:#1e293b;
+  cursor:pointer;
+  font-family:inherit;
+  white-space:nowrap;
+  transition:all .12s;
+}
+.today-preset-chip:hover{
+  background:#eff6ff;
+  border-color:#3b82f6;
+  color:#1d4ed8;
+}
+.today-preset-chip-all{
+  background:#eff6ff;
+  border-color:#93c5fd;
+  color:#1d4ed8;
+  font-weight:600;
+}
+.today-preset-chip-all:hover{
+  background:#2563eb;
+  border-color:#1d4ed8;
+  color:#ffffff;
+}
+.today-xls-main{
+  flex:1;
+  min-height:0;
+}
+.today-xls-wrap{
+  background:#fff;
+}
+.today-xls-table{
+  table-layout:fixed;
+  width:100%;
+  min-width:1212px;
+}
+.today-xls-table col.today-col-rn{
+  width:52px;
+}
+.today-xls-table col.today-col-a{
+  width:380px;
+}
+.today-xls-table col.today-col-other{
+  width:92px;
+}
+.today-xls-table col.today-col-act{
+  width:136px;
+}
+.today-xls-table .today-th-col-a{
+  width:380px;
+  min-width:360px;
+}
+.today-xls-table .today-th-col-other{
+  width:92px;
+  min-width:88px;
+}
+.today-xls-table .today-th-col-act{
+  width:136px;
+  min-width:132px;
+}
+.today-xls-table .xls-cell{
+  max-width:none;
+  font-family:'Arial','Hiragino Kaku Gothic ProN','Yu Gothic','Meiryo',sans-serif;
+  height:26px;
+  line-height:1.35;
+}
+.today-xls-table .today-xls-title{
+  font-size:24px;
+  font-weight:700;
+  color:#1F3864;
+  height:36px;
+  padding:4px 10px;
+  vertical-align:middle;
+}
+.today-xls-table .today-xls-meta{
+  font-size:14.5px;
+  font-weight:400;
+  color:#333333;
+  height:26px;
+  padding:3px 10px;
+  vertical-align:middle;
+}
+.today-xls-table .today-xls-header{
+  background:#1F3864 !important;
+  color:#ffffff !important;
+  font-size:14.5px;
+  font-weight:700;
+  height:48px;
+  padding:6px 10px;
+  white-space:pre-line;
+  vertical-align:middle;
+  border-color:#2c4a7e !important;
+}
+.today-xls-table .today-xls-header.xls-sel{
+  background:#274a84 !important;
+  color:#ffffff !important;
+  outline:2px solid #60a5fa;
+  outline-offset:-2px;
+}
+.today-xls-table .today-xls-header-left{
+  text-align:left;
+}
+.today-xls-table .today-xls-header-right{
+  text-align:right;
+}
+.today-xls-table .today-xls-header-center{
+  text-align:center;
+}
+.today-xls-table .today-xls-merged{
+  height:38px;
+  font-size:14.5px;
+  color:#000000;
+  text-align:center;
+  vertical-align:middle;
+  border-bottom:1px solid #333333 !important;
+}
+.today-xls-table .today-xls-note{
+  font-size:13.3px;
+  color:#333333;
+  height:24px;
+  padding:3px 10px;
+  vertical-align:middle;
+}
+.today-xls-table .today-xls-num{
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+}
+.today-xls-table .today-xls-item-name{
+  font-weight:600;
+  color:#0f172a;
+}
+.today-xls-table .today-xls-item-unit{
+  text-align:right;
+  color:#334155;
+}
+.today-xls-table tr.today-row-item:hover td:not(.today-xls-header):not(.xls-td-row){
+  background:#f8fafc;
+}
+.today-xls-table tr.today-row-match td:not(.xls-td-row){
+  background:#fef9c3 !important;
+}
+.today-xls-table td.today-xls-actions{
+  border:1px solid #d0d0d0;
+  padding:2px 6px;
+  background:#fafafa;
+  text-align:center;
+  vertical-align:middle;
+  white-space:nowrap;
+}
+.today-xls-table td.today-xls-actions.today-xls-actions-hdr{
+  background:#1F3864 !important;
+  border-color:#2c4a7e !important;
+  color:#ffffff !important;
+  font-size:12px;
+  font-weight:700;
+}
+.today-row-act-group{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+}
+.today-row-act-btn{
+  background:#fff;
+  border:1px solid #cbd5e1;
+  border-radius:4px;
+  cursor:pointer;
+  padding:2px 6px;
+  font-size:11px;
+  font-weight:500;
+  color:#334155;
+  line-height:1.3;
+  transition:all .12s;
+  font-family:inherit;
+}
+.today-row-act-btn:hover{
+  background:#eff6ff;
+  border-color:#3b82f6;
+  color:#1d4ed8;
+}
+.today-row-act-btn.add:hover{
+  background:#f0fdf4;
+  border-color:#16a34a;
+  color:#15803d;
+}
+.today-row-act-btn.del:hover{
+  background:#fef2f2;
+  border-color:#dc2626;
+  color:#dc2626;
+}
+.today-hdr-act-btn{
+  background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.32);
+  border-radius:4px;
+  color:#ffffff;
+  font-size:11px;
+  font-weight:600;
+  padding:3px 6px;
+  cursor:pointer;
+  font-family:inherit;
+  line-height:1.25;
+  transition:background .12s,border-color .12s;
+}
+.today-hdr-act-btn:hover{
+  background:rgba(255,255,255,.26);
+  border-color:#93c5fd;
+}
+.today-modal-box{
+  width:620px;
+  max-width:95vw;
+}
+.today-modal-box-wide{
+  width:900px;
+  max-width:96vw;
+}
+.today-modal-date-bar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:10px 14px;
+  padding:9px 12px;
+  background:#f1f5fb;
+  border:1px solid #c7d6ed;
+  border-radius:var(--radius-sm);
+}
+.today-modal-date-field{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.today-modal-period-preview{
+  font-size:12px;
+  font-weight:600;
+  color:#1F3864;
+}
+.today-modal-items-wrap{
+  max-height:42vh;
+  overflow:auto;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  background:#fff;
+}
+.today-modal-items-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px;
+  min-width:740px;
+}
+.today-modal-items-table thead th{
+  position:sticky;
+  top:0;
+  z-index:2;
+  background:#1F3864;
+  color:#fff;
+  font-size:11px;
+  font-weight:700;
+  padding:7px 6px;
+  text-align:center;
+  border:1px solid #2c4a7e;
+  white-space:nowrap;
+}
+.today-modal-items-table thead th:nth-child(2){
+  text-align:left;
+}
+.today-modal-items-table tbody td{
+  padding:5px 4px;
+  border:1px solid #e2e8f0;
+  vertical-align:middle;
+  text-align:center;
+}
+.today-m-row-num{
+  font-size:11px;
+  color:var(--muted);
+  font-weight:600;
+  background:#f8fafc;
+}
+.today-m-input{
+  width:100%;
+  padding:5px 7px;
+  border:1px solid #cbd5e1;
+  border-radius:4px;
+  font-size:12.5px;
+  font-family:inherit;
+  color:var(--text);
+  background:#fff;
+  outline:none;
+}
+.today-m-input:focus{
+  border-color:var(--accent);
+  box-shadow:0 0 0 2px rgba(37,99,235,.12);
+}
+.today-m-input.today-input-error{
+  border-color:#dc2626 !important;
+  background:#fef2f2 !important;
+  color:#991b1b;
+}
+.today-m-input.today-input-error:focus{
+  box-shadow:0 0 0 2px rgba(220,38,38,.18);
+}
+.today-m-input.today-input-valid{
+  border-color:#16a34a;
+}
+.today-modal-val-msg{
+  padding:8px 12px;
+  border-radius:var(--radius-sm);
+  background:#fef2f2;
+  border:1px solid #fca5a5;
+  color:#b91c1c;
+  font-size:12px;
+  font-weight:600;
+  line-height:1.45;
+}
+.today-xls-table .xls-cell.today-cell-invalid{
+  background:#fef2f2 !important;
+  outline:1.5px dashed #dc2626;
+  outline-offset:-2px;
+  color:#b91c1c;
+}
+.today-m-day{
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+}
+.today-m-del{
+  background:none;
+  border:1px solid #e2e8f0;
+  border-radius:4px;
+  color:#64748b;
+  cursor:pointer;
+  padding:4px 7px;
+  font-size:12px;
+}
+.today-m-del:hover{
+  background:#fef2f2;
+  border-color:#fca5a5;
+  color:#dc2626;
+}
+.today-modal-table-actions{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.today-modal-hint{
+  font-size:11.5px;
+  color:var(--muted);
+}
+.today-days-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:10px;
+}
+.today-day-field{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.today-day-lbl{
+  font-size:11px;
+  font-weight:600;
+  color:var(--text2);
+  text-align:center;
+  background:#f1f5f9;
+  border:1px solid #e2e8f0;
+  border-radius:4px;
+  padding:2px 6px;
+}
+.today-day-input{
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+}
+@media(max-width:768px){
+  .today-xls-main{
+    min-height:420px;
+  }
+  .today-days-grid{
+    grid-template-columns:repeat(2,1fr);
+  }
+  #todayOrderItemCount{
+    margin-right:0;
+  }
+}
+
 

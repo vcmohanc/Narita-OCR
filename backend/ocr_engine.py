@@ -636,13 +636,58 @@ def _clean_excel_val(val) -> str:
     return re.sub(r"^(\d{4}-\d{2}-\d{2}) 00:00:00$", r"\1", s)
 
 
-def _excel_process(file_path: str) -> dict:
-    """Read every sheet of an Excel file; return tables + fused text."""
+def _parse_heading_cols(raw: str) -> list:
+    """Parse a comma/newline/pipe-separated heading_columns string."""
+    if not raw:
+        return []
+    parts = re.split(r"\r?\n|,|、|\t|\|", str(raw))
+    return [p.strip().strip('"').strip("'") for p in parts if p.strip().strip('"').strip("'")]
+
+
+def _find_header_row(cleaned_rows: list, client_cols: list, hint: int = 0) -> int:
+    """Return 0-based index of the row that best matches client_cols (≥ 0.3 score)."""
+    import unicodedata
+
+    def _nc(s):
+        return unicodedata.normalize("NFKC", str(s or "")).strip().lower()
+
+    def _score(row):
+        if not row:
+            return 0.0
+        matched = sum(
+            1 for col in client_cols
+            if any(_nc(col) in _nc(cell) or _nc(cell) in _nc(col) for cell in row if str(cell).strip())
+        )
+        return matched / len(client_cols) if client_cols else 0.0
+
+    window = list(range(max(0, hint - 2), min(len(cleaned_rows), hint + 12)))
+    remaining = [i for i in range(len(cleaned_rows)) if i not in window]
+    best_score, best_idx = 0.0, hint
+    for i in window + remaining:
+        s = _score(cleaned_rows[i])
+        if s > best_score:
+            best_score, best_idx = s, i
+    return best_idx if best_score >= 0.3 else hint
+
+
+def _excel_process(file_path: str, client_data: Optional[dict] = None) -> dict:
+    """Read every sheet of an Excel file; return tables + fused text.
+    When client_data is supplied, uses heading_columns to detect header rows
+    and builds custom_sheets for the frontend.
+    """
     t0 = time.time()
+
+    # Parse client hints so the extraction is client-aware from the start.
+    client_cols: list = []
+    client_header_hint: int = 0
+    if isinstance(client_data, dict):
+        client_cols = _parse_heading_cols(client_data.get("heading_columns") or "")
+        client_header_hint = max(0, int(client_data.get("header_row") or 1) - 1)
+
     try:
         import pandas as pd
         xl = pd.ExcelFile(file_path)
-        tables, text_parts = [], []
+        tables, text_parts, custom_sheets = [], [], []
 
         for sheet in xl.sheet_names:
             df = xl.parse(sheet, header=None)
@@ -655,17 +700,23 @@ def _excel_process(file_path: str) -> dict:
             df_clean = pd.DataFrame(cleaned_rows, columns=col_keys)
             data = df_clean.to_dict(orient="records")
 
-            hdr_cells = cleaned_rows[0] if cleaned_rows else col_keys
+            # Find actual header row using client column hints when available.
+            if client_cols:
+                actual_header_idx = _find_header_row(cleaned_rows, client_cols, client_header_hint)
+            else:
+                actual_header_idx = client_header_hint
+
+            hdr_cells = cleaned_rows[actual_header_idx] if cleaned_rows else col_keys
             md_lines = [
-                "| " + " | ".join(hdr_cells) + " |",
-                "| " + " | ".join(["---"] * len(col_keys)) + " |",
+                "| " + " | ".join(str(c) for c in hdr_cells) + " |",
+                "| " + " | ".join(["---"] * len(hdr_cells)) + " |",
             ]
-            for row in cleaned_rows[1:]:
-                md_lines.append("| " + " | ".join(row) + " |")
+            for row in cleaned_rows[actual_header_idx + 1:]:
+                md_lines.append("| " + " | ".join(str(c) for c in row) + " |")
             md = "\n".join(md_lines)
 
             text_parts.append(
-                f"=== {sheet} ===\n" + "\n".join("\t".join(r).rstrip() for r in cleaned_rows if any(c.strip() for c in r))
+                f"=== {sheet} ===\n" + "\n".join("\t".join(str(c) for c in r).rstrip() for r in cleaned_rows if any(str(c).strip() for c in r))
             )
             tables.append({
                 "caption":  sheet,
@@ -675,18 +726,31 @@ def _excel_process(file_path: str) -> dict:
                 "source":   "Excel",
             })
 
+            # Build custom_sheets entry used by the frontend spreadsheet view.
+            sheet_entry: dict = {
+                "name":      sheet,
+                "rows":      cleaned_rows,
+                "hasHeader": True,
+                "headerIdx": actual_header_idx,
+            }
+            if client_cols:
+                sheet_entry["clientHeaders"] = list(client_cols)
+            custom_sheets.append(sheet_entry)
+
         full_text = "\n\n".join(text_parts)
-        return {
+        result: dict = {
             "file":              Path(file_path).name,
             "primary_engine":    "Excel",
             "fused_text":        full_text,
             "confidence_avg":    1.0,
             "tables":            tables,
+            "custom_sheets":     custom_sheets,
             "paddle":            {},
             "docling":           {"text": full_text, "markdown": full_text, "tables": tables},
             "deepseek":          {},
             "processing_time_s": round(time.time() - t0, 2),
         }
+        return result
     except Exception as exc:
         logger.error("Excel processing failed: %s", exc)
         return {
@@ -695,19 +759,20 @@ def _excel_process(file_path: str) -> dict:
             "fused_text": "",
             "confidence_avg": 0.0,
             "tables": [],
+            "custom_sheets": [],
             "paddle": {}, "docling": {}, "deepseek": {},
             "error": str(exc),
             "processing_time_s": round(time.time() - t0, 2),
         }
 
 
-def process_file(file_path: str, engines: str = "all") -> dict:
-    """Auto-dispatch based on file extension."""
+def process_file(file_path: str, engines: str = "all", client_data: Optional[dict] = None) -> dict:
+    """Auto-dispatch based on file extension. client_data is used for client-aware extraction."""
     ext = Path(file_path).suffix.lower()
     if ext in SUPPORTED_IMAGE_EXTS:
         return process_image(file_path, engines=engines)
     elif ext in SUPPORTED_EXCEL_EXTS:
-        return _excel_process(file_path)
+        return _excel_process(file_path, client_data=client_data)
     elif ext in SUPPORTED_DOC_EXTS:
         return process_pdf(file_path, engines=engines)
     else:

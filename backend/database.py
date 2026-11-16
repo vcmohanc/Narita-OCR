@@ -321,6 +321,215 @@ def _parse_keywords_list(raw_kw_str: str) -> list[str]:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Client-aware structured extraction helpers
+# ---------------------------------------------------------------------------
+
+def _nc(s) -> str:
+    """Normalize cell text: full→half width, lowercase, strip spaces."""
+    return unicodedata.normalize("NFKC", str(s or "")).strip().lower()
+
+
+def _col_match_score(cell_text: str, col_name: str) -> float:
+    """Return 0–1 similarity between a cell text and a column name."""
+    nc = _nc(cell_text)
+    ncol = _nc(col_name)
+    if not nc or not ncol:
+        return 0.0
+    if nc == ncol:
+        return 1.0
+    if ncol in nc or nc in ncol:
+        return 0.75
+    # Character-set overlap
+    nc_set = set(nc)
+    ncol_set = set(ncol)
+    overlap = len(nc_set & ncol_set)
+    if overlap == 0 or len(ncol_set) < 2:
+        return 0.0
+    return min(overlap / len(ncol_set), 1.0) * 0.5
+
+
+def _row_header_score(row_cells: list, heading_cols: list) -> float:
+    """Score 0–1: fraction of heading_cols that have a matching cell in this row."""
+    if not row_cells or not heading_cols:
+        return 0.0
+    matched = sum(
+        1 for col in heading_cols
+        if max((_col_match_score(cell, col) for cell in row_cells), default=0.0) >= 0.5
+    )
+    return matched / len(heading_cols)
+
+
+def _find_header_row_index(rows: list, heading_cols: list, hint_idx: int = 0) -> int:
+    """
+    Return the 0-based row index that best matches heading_cols using fuzzy scoring.
+    Searches a window around hint_idx first, then falls back to the full table.
+    Returns -1 when no row scores ≥ 0.3.
+    """
+    if not rows or not heading_cols:
+        return -1
+
+    def _score(i):
+        row = rows[i]
+        if not isinstance(row, (list, tuple)):
+            return 0.0
+        return _row_header_score([str(c) for c in row if c is not None], heading_cols)
+
+    best_score, best_idx = 0.0, -1
+    # Prioritise rows near the hint
+    window = list(range(max(0, hint_idx - 2), min(len(rows), hint_idx + 12)))
+    remaining = [i for i in range(len(rows)) if i not in window]
+    for i in window + remaining:
+        s = _score(i)
+        if s > best_score:
+            best_score, best_idx = s, i
+    return best_idx if best_score >= 0.3 else -1
+
+
+def _build_col_mapping(actual_header: list, client_cols: list) -> dict:
+    """
+    Map each index in actual_header to the best-matching client column name.
+    Returns {actual_col_index: client_col_name}.
+    """
+    used: set[str] = set()
+    col_map: dict[int, str] = {}
+    for ci, cell in enumerate(actual_header):
+        best_score, best_col = 0.0, None
+        for client_col in client_cols:
+            if client_col in used:
+                continue
+            score = _col_match_score(str(cell), client_col)
+            if score > best_score:
+                best_score, best_col = score, client_col
+        if best_score >= 0.3 and best_col:
+            col_map[ci] = best_col
+            used.add(best_col)
+        else:
+            col_map[ci] = str(cell) if str(cell).strip() else f"列{ci + 1}"
+    return col_map
+
+
+def _extract_aligned_data_from_rows(
+    rows_2d: list,
+    client_cols: list,
+    header_row_hint: int = 0,
+) -> tuple[int, list[dict]]:
+    """
+    Find the header row in rows_2d using client_cols, then extract subsequent
+    data rows as list[dict] keyed by client column names.
+    Returns (header_row_index_found, extracted_rows).  header_row_index == -1 means not found.
+    """
+    if not rows_2d or not client_cols:
+        return -1, []
+
+    header_idx = _find_header_row_index(rows_2d, client_cols, header_row_hint)
+    if header_idx < 0:
+        return -1, []
+
+    actual_header = [str(c) for c in rows_2d[header_idx] if c is not None]
+    col_map = _build_col_mapping(actual_header, client_cols)
+
+    extracted: list[dict] = []
+    for row in rows_2d[header_idx + 1:]:
+        if not isinstance(row, (list, tuple)):
+            continue
+        cells = [str(c) if c is not None else "" for c in row]
+        row_dict: dict[str, str] = {}
+        for ci, val in enumerate(cells):
+            if not val.strip():
+                continue
+            col_name = col_map.get(ci, f"列{ci + 1}")
+            # Merge with any value already assigned (can happen with merged cells)
+            existing = row_dict.get(col_name, "")
+            row_dict[col_name] = (existing + " " + val).strip() if existing else val.strip()
+        if any(v for v in row_dict.values()):
+            extracted.append(row_dict)
+
+    return header_idx, extracted
+
+
+def _extract_aligned_data_from_paddle_lines(
+    lines: list,
+    client_cols: list,
+    header_row_hint: int = 0,
+) -> list[dict]:
+    """
+    Use PaddleOCR bounding-box data to cluster text into rows, detect the header
+    row by matching against client_cols, then assign data cells to columns using
+    X-position proximity.  Returns list[dict] keyed by client column names.
+    """
+    if not lines or not client_cols:
+        return []
+
+    # --- Y-centre clustering into logical rows ---------------------------
+    def _yc(line):
+        pts = line.get("bbox") or []
+        if not pts:
+            return 0.0
+        ys = [p[1] for p in pts]
+        return (min(ys) + max(ys)) / 2.0
+
+    def _xleft(line):
+        pts = line.get("bbox") or []
+        if not pts:
+            return 0.0
+        return min(p[0] for p in pts)
+
+    sorted_lines = sorted(lines, key=_yc)
+    row_groups: list[list] = []
+    threshold = 15.0
+    for line in sorted_lines:
+        y = _yc(line)
+        placed = False
+        for group in row_groups:
+            if abs(y - _yc(group[0])) <= threshold:
+                group.append(line)
+                placed = True
+                break
+        if not placed:
+            row_groups.append([line])
+
+    # Sort each group left-to-right
+    for grp in row_groups:
+        grp.sort(key=_xleft)
+
+    text_rows = [[l["text"] for l in grp] for grp in row_groups]
+
+    # --- Find header row -------------------------------------------------
+    header_idx = _find_header_row_index(text_rows, client_cols, header_row_hint)
+    if header_idx < 0:
+        return []
+
+    header_lines = row_groups[header_idx]
+    header_x_lefts = [_xleft(l) for l in header_lines]
+    header_texts = [l["text"] for l in header_lines]
+
+    # Map header cells → client column names
+    col_map = _build_col_mapping(header_texts, client_cols)
+
+    # --- Extract data rows using X-proximity to header positions --------
+    extracted: list[dict] = []
+    for grp in row_groups[header_idx + 1:]:
+        row_dict: dict[str, str] = {}
+        for data_line in grp:
+            x = _xleft(data_line)
+            # Find the nearest header cell by X-distance
+            best_hi, best_dist = 0, float("inf")
+            for hi, hx in enumerate(header_x_lefts):
+                dist = abs(x - hx)
+                if dist < best_dist:
+                    best_dist, best_hi = dist, hi
+            col_name = col_map.get(best_hi, f"列{best_hi + 1}")
+            existing = row_dict.get(col_name, "")
+            val = data_line["text"].strip()
+            if val:
+                row_dict[col_name] = (existing + " " + val).strip() if existing else val
+        if any(v for v in row_dict.values()):
+            extracted.append(row_dict)
+
+    return extracted
+
+
 def _keyword_matches(norm_haystack: str, norm_kw: str) -> bool:
     """Match keyword in normalized text; use boundaries for ASCII-only keywords."""
     if not norm_kw or not norm_haystack:
@@ -436,14 +645,21 @@ def detect_client(filename: str = "", text: str = "") -> Optional[dict]:
                     score += 4.0
 
         # Tier 3: Heading columns (見出しフォーマット項目)
+        # Weighted by column specificity: longer / more unique columns score higher
         heading_cols = _parse_keywords_list(c.get("heading_columns") or "")
+        matched_heading_count = 0
         for col in heading_cols:
             ncol = _normalize_text(col)
             scol = _strip_spaces(col)
             if not scol:
                 continue
             if txt_strip and (scol in txt_strip or _keyword_matches(txt_norm, ncol)):
-                score += 5.0
+                col_weight = 8.0 if len(scol) >= 4 else 5.0
+                score += col_weight
+                matched_heading_count += 1
+        # Bonus when multiple heading columns match — indicates this is the right client
+        if matched_heading_count >= 3:
+            score += matched_heading_count * 3.0
 
         if score > 0:
             scores[client_id] = (score, c)
@@ -493,6 +709,7 @@ def _client_public_dict(client: Optional[dict]) -> Optional[dict]:
         "name_en":         client.get("name_en") or "",
         "header_row":      max(1, int(client.get("header_row") or 1)),
         "heading_columns": client.get("heading_columns") or "",
+        "keywords":        client.get("keywords") or "",
     }
     if client.get("match_score") is not None:
         out["match_score"] = client["match_score"]
@@ -509,6 +726,11 @@ def apply_client_ocr_formatting(
     Enrich an OCR result dict with matched/selected client metadata and apply
     the client's heading format (header_row & heading_columns) to extracted
     tables and custom_sheets.
+
+    Enhanced: actively finds the real header row using fuzzy column matching,
+    aligns data rows to the client's column schema, and stores the structured
+    result in table['client_extracted_rows'].  Also runs a bbox-based extraction
+    pass on PaddleOCR lines when available.
     """
     if not isinstance(result, dict):
         return result
@@ -524,16 +746,42 @@ def apply_client_ocr_formatting(
     header_row = max(1, int(client_pub.get("header_row") or 1))
     header_idx = header_row - 1
 
+    # Scan OCR text for the client's 検出キーワード (detection keywords).
+    # This runs regardless of whether the client was auto-detected or manually selected.
+    kws_all = _parse_keywords_list(client_pub.get("keywords") or "")
+    found_kws: list[str] = []
+    if kws_all:
+        combined_text = extract_combined_text(result)
+        norm_hay = _normalize_text(combined_text)
+        strip_hay = _strip_spaces(combined_text)
+        # Also check filename against keywords
+        fn = filename or (result.get("filename") or "")
+        norm_fn = _normalize_text(fn)
+        strip_fn = _strip_spaces(fn)
+        for kw in kws_all:
+            nkw = _normalize_text(kw)
+            skw = _strip_spaces(kw)
+            if not skw:
+                continue
+            in_text = skw in strip_hay or _keyword_matches(norm_hay, nkw)
+            in_file = skw in strip_fn or _keyword_matches(norm_fn, nkw)
+            if in_text or in_file:
+                found_kws.append(kw)
+
     result["client"] = client_pub
     result["client_ocr"] = {
-        "client_id":       client_pub["id"],
-        "code":            client_pub["code"],
-        "name_ja":         client_pub["name_ja"],
-        "name_en":         client_pub["name_en"],
-        "header_row":      header_row,
-        "heading_columns": client_pub["heading_columns"],
-        "parsed_columns":  client_cols,
-        "matched_mode":    matched_mode,
+        "client_id":            client_pub["id"],
+        "code":                 client_pub["code"],
+        "name_ja":              client_pub["name_ja"],
+        "name_en":              client_pub["name_en"],
+        "header_row":           header_row,
+        "heading_columns":      client_pub["heading_columns"],
+        "parsed_columns":       client_cols,
+        "matched_mode":         matched_mode,
+        "keywords":             kws_all,
+        "found_keywords":       found_kws,
+        "keyword_match_count":  len(found_kws),
+        "keyword_total_count":  len(kws_all),
     }
 
     custom_sheets = result.get("custom_sheets")
@@ -551,13 +799,66 @@ def apply_client_ocr_formatting(
                     sheet["hasHeader"] = True
                     sheet["headerIdx"] = min(header_idx, max(0, len(rows) - 1))
 
+    # --- Enhanced: structured extraction aligned to client columns --------
     tables = result.get("tables")
     if isinstance(tables, list):
         for tbl in tables:
-            if isinstance(tbl, dict):
-                tbl["client_header_row"] = header_row
-                if client_cols:
-                    tbl["client_headers"] = list(client_cols)
+            if not isinstance(tbl, dict):
+                continue
+            tbl["client_header_row"] = header_row
+            if client_cols:
+                tbl["client_headers"] = list(client_cols)
+
+            if not client_cols:
+                continue
+
+            # Build a 2-D list from the table's data
+            data = tbl.get("data")
+            rows_2d: list = []
+            if isinstance(data, list) and data:
+                first = data[0]
+                if isinstance(first, dict):
+                    keys = list(first.keys())
+                    rows_2d = [keys] + [
+                        [str(row.get(k, "")) for k in keys]
+                        for row in data if isinstance(row, dict)
+                    ]
+                elif isinstance(first, (list, tuple)):
+                    rows_2d = [[str(c) for c in row] for row in data]
+
+            # Fall back to parsing the markdown string
+            if not rows_2d and tbl.get("markdown", "").strip():
+                md = tbl["markdown"].strip()
+                for line in md.splitlines():
+                    line = line.strip()
+                    if not line or set(line.replace("|", "").replace("-", "").replace(":", "").strip()) == set():
+                        continue
+                    cells = [c.strip() for c in line.strip("|").split("|")]
+                    if cells:
+                        rows_2d.append(cells)
+
+            if rows_2d:
+                found_idx, extracted = _extract_aligned_data_from_rows(
+                    rows_2d, client_cols, header_idx
+                )
+                if extracted:
+                    tbl["client_extracted_rows"] = extracted
+                    tbl["client_header_found_at"] = found_idx
+                elif found_idx >= 0:
+                    tbl["client_extracted_rows"] = []
+                    tbl["client_header_found_at"] = found_idx
+
+    # --- Bbox-based extraction from PaddleOCR lines ----------------------
+    paddle = result.get("paddle") or {}
+    lines = paddle.get("lines") or []
+    if lines and client_cols:
+        # Only run when lines carry bounding boxes
+        if lines and isinstance(lines[0], dict) and lines[0].get("bbox"):
+            paddle_extracted = _extract_aligned_data_from_paddle_lines(
+                lines, client_cols, header_row - 1
+            )
+            if paddle_extracted:
+                result["paddle_extracted_rows"] = paddle_extracted
 
     return result
 
@@ -1262,7 +1563,7 @@ def add_client(name_ja: str, name_en: str, code: str, keywords: str = "", header
 
 
 def update_client(client_id: int, name_ja: str, name_en: str, code: str, keywords: str = "", header_row: Optional[int] = 1, heading_columns: str = "") -> bool:
-    """Update an existing client row. Returns True if a row was changed."""
+    """Update an existing client row. Returns True if the client exists."""
     with _get_connection() as con:
         cur = con.cursor()
         cur.execute(
@@ -1270,8 +1571,13 @@ def update_client(client_id: int, name_ja: str, name_en: str, code: str, keyword
             (name_ja.strip(), name_en.strip(), code.strip(), keywords.strip(), header_row or 1, (heading_columns or "").strip(), client_id),
         )
         affected = cur.rowcount
+        if affected == 0:
+            cur.execute("SELECT id FROM ocr_clients WHERE id = %s", (client_id,))
+            exists = cur.fetchone() is not None
+            cur.close()
+            return exists
         cur.close()
-    return affected > 0
+    return True
 
 
 def get_client_by_id(client_id: int) -> Optional[dict]:
@@ -1299,8 +1605,15 @@ def update_client_heading_format(client_id: int, header_row: int, heading_column
             (header_row or 1, (heading_columns or "").strip(), client_id),
         )
         affected = cur.rowcount
+        if affected == 0:
+            # MySQL rowcount is 0 when no rows changed AND when row not found.
+            # Distinguish the two cases so "same values" doesn't falsely 404.
+            cur.execute("SELECT id FROM ocr_clients WHERE id = %s", (client_id,))
+            exists = cur.fetchone() is not None
+            cur.close()
+            return exists
         cur.close()
-    return affected > 0
+    return True
 
 
 def delete_client_by_id(client_id: int) -> bool:

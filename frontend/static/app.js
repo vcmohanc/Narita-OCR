@@ -42,6 +42,7 @@ const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
       appShell?.classList.remove('sidebar-expanded');
       if (mainArea) mainArea.scrollTop = 0;
       if (target === 'order') initOrderView();
+      if (target === 'todayOrder') initTodayOrderView();
       if (target === 'clients') initClientsView();
       if (target === 'productMaster') initProductMasterView();
     });
@@ -120,6 +121,1300 @@ async function initOrderView() {
   if (_orderLoaded) return;
   await reloadOrderSheet();
   _orderLoaded = true;
+}
+
+// ── Today Order view (CRUD + Multi-Product + Date) ───────────
+const TODAY_ORDER_COLS = 8;
+const TODAY_ORDER_STORAGE_KEY = 'ocr_today_order_sheet_v1';
+const TODAY_PRESET_ITEMS = ['大根', '赤からし水菜', '小江戸菜', 'スイスチャード', 'ほうれん草', 'キャベツ', 'ホテル風か様用'];
+const TODAY_VALID_UNITS = ['cs', 'p', 'kg', 'g', '束', '袋', '箱', '本', '個', '玉', 'パック', 'ケース', '枚', 'セット', 'ネット', '把', '丁', '尾', '杯'];
+
+function _validateTodayUnit(rawUnit) {
+  const val = String(rawUnit == null ? '' : rawUnit).normalize('NFKC').trim();
+  if (!val) {
+    return { valid: false, normalized: '', error: '単位を入力・選択してください' };
+  }
+  const lower = val.toLowerCase();
+  const matched = TODAY_VALID_UNITS.find(u => u.toLowerCase() === lower);
+  if (!matched) {
+    return {
+      valid: false,
+      normalized: val,
+      error: `無効な単位「${val}」です（有効: cs, p, kg, 束, 袋, 箱, 本, 個 など）`,
+    };
+  }
+  return { valid: true, normalized: matched, error: '' };
+}
+
+function _setTodayModalValMsg(msg) {
+  const el = document.getElementById('todayModalValidationMsg');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.classList.toggle('hidden', !msg);
+}
+let _todayOrderInitialized = false;
+let _todayOrderRows = [];
+let _todayOrderSelRow = 0;
+let _todayOrderSelCol = 0;
+let _todayOrderDirty = false;
+let _todayOrderEditRowIdx = null;
+
+function _createTodayOrderInitialRows() {
+  const rows = [
+    { type: 'title',  cells: ['千葉自動発注書（発注分のみ）', '', '', '', '', '', '', ''] },
+    { type: 'meta',   cells: ['宛先：千葉成田センター\u3000／\u3000発注先：葛西産直ファーム', '', '', '', '', '', '', ''] },
+    { type: 'meta',   cells: ['対象期間：2026年10月26日（月）〜10月31日（土）', '', '', '', '', '', '', ''] },
+    { type: 'spacer', cells: Array(TODAY_ORDER_COLS).fill('') },
+    { type: 'header', cells: ['品目', '単位', '10/26\n月', '10/27\n火', '10/28\n水', '10/29\n木', '10/30\n金', '10/31\n土'] },
+    { type: 'merged', cells: ['今週（10/26〜10/31）の発注はありません（全品目 休止）', '', '', '', '', '', '', ''] },
+    { type: 'spacer', cells: Array(TODAY_ORDER_COLS).fill('') },
+    { type: 'note',   cells: ['※ 発注数の入っている品目のみ表示する設定ですが、今週は該当する品目がありません。', '', '', '', '', '', '', ''] },
+    { type: 'note',   cells: ['※ 原本では大根・赤からし水菜・小江戸菜・スイスチャード・ほうれん草・キャベツが休止、ホテル風か様用は数量未記入。', '', '', '', '', '', '', ''] },
+  ];
+  for (let i = 0; i < 6; i++) {
+    rows.push({ type: 'data', cells: Array(TODAY_ORDER_COLS).fill('') });
+  }
+  return rows;
+}
+
+function _normalizeTodayOrderRowsClient(rawRows) {
+  const allowed = new Set(['title', 'meta', 'spacer', 'header', 'item', 'merged', 'note', 'data']);
+  if (!Array.isArray(rawRows) || !rawRows.length) return _createTodayOrderInitialRows();
+  return rawRows.map(r => {
+    const type = allowed.has(r?.type) ? r.type : 'data';
+    const cells = Array.from({ length: TODAY_ORDER_COLS }, (_, ci) => {
+      const v = r?.cells?.[ci];
+      return v != null ? String(v) : '';
+    });
+    return { type, cells };
+  });
+}
+
+function _markTodayOrderDirty(dirty) {
+  _todayOrderDirty = !!dirty;
+  const saveBtn = document.getElementById('todayOrderSaveBtn');
+  if (!saveBtn) return;
+  saveBtn.classList.toggle('is-dirty', _todayOrderDirty);
+  saveBtn.textContent = _todayOrderDirty ? '💾 保存*' : '💾 保存';
+}
+
+function _persistTodayOrderLocal() {
+  try {
+    localStorage.setItem(TODAY_ORDER_STORAGE_KEY, JSON.stringify(_todayOrderRows));
+  } catch {}
+}
+
+async function saveTodayOrderSheet(silent = false) {
+  for (let i = 0; i < _todayOrderRows.length; i++) {
+    const r = _todayOrderRows[i];
+    const hasName = !!String(r.cells?.[0] || '').trim();
+    if ((r.type === 'item' || (r.type === 'data' && hasName)) && hasName) {
+      const check = _validateTodayUnit(r.cells?.[1]);
+      if (!check.valid) {
+        _todayOrderSelRow = i;
+        _todayOrderSelCol = 1;
+        _renderTodayOrderGrid();
+        showToast(`${i + 1} 行目（${r.cells[0]}）: ${check.error}`, true);
+        return false;
+      }
+      r.cells[1] = check.normalized;
+    }
+  }
+  _persistTodayOrderLocal();
+  const saveBtn = document.getElementById('todayOrderSaveBtn');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = '保存中…';
+  }
+  try {
+    const r = await fetch(`${API_BASE}/api/today-order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: _todayOrderRows }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || r.statusText);
+    }
+    _markTodayOrderDirty(false);
+    if (saveBtn) saveBtn.textContent = '💾 保存済';
+    if (!silent) showToast('本日の発注書を保存しました');
+    return true;
+  } catch (e) {
+    _markTodayOrderDirty(false);
+    if (!silent) showToast('ブラウザに保存しました（サーバー同期エラー: ' + e.message + '）', true);
+    return false;
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+async function loadTodayOrderSheet() {
+  try {
+    const r = await fetch(`${API_BASE}/api/today-order`);
+    if (r.ok) {
+      const data = await r.json();
+      if (data && !data.is_default && Array.isArray(data.rows) && data.rows.length) {
+        _todayOrderRows = _normalizeTodayOrderRowsClient(data.rows);
+        _persistTodayOrderLocal();
+        return;
+      }
+    }
+  } catch {}
+  try {
+    const cached = localStorage.getItem(TODAY_ORDER_STORAGE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length) {
+        _todayOrderRows = _normalizeTodayOrderRowsClient(parsed);
+        return;
+      }
+    }
+  } catch {}
+  _todayOrderRows = _createTodayOrderInitialRows();
+}
+
+function _countTodayOrderItems() {
+  return _todayOrderRows.filter(r =>
+    r.type === 'item' || (r.type === 'data' && r.cells.some(c => String(c || '').trim()))
+  ).length;
+}
+
+function _updateTodayOrderHeaderBadges() {
+  const titleBadge = document.getElementById('todayOrderTitleBadge');
+  const countBadge = document.getElementById('todayOrderItemCount');
+  const titleRow = _todayOrderRows.find(r => r.type === 'title');
+  if (titleBadge && titleRow?.cells?.[0]) {
+    titleBadge.textContent = titleRow.cells[0];
+  }
+  if (countBadge) {
+    countBadge.textContent = `${_countTodayOrderItems()} 品目`;
+  }
+}
+
+function _getTodayHeaderDateSpan() {
+  const hdr = _todayOrderRows.find(r => r.type === 'header');
+  if (!hdr) return '10/26〜10/31';
+  const startRaw = String(hdr.cells[2] || '').split('\n')[0].trim() || '10/26';
+  const endRaw = String(hdr.cells[7] || '').split('\n')[0].trim() || '10/31';
+  return `${startRaw}〜${endRaw}`;
+}
+
+function _syncTodayOrderMergedNotice() {
+  const hasItems = _todayOrderRows.some(r => r.type === 'item');
+  if (hasItems) {
+    _todayOrderRows = _todayOrderRows.filter(r => r.type !== 'merged');
+    return;
+  }
+  const hasMerged = _todayOrderRows.some(r => r.type === 'merged');
+  if (!hasMerged) {
+    const hdrIdx = _todayOrderRows.findIndex(r => r.type === 'header');
+    const insertAt = hdrIdx >= 0 ? hdrIdx + 1 : Math.min(5, _todayOrderRows.length);
+    const span = _getTodayHeaderDateSpan();
+    _todayOrderRows.splice(insertAt, 0, {
+      type: 'merged',
+      cells: [`今週（${span}）の発注はありません（全品目 休止）`, '', '', '', '', '', '', ''],
+    });
+  }
+}
+
+function _isTodayRowSpanned(rowObj) {
+  if (!rowObj) return false;
+  if (!['title', 'meta', 'merged', 'note'].includes(rowObj.type)) return false;
+  return rowObj.cells.slice(1).every(v => !String(v || '').trim());
+}
+
+function _getTodayRowCellClass(rowObj, ci, val) {
+  let cls = 'xls-cell';
+  if (rowObj.type === 'title') cls += ' today-xls-title';
+  else if (rowObj.type === 'meta') cls += ' today-xls-meta';
+  else if (rowObj.type === 'header') {
+    cls += ' today-xls-header';
+    if (ci === 0) cls += ' today-xls-header-left';
+    else if (ci === 1) cls += ' today-xls-header-right';
+    else cls += ' today-xls-header-center';
+  } else if (rowObj.type === 'merged') cls += ' today-xls-merged';
+  else if (rowObj.type === 'note') cls += ' today-xls-note';
+  else {
+    if (rowObj.type === 'item' && ci === 0) cls += ' today-xls-item-name';
+    else if (ci === 1 && (rowObj.type === 'item' || String(rowObj.cells?.[0] || '').trim())) {
+      cls += ' today-xls-item-unit';
+      if (!_validateTodayUnit(val).valid) cls += ' today-cell-invalid';
+    } else if (rowObj.type === 'item' && ci === 1) cls += ' today-xls-item-unit';
+    else if (val && /^[\d,，.\-￥¥\s]+$/.test(val) && /\d/.test(val)) cls += ' today-xls-num';
+  }
+  return cls;
+}
+
+function _extractTodayBaseIsoDate() {
+  const metaRows = _todayOrderRows.filter(r => r.type === 'meta');
+  for (const r of metaRows) {
+    const m = String(r.cells?.[0] || '').match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+    if (m) {
+      return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+    }
+  }
+  const hdr = _todayOrderRows.find(r => r.type === 'header');
+  if (hdr) {
+    const m = String(hdr.cells?.[2] || '').match(/(\d{1,2})\/(\d{1,2})/);
+    if (m) {
+      return `2026-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`;
+    }
+  }
+  return '2026-10-26';
+}
+
+function _formatTodayPeriodString(isoDateStr) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDateStr || '')) return '';
+  const [y, m, d] = isoDateStr.split('-').map(Number);
+  const startDt = new Date(y, m - 1, d);
+  const endDt = new Date(y, m - 1, d + 5);
+  const wdays = ['日', '月', '火', '水', '木', '金', '土'];
+  return `対象期間：${startDt.getFullYear()}年${startDt.getMonth() + 1}月${startDt.getDate()}日（${wdays[startDt.getDay()]}）〜${endDt.getMonth() + 1}月${endDt.getDate()}日（${wdays[endDt.getDay()]}）`;
+}
+
+function _applyBaseDateToTodaySheet(isoDateStr) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDateStr || '')) return false;
+  const [y, m, d] = isoDateStr.split('-').map(Number);
+  const wdays = ['日', '月', '火', '水', '木', '金', '土'];
+
+  const metaRows = _todayOrderRows.filter(r => r.type === 'meta');
+  if (metaRows[1]) {
+    metaRows[1].cells[0] = _formatTodayPeriodString(isoDateStr);
+  }
+  const hdr = _todayOrderRows.find(r => r.type === 'header');
+  if (hdr) {
+    for (let offset = 0; offset < 6; offset++) {
+      const dt = new Date(y, m - 1, d + offset);
+      hdr.cells[2 + offset] = `${dt.getMonth() + 1}/${dt.getDate()}\n${wdays[dt.getDay()]}`;
+    }
+  }
+  const mergedRow = _todayOrderRows.find(r => r.type === 'merged');
+  if (mergedRow) {
+    mergedRow.cells[0] = `今週（${_getTodayHeaderDateSpan()}）の発注はありません（全品目 休止）`;
+  }
+  const inlineDateEl = document.getElementById('todayOrderInlineDate');
+  if (inlineDateEl) inlineDateEl.value = isoDateStr;
+  return true;
+}
+
+function _updateTodayModalDateHeaders(isoDateStr) {
+  const previewEl = document.getElementById('todayItemModalPeriodPreview');
+  const wdays = ['日', '月', '火', '水', '木', '金', '土'];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoDateStr || '')) {
+    const [y, m, d] = isoDateStr.split('-').map(Number);
+    if (previewEl) previewEl.textContent = _formatTodayPeriodString(isoDateStr);
+    for (let offset = 0; offset < 6; offset++) {
+      const dt = new Date(y, m - 1, d + offset);
+      const th = document.getElementById(`todayModalDayHdr${offset}`);
+      if (th) th.textContent = `${dt.getMonth() + 1}/${dt.getDate()} (${wdays[dt.getDay()]})`;
+    }
+  } else {
+    const hdr = _todayOrderRows.find(r => r.type === 'header');
+    const metaRows = _todayOrderRows.filter(r => r.type === 'meta');
+    if (previewEl) previewEl.textContent = metaRows[1]?.cells?.[0] || '';
+    for (let offset = 0; offset < 6; offset++) {
+      const th = document.getElementById(`todayModalDayHdr${offset}`);
+      const rawHdr = String(hdr?.cells?.[2 + offset] || '').trim();
+      if (th) th.textContent = rawHdr ? rawHdr.replace(/\n+/g, ' (') + (rawHdr.includes('\n') ? ')' : '') : `日 ${offset + 1}`;
+    }
+  }
+}
+
+function _renumberTodayModalRows() {
+  const tbody = document.getElementById('todayModalItemsBody');
+  if (!tbody) return;
+  Array.from(tbody.children).forEach((tr, idx) => {
+    const numTd = tr.querySelector('.today-m-row-num');
+    if (numTd) numTd.textContent = String(idx + 1);
+  });
+}
+
+function _appendTodayModalItemRow(itemData = null) {
+  const tbody = document.getElementById('todayModalItemsBody');
+  if (!tbody) return null;
+  const data = itemData || { name: '', unit: '', days: ['', '', '', '', '', ''] };
+  const tr = document.createElement('tr');
+
+  const numTd = document.createElement('td');
+  numTd.className = 'today-m-row-num';
+  numTd.textContent = String(tbody.children.length + 1);
+  tr.appendChild(numTd);
+
+  const nameTd = document.createElement('td');
+  const nameInp = document.createElement('input');
+  nameInp.type = 'text';
+  nameInp.className = 'today-m-input today-m-name';
+  nameInp.placeholder = '品目名（例: 大根）';
+  nameInp.autocomplete = 'off';
+  nameInp.value = data.name || '';
+  nameInp.addEventListener('input', () => {
+    nameInp.classList.remove('today-input-error');
+    _setTodayModalValMsg('');
+  });
+  nameTd.appendChild(nameInp);
+  tr.appendChild(nameTd);
+
+  const unitTd = document.createElement('td');
+  const unitInp = document.createElement('input');
+  unitInp.type = 'text';
+  unitInp.className = 'today-m-input today-m-unit';
+  unitInp.setAttribute('list', 'todayItemUnitList');
+  unitInp.placeholder = '例: cs / 束';
+  unitInp.autocomplete = 'off';
+  unitInp.value = data.unit || '';
+
+  const validateUnitInput = (allowEmptyWhenBlankRow = true) => {
+    const raw = unitInp.value.trim();
+    const rowHasOther = Boolean(
+      nameInp.value.trim() ||
+      Array.from(tr.querySelectorAll('.today-m-day')).some(inp => inp.value.trim())
+    );
+    if (!raw && allowEmptyWhenBlankRow && !rowHasOther) {
+      unitInp.classList.remove('today-input-error', 'today-input-valid');
+      return true;
+    }
+    const res = _validateTodayUnit(raw);
+    if (res.valid) {
+      unitInp.value = res.normalized;
+      unitInp.classList.remove('today-input-error');
+      unitInp.classList.add('today-input-valid');
+      return true;
+    }
+    unitInp.classList.remove('today-input-valid');
+    unitInp.classList.add('today-input-error');
+    return res.error;
+  };
+
+  unitInp.addEventListener('input', () => {
+    const raw = unitInp.value.trim();
+    if (!raw) {
+      unitInp.classList.remove('today-input-error', 'today-input-valid');
+      _setTodayModalValMsg('');
+      return;
+    }
+    const res = _validateTodayUnit(raw);
+    if (res.valid) {
+      unitInp.classList.remove('today-input-error');
+      unitInp.classList.add('today-input-valid');
+      _setTodayModalValMsg('');
+    } else {
+      unitInp.classList.remove('today-input-valid');
+    }
+  });
+  unitInp.addEventListener('change', () => {
+    const check = validateUnitInput(true);
+    if (check !== true) _setTodayModalValMsg(check);
+    else _setTodayModalValMsg('');
+  });
+  unitInp.addEventListener('blur', () => {
+    const check = validateUnitInput(true);
+    if (check !== true) _setTodayModalValMsg(check);
+  });
+  if (data.unit && _validateTodayUnit(data.unit).valid) {
+    unitInp.classList.add('today-input-valid');
+  }
+
+  unitTd.appendChild(unitInp);
+  tr.appendChild(unitTd);
+
+  for (let d = 0; d < 6; d++) {
+    const dayTd = document.createElement('td');
+    const dayInp = document.createElement('input');
+    dayInp.type = 'text';
+    dayInp.className = 'today-m-input today-m-day';
+    dayInp.placeholder = '0';
+    dayInp.autocomplete = 'off';
+    dayInp.value = (data.days && data.days[d] != null) ? String(data.days[d]) : '';
+    dayInp.addEventListener('input', () => {
+      dayInp.classList.remove('today-input-error');
+      _setTodayModalValMsg('');
+    });
+    dayTd.appendChild(dayInp);
+    tr.appendChild(dayTd);
+  }
+
+  const delTd = document.createElement('td');
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'today-m-del';
+  delBtn.title = 'この入力行を削除';
+  delBtn.textContent = '✕';
+  delBtn.addEventListener('click', () => {
+    tr.remove();
+    if (!tbody.children.length) {
+      _appendTodayModalItemRow();
+    } else {
+      _renumberTodayModalRows();
+    }
+  });
+  delTd.appendChild(delBtn);
+  tr.appendChild(delTd);
+
+  tbody.appendChild(tr);
+  return tr;
+}
+
+function _fillTodayModalPreset(presetName) {
+  const tbody = document.getElementById('todayModalItemsBody');
+  if (!tbody || !presetName) return;
+  const emptyRow = Array.from(tbody.children).find(tr => {
+    const inp = tr.querySelector('.today-m-name');
+    return inp && !inp.value.trim();
+  });
+  if (emptyRow) {
+    emptyRow.querySelector('.today-m-name').value = presetName;
+    emptyRow.querySelector('.today-m-unit')?.focus();
+    return;
+  }
+  const newTr = _appendTodayModalItemRow({ name: presetName, unit: '', days: ['', '', '', '', '', ''] });
+  newTr?.querySelector('.today-m-unit')?.focus();
+}
+
+function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
+  const backdrop = document.getElementById('todayOrderItemModalBackdrop');
+  if (!backdrop) return;
+  _todayOrderEditRowIdx = rowIdx;
+
+  const baseIso = _extractTodayBaseIsoDate();
+  const modalDateInp = document.getElementById('todayItemModalBaseDate');
+  if (modalDateInp) modalDateInp.value = baseIso;
+  _updateTodayModalDateHeaders(baseIso);
+
+  const titleEl = document.getElementById('todayOrderItemModalTitle');
+  const delBtn = document.getElementById('todayItemFormDelete');
+  const tbody = document.getElementById('todayModalItemsBody');
+  if (tbody) tbody.innerHTML = '';
+  _setTodayModalValMsg('');
+
+  let focusEl = null;
+
+  if (rowIdx !== null && _todayOrderRows[rowIdx] && _todayOrderRows[rowIdx].type !== 'merged') {
+    const row = _todayOrderRows[rowIdx];
+    if (titleEl) titleEl.textContent = `発注品目を編集（${rowIdx + 1} 行目）`;
+    const tr = _appendTodayModalItemRow({
+      name: row.cells[0] || '',
+      unit: row.cells[1] || '',
+      days: row.cells.slice(2, 8),
+    });
+    if (delBtn) delBtn.classList.remove('hidden');
+    focusEl = tr?.querySelector('.today-m-name');
+  } else if (options.fillAllPresets) {
+    if (titleEl) titleEl.textContent = '複数品目を一括追加（日付・数量入力）';
+    TODAY_PRESET_ITEMS.forEach((pName, idx) => {
+      const tr = _appendTodayModalItemRow({ name: pName, unit: '', days: ['', '', '', '', '', ''] });
+      if (idx === 0) focusEl = tr?.querySelector('.today-m-unit');
+    });
+    if (delBtn) delBtn.classList.add('hidden');
+  } else {
+    if (titleEl) titleEl.textContent = '発注品目を追加（複数品目・日付設定）';
+    if (presetName) {
+      const tr1 = _appendTodayModalItemRow({ name: presetName, unit: '', days: ['', '', '', '', '', ''] });
+      _appendTodayModalItemRow();
+      focusEl = tr1?.querySelector('.today-m-unit');
+    } else {
+      const tr1 = _appendTodayModalItemRow();
+      _appendTodayModalItemRow();
+      _appendTodayModalItemRow();
+      focusEl = tr1?.querySelector('.today-m-name');
+    }
+    if (delBtn) delBtn.classList.add('hidden');
+  }
+
+  backdrop.classList.remove('hidden');
+  focusEl?.focus();
+}
+
+function closeTodayOrderItemModal() {
+  document.getElementById('todayOrderItemModalBackdrop')?.classList.add('hidden');
+  _todayOrderEditRowIdx = null;
+}
+
+function openTodayOrderMetaModal(focusTarget = 'title') {
+  const backdrop = document.getElementById('todayOrderMetaModalBackdrop');
+  if (!backdrop) return;
+  const titleRow = _todayOrderRows.find(r => r.type === 'title');
+  const metaRows = _todayOrderRows.filter(r => r.type === 'meta');
+  const noteRows = _todayOrderRows.filter(r => r.type === 'note');
+
+  const titleInp = document.getElementById('todayMetaTitle');
+  const destInp = document.getElementById('todayMetaDest');
+  const periodInp = document.getElementById('todayMetaPeriod');
+  const baseDateInp = document.getElementById('todayMetaBaseDate');
+  const note1Inp = document.getElementById('todayMetaNote1');
+  const note2Inp = document.getElementById('todayMetaNote2');
+
+  if (titleInp) titleInp.value = titleRow?.cells?.[0] || '';
+  if (destInp) destInp.value = metaRows[0]?.cells?.[0] || '';
+  const periodText = metaRows[1]?.cells?.[0] || '';
+  if (periodInp) periodInp.value = periodText;
+  if (note1Inp) note1Inp.value = noteRows[0]?.cells?.[0] || '';
+  if (note2Inp) note2Inp.value = noteRows[1]?.cells?.[0] || '';
+
+  if (baseDateInp) {
+    baseDateInp.value = _extractTodayBaseIsoDate();
+  }
+
+  backdrop.classList.remove('hidden');
+  if (focusTarget === 'date') baseDateInp?.focus();
+  else titleInp?.focus();
+}
+
+function closeTodayOrderMetaModal() {
+  document.getElementById('todayOrderMetaModalBackdrop')?.classList.add('hidden');
+}
+
+async function deleteTodayOrderRow(ri, skipConfirm = false) {
+  if (!_todayOrderRows.length || ri < 0 || ri >= _todayOrderRows.length) return;
+  const rowObj = _todayOrderRows[ri];
+  if (rowObj.type === 'title' || rowObj.type === 'header') {
+    showToast('タイトル行・見出し行は削除できません', true);
+    return;
+  }
+  const label = rowObj.cells[0] ? `「${rowObj.cells[0]}」` : `行 ${ri + 1}`;
+  if (!skipConfirm && !confirm(`${label} を削除しますか？`)) return;
+
+  if (_todayOrderRows.length <= 1) {
+    _todayOrderRows[0].cells = Array(TODAY_ORDER_COLS).fill('');
+    _todayOrderSelRow = 0;
+  } else {
+    _todayOrderRows.splice(ri, 1);
+    _syncTodayOrderMergedNotice();
+    _todayOrderSelRow = Math.min(ri, _todayOrderRows.length - 1);
+  }
+  _markTodayOrderDirty(true);
+  _renderTodayOrderGrid();
+  await saveTodayOrderSheet(true);
+  showToast(`${label} を削除しました`);
+}
+
+function _renderTodayOrderGrid() {
+  const gridWrap  = document.getElementById('todayOrderGridWrap');
+  const cellRefEl = document.getElementById('todayOrderCellRef');
+  const cellValEl = document.getElementById('todayOrderCellVal');
+  const statusEl  = document.getElementById('todayOrderStatusBar');
+  const searchQ   = (document.getElementById('todayOrderSearch')?.value || '').trim().toLowerCase();
+  if (!gridWrap) return;
+
+  _updateTodayOrderHeaderBadges();
+  const inlineDateEl = document.getElementById('todayOrderInlineDate');
+  if (inlineDateEl) inlineDateEl.value = _extractTodayBaseIsoDate();
+
+  const rows = _todayOrderRows;
+  const colLetters = Array.from({ length: TODAY_ORDER_COLS }, (_, i) => _colLetter(i));
+  const cellMatrix = [];
+  const rowNumCells = [];
+  let selectedTd = null;
+  let selectedColIdx = -1;
+  let selectedRowIdx = -1;
+
+  const table = document.createElement('table');
+  table.className = 'xls-table today-xls-table';
+
+  const colgroup = document.createElement('colgroup');
+  const rnCol = document.createElement('col');
+  rnCol.className = 'today-col-rn';
+  colgroup.appendChild(rnCol);
+  for (let ci = 0; ci < TODAY_ORDER_COLS; ci++) {
+    const colEl = document.createElement('col');
+    colEl.className = ci === 0 ? 'today-col-a' : 'today-col-other';
+    colgroup.appendChild(colEl);
+  }
+  const actCol = document.createElement('col');
+  actCol.className = 'today-col-act';
+  colgroup.appendChild(actCol);
+  table.appendChild(colgroup);
+
+  const thead = document.createElement('thead');
+  const colHeaderRow = document.createElement('tr');
+  const corner = document.createElement('th');
+  corner.className = 'xls-th-corner';
+  colHeaderRow.appendChild(corner);
+
+  const colHeaders = colLetters.map((letter, ci) => {
+    const th = document.createElement('th');
+    th.className = 'xls-th-col ' + (ci === 0 ? 'today-th-col-a' : 'today-th-col-other');
+    th.innerHTML = `<div class="xls-th-letter">${letter}</div>`;
+    colHeaderRow.appendChild(th);
+    return th;
+  });
+  const actTh = document.createElement('th');
+  actTh.className = 'xls-th-col today-th-col-act';
+  actTh.innerHTML = '<div class="xls-th-letter">操作</div>';
+  colHeaderRow.appendChild(actTh);
+  thead.appendChild(colHeaderRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+
+  function selectCell(ri, ci, focusGrid = false) {
+    if (!rows.length) return;
+    ri = Math.max(0, Math.min(rows.length - 1, ri));
+    ci = Math.max(0, Math.min(TODAY_ORDER_COLS - 1, ci));
+    if (_isTodayRowSpanned(rows[ri])) ci = 0;
+
+    if (selectedTd) {
+      selectedTd.classList.remove('xls-sel');
+      if (selectedColIdx >= 0) colHeaders[selectedColIdx]?.classList.remove('xls-col-sel');
+      if (selectedRowIdx >= 0) rowNumCells[selectedRowIdx]?.classList.remove('xls-row-sel');
+    }
+
+    selectedRowIdx = ri;
+    selectedColIdx = ci;
+    selectedTd = cellMatrix[ri]?.[ci] || null;
+    _todayOrderSelRow = ri;
+    _todayOrderSelCol = ci;
+
+    selectedTd?.classList.add('xls-sel');
+    colHeaders[ci]?.classList.add('xls-col-sel');
+    rowNumCells[ri]?.classList.add('xls-row-sel');
+
+    if (cellRefEl) cellRefEl.textContent = colLetters[ci] + (ri + 1);
+    const val = rows[ri]?.cells?.[ci] != null ? String(rows[ri].cells[ci]) : '';
+    if (cellValEl) cellValEl.value = val;
+
+    selectedTd?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (focusGrid) gridWrap.focus({ preventScroll: true });
+  }
+
+  function updateCellValue(ri, ci, newVal, showErrToast = true) {
+    const rowObj = rows[ri];
+    if (!rowObj) return;
+    while (rowObj.cells.length < TODAY_ORDER_COLS) rowObj.cells.push('');
+    const prevVal = rowObj.cells[ci] != null ? String(rowObj.cells[ci]) : '';
+    let finalVal = newVal;
+    const isUnitCell = ci === 1 && (rowObj.type === 'item' || String(rowObj.cells[0] || '').trim());
+    if (isUnitCell) {
+      const check = _validateTodayUnit(newVal);
+      if (check.valid) {
+        finalVal = check.normalized;
+      } else if (showErrToast) {
+        showToast(check.error, true);
+      }
+    }
+    if (prevVal === finalVal && !isUnitCell) return;
+    rowObj.cells[ci] = finalVal;
+    if (rowObj.type === 'data' && finalVal.trim() && ci === 0) {
+      rowObj.type = 'item';
+    }
+    const td = cellMatrix[ri]?.[ci];
+    if (td && !td.classList.contains('xls-editing')) {
+      td.className = _getTodayRowCellClass(rowObj, ci, finalVal) + (selectedRowIdx === ri && selectedColIdx === ci ? ' xls-sel' : '');
+      td.textContent = finalVal;
+      td.title = finalVal;
+    }
+    if (ci === 0) {
+      const unitTd = cellMatrix[ri]?.[1];
+      if (unitTd) {
+        const unitVal = rowObj.cells[1] != null ? String(rowObj.cells[1]) : '';
+        unitTd.className = _getTodayRowCellClass(rowObj, 1, unitVal) + (selectedRowIdx === ri && selectedColIdx === 1 ? ' xls-sel' : '');
+      }
+    }
+    if (cellValEl && selectedRowIdx === ri && selectedColIdx === ci && document.activeElement !== cellValEl) {
+      cellValEl.value = finalVal;
+    }
+    _markTodayOrderDirty(true);
+    _persistTodayOrderLocal();
+    _updateTodayOrderHeaderBadges();
+    const inlineDateEl = document.getElementById('todayOrderInlineDate');
+    if (inlineDateEl) inlineDateEl.value = _extractTodayBaseIsoDate();
+  }
+
+  function startInlineEdit(ri, ci, initialChar = null) {
+    if (_isTodayRowSpanned(rows[ri])) ci = 0;
+    selectCell(ri, ci, false);
+    const td = cellMatrix[ri]?.[ci];
+    if (!td || td.classList.contains('xls-editing')) return;
+    const origVal = rows[ri]?.cells?.[ci] != null ? String(rows[ri].cells[ci]) : '';
+    td.classList.add('xls-editing');
+    td.textContent = '';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'xls-cell-input';
+    if (ci === 1 && (rows[ri]?.type === 'item' || rows[ri]?.type === 'data')) {
+      input.setAttribute('list', 'todayItemUnitList');
+    }
+    input.value = initialChar !== null ? initialChar : origVal;
+    td.appendChild(input);
+    input.focus();
+    if (initialChar === null) {
+      input.select();
+    } else {
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+    if (cellValEl) cellValEl.value = input.value;
+
+    let committed = false;
+    input.addEventListener('input', () => {
+      if (cellValEl) cellValEl.value = input.value;
+    });
+
+    function finishEdit(save, nextAction = null) {
+      if (committed) return;
+      committed = true;
+      const finalVal = save ? input.value : origVal;
+      td.classList.remove('xls-editing');
+      td.textContent = finalVal;
+      td.title = finalVal;
+      if (save) updateCellValue(ri, ci, finalVal);
+      if (cellValEl) cellValEl.value = rows[ri]?.cells?.[ci] != null ? String(rows[ri].cells[ci]) : '';
+      if (nextAction === 'down') selectCell(Math.min(rows.length - 1, ri + 1), ci, true);
+      else if (nextAction === 'right') selectCell(ri, Math.min(TODAY_ORDER_COLS - 1, ci + 1), true);
+      else if (nextAction === 'left') selectCell(ri, Math.max(0, ci - 1), true);
+      else gridWrap.focus({ preventScroll: true });
+    }
+
+    input.addEventListener('blur', () => finishEdit(true));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        finishEdit(true, 'down');
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        finishEdit(true, e.shiftKey ? 'left' : 'right');
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        finishEdit(false);
+      }
+    });
+  }
+
+  rows.forEach((rowObj, ri) => {
+    const tr = document.createElement('tr');
+    const rowText = rowObj.cells.join(' ').toLowerCase();
+    const matchesSearch = searchQ && rowText.includes(searchQ);
+    if (rowObj.type === 'item') tr.classList.add('today-row-item');
+    if (matchesSearch && ['item', 'data', 'merged', 'note'].includes(rowObj.type)) {
+      tr.classList.add('today-row-match');
+    }
+    if (searchQ && rowObj.type === 'item' && !matchesSearch) {
+      tr.classList.add('hidden');
+    }
+
+    const rowNum = document.createElement('td');
+    rowNum.className = 'xls-td-row';
+    rowNum.textContent = ri + 1;
+    rowNum.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectCell(ri, 0, true);
+    });
+    tr.appendChild(rowNum);
+    rowNumCells[ri] = rowNum;
+    cellMatrix[ri] = [];
+
+    if (_isTodayRowSpanned(rowObj)) {
+      const td = document.createElement('td');
+      const val = rowObj.cells[0] != null ? String(rowObj.cells[0]) : '';
+      td.colSpan = TODAY_ORDER_COLS;
+      td.className = _getTodayRowCellClass(rowObj, 0, val);
+      td.title = val;
+      td.textContent = val;
+      td.addEventListener('click', () => selectCell(ri, 0, true));
+      td.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        startInlineEdit(ri, 0);
+      });
+      tr.appendChild(td);
+      for (let c = 0; c < TODAY_ORDER_COLS; c++) cellMatrix[ri][c] = td;
+    } else {
+      for (let ci = 0; ci < TODAY_ORDER_COLS; ci++) {
+        const td = document.createElement('td');
+        const val = rowObj.cells[ci] != null ? String(rowObj.cells[ci]) : '';
+        td.className = _getTodayRowCellClass(rowObj, ci, val);
+        td.title = val;
+        td.textContent = val;
+        td.addEventListener('click', () => selectCell(ri, ci, true));
+        td.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          if (rowObj.type === 'header' && ci >= 2) {
+            openTodayOrderMetaModal('date');
+            return;
+          }
+          startInlineEdit(ri, ci);
+        });
+        tr.appendChild(td);
+        cellMatrix[ri][ci] = td;
+      }
+    }
+
+    // Per-row CRUD Actions cell
+    const actTd = document.createElement('td');
+    actTd.className = 'today-xls-actions' + (rowObj.type === 'header' ? ' today-xls-actions-hdr' : '');
+    if (rowObj.type === 'header') {
+      const grp = document.createElement('div');
+      grp.className = 'today-row-act-group';
+      const dateBtn = document.createElement('button');
+      dateBtn.type = 'button';
+      dateBtn.className = 'today-hdr-act-btn';
+      dateBtn.title = '対象期間・曜日日付を変更';
+      dateBtn.textContent = '📅 日付';
+      dateBtn.addEventListener('click', (e) => { e.stopPropagation(); openTodayOrderMetaModal('date'); });
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'today-hdr-act-btn';
+      addBtn.title = '複数品目を追加';
+      addBtn.textContent = '+ 品目';
+      addBtn.addEventListener('click', (e) => { e.stopPropagation(); openTodayOrderItemModal(null); });
+      grp.appendChild(dateBtn);
+      grp.appendChild(addBtn);
+      actTd.appendChild(grp);
+    } else if (rowObj.type === 'title' || rowObj.type === 'meta' || rowObj.type === 'note') {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'today-row-act-btn';
+      btn.title = 'ヘッダー・備考を編集';
+      btn.textContent = '✎ 編集';
+      btn.addEventListener('click', (e) => { e.stopPropagation(); openTodayOrderMetaModal(); });
+      actTd.appendChild(btn);
+    } else if (rowObj.type === 'merged') {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'today-row-act-btn add';
+      btn.title = '発注品目を追加';
+      btn.textContent = '+ 品目追加';
+      btn.addEventListener('click', (e) => { e.stopPropagation(); openTodayOrderItemModal(null); });
+      actTd.appendChild(btn);
+    } else if (rowObj.type === 'item' || rowObj.type === 'data') {
+      const grp = document.createElement('div');
+      grp.className = 'today-row-act-group';
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'today-row-act-btn add';
+      addBtn.title = '複数品目を追加';
+      addBtn.textContent = '＋';
+      addBtn.addEventListener('click', (e) => { e.stopPropagation(); openTodayOrderItemModal(null); });
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'today-row-act-btn';
+      editBtn.title = 'この行を編集';
+      editBtn.textContent = '✎ 編集';
+      editBtn.addEventListener('click', (e) => { e.stopPropagation(); openTodayOrderItemModal(ri); });
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'today-row-act-btn del';
+      delBtn.title = 'この行を削除';
+      delBtn.textContent = '🗑';
+      delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteTodayOrderRow(ri); });
+      grp.appendChild(addBtn);
+      grp.appendChild(editBtn);
+      grp.appendChild(delBtn);
+      actTd.appendChild(grp);
+    }
+    tr.appendChild(actTd);
+
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+
+  gridWrap.innerHTML = '';
+  gridWrap.appendChild(table);
+
+  if (cellValEl) {
+    cellValEl.onfocus = () => {
+      cellValEl.dataset.origRawVal = rows[_todayOrderSelRow]?.cells?.[_todayOrderSelCol] ?? '';
+    };
+    cellValEl.oninput = () => {
+      if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
+        updateCellValue(selectedRowIdx, selectedColIdx, cellValEl.value, false);
+      }
+    };
+    cellValEl.onchange = () => {
+      if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
+        updateCellValue(selectedRowIdx, selectedColIdx, cellValEl.value, true);
+      }
+    };
+    cellValEl.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
+          selectCell(Math.min(rows.length - 1, selectedRowIdx + 1), selectedColIdx, true);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        const orig = cellValEl.dataset.origRawVal ?? '';
+        if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
+          updateCellValue(selectedRowIdx, selectedColIdx, orig);
+        }
+        cellValEl.value = orig;
+        gridWrap.focus({ preventScroll: true });
+      }
+    };
+  }
+
+  gridWrap.onkeydown = (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+    if (selectedRowIdx < 0 || selectedColIdx < 0) return;
+    if (e.key === 'ArrowUp') { e.preventDefault(); selectCell(Math.max(0, selectedRowIdx - 1), selectedColIdx, false); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); selectCell(Math.min(rows.length - 1, selectedRowIdx + 1), selectedColIdx, false); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); selectCell(selectedRowIdx, Math.max(0, selectedColIdx - 1), false); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); selectCell(selectedRowIdx, Math.min(TODAY_ORDER_COLS - 1, selectedColIdx + 1), false); }
+    else if (e.key === 'Tab') {
+      e.preventDefault();
+      selectCell(selectedRowIdx, Math.max(0, Math.min(TODAY_ORDER_COLS - 1, selectedColIdx + (e.shiftKey ? -1 : 1))), false);
+    } else if (e.key === 'Enter' || e.key === 'F2') {
+      e.preventDefault();
+      startInlineEdit(selectedRowIdx, selectedColIdx);
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      updateCellValue(selectedRowIdx, selectedColIdx, '');
+      if (cellValEl) cellValEl.value = '';
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      startInlineEdit(selectedRowIdx, selectedColIdx, e.key);
+    }
+  };
+
+  selectCell(_todayOrderSelRow, _todayOrderSelCol, false);
+
+  if (statusEl) {
+    const itemCount = _countTodayOrderItems();
+    statusEl.textContent = `${rows.length} rows × ${TODAY_ORDER_COLS} cols · ${itemCount} 品目 · 発注書`;
+  }
+}
+
+async function initTodayOrderView() {
+  if (!_todayOrderInitialized) {
+    await loadTodayOrderSheet();
+    _todayOrderSelRow = 0;
+    _todayOrderSelCol = 0;
+
+    document.getElementById('todayOrderAddItemBtn')?.addEventListener('click', () => {
+      openTodayOrderItemModal(null);
+    });
+
+    document.getElementById('todayOrderEditRowBtn')?.addEventListener('click', () => {
+      const row = _todayOrderRows[_todayOrderSelRow];
+      if (!row) return;
+      if (['title', 'meta', 'header', 'note'].includes(row.type)) {
+        openTodayOrderMetaModal();
+      } else {
+        openTodayOrderItemModal(_todayOrderSelRow);
+      }
+    });
+
+    document.getElementById('todayOrderAddRowBtn')?.addEventListener('click', () => {
+      _todayOrderRows.push({ type: 'data', cells: Array(TODAY_ORDER_COLS).fill('') });
+      _todayOrderSelRow = _todayOrderRows.length - 1;
+      _todayOrderSelCol = 0;
+      _markTodayOrderDirty(true);
+      _persistTodayOrderLocal();
+      _renderTodayOrderGrid();
+      showToast('行を追加しました');
+    });
+
+    document.getElementById('todayOrderDelRowBtn')?.addEventListener('click', () => {
+      const ri = Math.max(0, Math.min(_todayOrderRows.length - 1, _todayOrderSelRow));
+      deleteTodayOrderRow(ri);
+    });
+
+    document.getElementById('todayOrderMetaBtn')?.addEventListener('click', () => {
+      openTodayOrderMetaModal();
+    });
+
+    document.getElementById('todayOrderSaveBtn')?.addEventListener('click', () => {
+      saveTodayOrderSheet(false);
+    });
+
+    document.getElementById('todayOrderResetBtn')?.addEventListener('click', async () => {
+      if (!confirm('本日の発注書を初期状態にリセットしますか？')) return;
+      try { localStorage.removeItem(TODAY_ORDER_STORAGE_KEY); } catch {}
+      try {
+        await fetch(`${API_BASE}/api/today-order`, { method: 'DELETE' });
+      } catch {}
+      _todayOrderRows = _createTodayOrderInitialRows();
+      _todayOrderSelRow = 0;
+      _todayOrderSelCol = 0;
+      _markTodayOrderDirty(false);
+      _renderTodayOrderGrid();
+      showToast('初期データにリセットしました');
+    });
+
+    document.getElementById('todayOrderSearch')?.addEventListener('input', () => {
+      _renderTodayOrderGrid();
+    });
+
+    document.getElementById('todayOrderInlineDate')?.addEventListener('change', async (e) => {
+      const val = (e.target.value || '').trim();
+      if (!_applyBaseDateToTodaySheet(val)) return;
+      _markTodayOrderDirty(true);
+      _renderTodayOrderGrid();
+      await saveTodayOrderSheet(true);
+      showToast('対象期間と曜日日付を更新しました');
+    });
+
+    document.querySelectorAll('#todayOrderQuickPresets .today-preset-chip[data-preset]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openTodayOrderItemModal(null, btn.dataset.preset || '');
+      });
+    });
+
+    document.getElementById('todayOrderAddAllPresetsBtn')?.addEventListener('click', () => {
+      openTodayOrderItemModal(null, '', { fillAllPresets: true });
+    });
+
+    document.getElementById('todayItemModalBaseDate')?.addEventListener('change', (e) => {
+      _updateTodayModalDateHeaders((e.target.value || '').trim());
+    });
+
+    document.querySelectorAll('#todayItemPresetChips .today-preset-chip[data-preset]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _fillTodayModalPreset(btn.dataset.preset || '');
+      });
+    });
+
+    document.getElementById('todayModalFillAllPresetsBtn')?.addEventListener('click', () => {
+      const tbody = document.getElementById('todayModalItemsBody');
+      if (!tbody) return;
+      Array.from(tbody.children).forEach(tr => {
+        const nameVal = (tr.querySelector('.today-m-name')?.value || '').trim();
+        const unitVal = (tr.querySelector('.today-m-unit')?.value || '').trim();
+        const anyDay = Array.from(tr.querySelectorAll('.today-m-day')).some(inp => inp.value.trim());
+        if (!nameVal && !unitVal && !anyDay) tr.remove();
+      });
+      const existing = new Set(
+        Array.from(tbody.querySelectorAll('.today-m-name')).map(inp => inp.value.trim()).filter(Boolean)
+      );
+      let firstAdded = null;
+      TODAY_PRESET_ITEMS.forEach(pName => {
+        if (!existing.has(pName)) {
+          const tr = _appendTodayModalItemRow({ name: pName, unit: '', days: ['', '', '', '', '', ''] });
+          if (!firstAdded) firstAdded = tr;
+        }
+      });
+      _renumberTodayModalRows();
+      firstAdded?.querySelector('.today-m-unit')?.focus();
+    });
+
+    document.getElementById('todayModalAddRowBtn')?.addEventListener('click', () => {
+      const tr = _appendTodayModalItemRow();
+      tr?.querySelector('.today-m-name')?.focus();
+    });
+
+    document.getElementById('todayItemFormCancel')?.addEventListener('click', closeTodayOrderItemModal);
+    document.getElementById('todayOrderItemModalBackdrop')?.addEventListener('click', e => {
+      if (e.target === document.getElementById('todayOrderItemModalBackdrop')) closeTodayOrderItemModal();
+    });
+
+    document.getElementById('todayItemFormDelete')?.addEventListener('click', async () => {
+      const ri = _todayOrderEditRowIdx;
+      if (ri == null) return;
+      closeTodayOrderItemModal();
+      await deleteTodayOrderRow(ri);
+    });
+
+    document.getElementById('todayItemFormSave')?.addEventListener('click', async () => {
+      const tbody = document.getElementById('todayModalItemsBody');
+      const modalBaseDate = (document.getElementById('todayItemModalBaseDate')?.value || '').trim();
+      const collected = [];
+      let validationError = '';
+      let errorFocusEl = null;
+
+      _setTodayModalValMsg('');
+      if (tbody) {
+        const trs = Array.from(tbody.children);
+        trs.forEach(tr => {
+          tr.querySelectorAll('.today-m-input').forEach(inp => inp.classList.remove('today-input-error'));
+        });
+
+        for (let idx = 0; idx < trs.length; idx++) {
+          const tr = trs[idx];
+          const nameInp = tr.querySelector('.today-m-name');
+          const unitInp = tr.querySelector('.today-m-unit');
+          const dayInps = Array.from(tr.querySelectorAll('.today-m-day'));
+
+          const name = (nameInp?.value || '').trim();
+          const unitRaw = (unitInp?.value || '').trim();
+          const daysRaw = dayInps.map(inp => (inp.value || '').trim());
+          const hasAny = Boolean(name || unitRaw || daysRaw.some(Boolean));
+          if (!hasAny) continue;
+
+          if (!name) {
+            nameInp?.classList.add('today-input-error');
+            validationError = `${idx + 1} 行目: 品目名を入力してください`;
+            errorFocusEl = nameInp;
+            break;
+          }
+
+          const unitCheck = _validateTodayUnit(unitRaw);
+          if (!unitCheck.valid) {
+            unitInp?.classList.add('today-input-error');
+            unitInp?.classList.remove('today-input-valid');
+            validationError = `${idx + 1} 行目（${name}）: ${unitCheck.error}`;
+            errorFocusEl = unitInp;
+            break;
+          }
+          if (unitInp) {
+            unitInp.value = unitCheck.normalized;
+            unitInp.classList.add('today-input-valid');
+          }
+
+          const normalizedDays = [];
+          for (let d = 0; d < 6; d++) {
+            const rawD = (daysRaw[d] || '').normalize('NFKC').trim();
+            if (rawD && !/^\d+(\.\d+)?$/.test(rawD)) {
+              dayInps[d]?.classList.add('today-input-error');
+              validationError = `${idx + 1} 行目（${name}）: 数量は0以上の数値で入力してください`;
+              errorFocusEl = dayInps[d];
+              break;
+            }
+            normalizedDays.push(rawD);
+          }
+          if (validationError) break;
+
+          collected.push([name, unitCheck.normalized, ...normalizedDays]);
+        }
+      }
+
+      if (validationError) {
+        _setTodayModalValMsg(validationError);
+        showToast(validationError, true);
+        errorFocusEl?.focus();
+        return;
+      }
+
+      if (!collected.length) {
+        const msg = '品目名と単位を1件以上入力してください';
+        _setTodayModalValMsg(msg);
+        showToast(msg, true);
+        tbody?.querySelector('.today-m-name')?.focus();
+        return;
+      }
+
+      if (/^\d{4}-\d{2}-\d{2}$/.test(modalBaseDate)) {
+        _applyBaseDateToTodaySheet(modalBaseDate);
+      }
+
+      if (_todayOrderEditRowIdx !== null && _todayOrderRows[_todayOrderEditRowIdx] && _todayOrderRows[_todayOrderEditRowIdx].type !== 'merged') {
+        _todayOrderRows[_todayOrderEditRowIdx].type = 'item';
+        _todayOrderRows[_todayOrderEditRowIdx].cells = collected[0];
+        if (collected.length > 1) {
+          const extraItems = collected.slice(1).map(cells => ({ type: 'item', cells }));
+          _todayOrderRows.splice(_todayOrderEditRowIdx + 1, 0, ...extraItems);
+        }
+        _todayOrderSelRow = _todayOrderEditRowIdx;
+        _todayOrderSelCol = 0;
+        showToast(collected.length === 1 ? `品目「${collected[0][0]}」を更新しました` : `${collected.length} 件の品目を更新・追加しました`);
+      } else {
+        _todayOrderRows = _todayOrderRows.filter(r => r.type !== 'merged');
+        let insertIdx = -1;
+        _todayOrderRows.forEach((r, idx) => {
+          if (r.type === 'item') insertIdx = idx;
+        });
+        if (insertIdx < 0) {
+          insertIdx = _todayOrderRows.findIndex(r => r.type === 'header');
+        }
+        const targetIdx = insertIdx >= 0 ? insertIdx + 1 : Math.min(5, _todayOrderRows.length);
+        const newRows = collected.map(cells => ({ type: 'item', cells }));
+        _todayOrderRows.splice(targetIdx, 0, ...newRows);
+        _todayOrderSelRow = targetIdx;
+        _todayOrderSelCol = 0;
+        showToast(collected.length === 1 ? `品目「${collected[0][0]}」を追加しました` : `${collected.length} 件の品目を追加しました`);
+      }
+
+      closeTodayOrderItemModal();
+      _markTodayOrderDirty(true);
+      _renderTodayOrderGrid();
+      await saveTodayOrderSheet(true);
+    });
+
+    const metaBaseDate = document.getElementById('todayMetaBaseDate');
+    metaBaseDate?.addEventListener('change', () => {
+      const val = (metaBaseDate.value || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return;
+      const [y, m, d] = val.split('-').map(Number);
+      const startDt = new Date(y, m - 1, d);
+      const endDt = new Date(y, m - 1, d + 5);
+      const periodInp = document.getElementById('todayMetaPeriod');
+      if (periodInp) {
+        const wdays = ['日', '月', '火', '水', '木', '金', '土'];
+        periodInp.value = `対象期間：${startDt.getFullYear()}年${startDt.getMonth() + 1}月${startDt.getDate()}日（${wdays[startDt.getDay()]}）〜${endDt.getMonth() + 1}月${endDt.getDate()}日（${wdays[endDt.getDay()]}）`;
+      }
+    });
+
+    document.getElementById('todayMetaCancel')?.addEventListener('click', closeTodayOrderMetaModal);
+    document.getElementById('todayOrderMetaModalBackdrop')?.addEventListener('click', e => {
+      if (e.target === document.getElementById('todayOrderMetaModalBackdrop')) closeTodayOrderMetaModal();
+    });
+
+    document.getElementById('todayMetaSave')?.addEventListener('click', async () => {
+      const titleVal  = (document.getElementById('todayMetaTitle')?.value || '').trim();
+      const destVal   = (document.getElementById('todayMetaDest')?.value || '').trim();
+      const periodVal = (document.getElementById('todayMetaPeriod')?.value || '').trim();
+      const baseVal   = (document.getElementById('todayMetaBaseDate')?.value || '').trim();
+      const note1Val  = (document.getElementById('todayMetaNote1')?.value || '').trim();
+      const note2Val  = (document.getElementById('todayMetaNote2')?.value || '').trim();
+
+      const titleRow = _todayOrderRows.find(r => r.type === 'title');
+      if (titleRow) titleRow.cells[0] = titleVal;
+      const metaRows = _todayOrderRows.filter(r => r.type === 'meta');
+      if (metaRows[0]) metaRows[0].cells[0] = destVal;
+      if (metaRows[1]) metaRows[1].cells[0] = periodVal;
+      const noteRows = _todayOrderRows.filter(r => r.type === 'note');
+      if (noteRows[0]) noteRows[0].cells[0] = note1Val;
+      if (noteRows[1]) noteRows[1].cells[0] = note2Val;
+
+      if (/^\d{4}-\d{2}-\d{2}$/.test(baseVal)) {
+        const hdr = _todayOrderRows.find(r => r.type === 'header');
+        if (hdr) {
+          const [y, m, d] = baseVal.split('-').map(Number);
+          const wdays = ['日', '月', '火', '水', '木', '金', '土'];
+          for (let offset = 0; offset < 6; offset++) {
+            const dt = new Date(y, m - 1, d + offset);
+            hdr.cells[2 + offset] = `${dt.getMonth() + 1}/${dt.getDate()}\n${wdays[dt.getDay()]}`;
+          }
+        }
+        const mergedRow = _todayOrderRows.find(r => r.type === 'merged');
+        if (mergedRow) {
+          const span = _getTodayHeaderDateSpan();
+          mergedRow.cells[0] = `今週（${span}）の発注はありません（全品目 休止）`;
+        }
+      }
+
+      closeTodayOrderMetaModal();
+      _markTodayOrderDirty(true);
+      _renderTodayOrderGrid();
+      await saveTodayOrderSheet(true);
+      showToast('ヘッダー・期間・備考を更新しました');
+    });
+
+    document.getElementById('todayOrderCsvBtn')?.addEventListener('click', () => {
+      let lastNonEmpty = -1;
+      _todayOrderRows.forEach((r, idx) => {
+        if (r.cells.some(v => String(v || '').trim())) lastNonEmpty = idx;
+      });
+      const exportCount = Math.max(1, lastNonEmpty + 1);
+      const exportRows = _todayOrderRows.slice(0, exportCount).map(r => r.cells);
+      const csv = exportRows.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), { href: url, download: '千葉自動発注書_発注書.csv' });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('CSVをダウンロードしました');
+    });
+
+    document.getElementById('todayOrderXlsxBtn')?.addEventListener('click', async () => {
+      if (_todayOrderDirty) {
+        await saveTodayOrderSheet(true);
+      }
+      const a = Object.assign(document.createElement('a'), {
+        href: `${API_BASE}/static/chiba_auto_order.xlsx?t=${Date.now()}`,
+        download: '千葉自動発注書（発注分のみ）.xlsx',
+      });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      showToast('Excelファイルをダウンロードしました');
+    });
+
+    _todayOrderInitialized = true;
+  }
+  _renderTodayOrderGrid();
 }
 
 async function reloadOrderSheet() {
@@ -482,13 +1777,17 @@ function updateHeadingModalLivePreview() {
     ? { headingBaseDate: previewDateVal, rows: [] }
     : null;
 
-  previewBar.innerHTML = cols.map((col, idx) => {
-    const formattedCol = previewSheet ? _formatHeadingWithDate(col, previewSheet) : col;
-    return `<div class="heading-live-preview-cell" title="第 ${idx + 1} 列: ${esc(formattedCol)}">
-      <div class="heading-cell-idx">${idx + 1}</div>
-      <div class="heading-cell-content">${formatHeaderHtml(formattedCol)}</div>
-    </div>`;
-  }).join('');
+  // Render as a document-view style table header row
+  previewBar.innerHTML =
+    `<table class="heading-doc-table"><thead><tr>` +
+    cols.map((col, idx) => {
+      const formattedCol = previewSheet ? _formatHeadingWithDate(col, previewSheet) : col;
+      return `<th class="heading-doc-th" title="列 ${idx + 1}">
+        <div class="heading-doc-th-num">${idx + 1}</div>
+        <div class="heading-doc-th-label">${formatHeaderHtml(formattedCol)}</div>
+      </th>`;
+    }).join('') +
+    `</tr></thead></table>`;
 }
 
 function openClientHeadingModal(client) {
@@ -2636,6 +3935,258 @@ function _renderXlsGrid(sheet) {
   statusEl.textContent = `${dataRows} data rows × ${maxCols} cols${headerNote}`;
 }
 
+// ── 風水プロジェクト 発注書 Renderer ──
+function _isFusuiClient(selClient, result) {
+  const c = selClient || result?.client || null;
+  if (!c) return false;
+  const code = (c.code || '').toLowerCase();
+  const name = c.name_ja || '';
+  return code === 'fusui_project' || code.includes('fusui') || name.includes('風水プロジェクト');
+}
+
+function _buildFusuiTable(sheet) {
+  const rows = sheet.rows || [];
+  if (!rows.length) return '';
+  const hIdx = (sheet.hasHeader && sheet.headerIdx >= 0) ? sheet.headerIdx : -1;
+  const startRow = hIdx >= 0 ? hIdx + 1 : 0;
+  const maxCols = Math.max(1, ...rows.map(r => r.length));
+
+  let html = '<div class="fusui-hanchu-table-wrap"><table class="fusui-hanchu-table">';
+
+  if (hIdx >= 0) {
+    html += '<thead><tr>';
+    for (let ci = 0; ci < maxCols; ci++) {
+      const h = (_resolveSheetColHeading(sheet, ci) || _cleanExcelCell((rows[hIdx] || [])[ci])).trim();
+      const isNum = ci > 0 && ci >= maxCols - 3;
+      html += `<th class="fusui-hanchu-th${isNum ? ' fusui-hanchu-th-num' : ''}">${esc(h)}</th>`;
+    }
+    html += '</tr></thead>';
+  }
+
+  html += '<tbody>';
+  let visibleRow = 0;
+  for (let ri = startRow; ri < rows.length; ri++) {
+    const vals = Array.from({length: maxCols}, (_, ci) => _cleanExcelCell((rows[ri] || [])[ci]));
+    if (!vals.some(Boolean)) continue;
+    visibleRow++;
+    const hasTotal = vals.some(v => /合計|小計|TOTAL/i.test(v));
+    const rowClass = hasTotal ? 'fusui-hanchu-row-total' : visibleRow % 2 === 0 ? 'fusui-hanchu-row-alt' : '';
+    html += `<tr class="${rowClass}">`;
+    for (let ci = 0; ci < maxCols; ci++) {
+      const v = vals[ci] || '';
+      const isNum = v && /^[\d,，.\-￥¥\s]+$/.test(v) && /\d/.test(v);
+      html += `<td class="fusui-hanchu-td${isNum ? ' fusui-hanchu-td-num' : ''}">${esc(v)}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function _renderFusuiHanchuView(result, wrap, selClient) {
+  const dataSheet = _xlsSheets.find(s => s.name !== 'Full Text') || _xlsSheets[0];
+  const fullText = (result.fused_text || result.text || '');
+  const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
+
+  const hIdx = dataSheet && dataSheet.hasHeader && dataSheet.headerIdx >= 0 ? dataSheet.headerIdx : -1;
+  const preambleRows = hIdx > 0 && dataSheet ? dataSheet.rows.slice(0, hIdx) : [];
+  const preambleLines = preambleRows.map(r => r.filter(Boolean).join('　').trim()).filter(Boolean);
+  const allMetaLines = [...preambleLines, ...lines];
+
+  // Extract metadata helpers
+  const findLine = (...kwds) => allMetaLines.find(l => kwds.some(k => l.includes(k))) || '';
+  const extractVal = (line, ...labels) => {
+    if (!line) return '';
+    for (const label of labels) {
+      const idx = line.indexOf(label);
+      if (idx >= 0) return line.slice(idx + label.length).replace(/^[:：\s]+/, '').trim();
+    }
+    return line.trim();
+  };
+
+  const ateleLine     = findLine('宛先');
+  const hatuchuLine   = findLine('発注日');
+  const nohinDateLine = findLine('納品指定日', '納品日');
+  const nohinPlaceLine= findLine('納品場所');
+  const postalLine    = findLine('〒');
+  const telLine       = findLine('TEL', 'Tel', '電話');
+  const faxLine       = findLine('FAX', 'Fax');
+
+  const orderDate  = extractVal(hatuchuLine, '発注日');
+  const nohinDate  = extractVal(nohinDateLine, '納品指定日', '納品日');
+  const nohinPlace = extractVal(nohinPlaceLine, '納品場所');
+  const vendor     = extractVal(ateleLine, '宛先') || (preambleLines[1] || '');
+
+  const noteLines = lines.filter(l => l.startsWith('※') || l.startsWith('＊'));
+  const clientObj = selClient || result?.client || {};
+  const companyName = clientObj.name_ja || '風水プロジェクト';
+
+  let html = '<div class="doc-view doc-fusui-hanchu">';
+
+  // ── Title Header ──
+  html += `<div class="fusui-hanchu-header">
+    <div class="fusui-hanchu-title">発注書</div>
+    <div class="fusui-hanchu-company">株式会社${esc(companyName)}（ゆうき市場）</div>
+  </div>`;
+
+  // ── Info Section ──
+  html += '<div class="fusui-hanchu-info">';
+  html += '<div class="fusui-hanchu-info-left">';
+  html += '<div class="fusui-hanchu-info-label">宛先</div>';
+  if (vendor) html += `<div class="fusui-hanchu-recipient">${esc(vendor)}　御中</div>`;
+  html += '</div>';
+  html += '<div class="fusui-hanchu-info-right">';
+  html += '<div class="fusui-hanchu-info-label">発注元</div>';
+  if (postalLine) html += `<div class="fusui-hanchu-addr-line">${esc(postalLine)}</div>`;
+  if (telLine)    html += `<div class="fusui-hanchu-addr-line">${esc(telLine)}</div>`;
+  if (faxLine)    html += `<div class="fusui-hanchu-addr-line">${esc(faxLine)}</div>`;
+  if (!postalLine && !telLine) html += `<div class="fusui-hanchu-addr-line">${esc(companyName)}</div>`;
+  html += '</div>';
+  html += '</div>';
+
+  // ── Date Row ──
+  if (orderDate || nohinDate || nohinPlace) {
+    html += '<div class="fusui-hanchu-dates">';
+    if (orderDate)  html += `<div class="fusui-hanchu-date-item"><span class="fusui-hanchu-date-label">発注日:</span><span>${esc(orderDate)}</span></div>`;
+    if (nohinDate)  html += `<div class="fusui-hanchu-date-item"><span class="fusui-hanchu-date-label">納品指定日:</span><span>${esc(nohinDate)}</span></div>`;
+    if (nohinPlace) html += `<div class="fusui-hanchu-date-item"><span class="fusui-hanchu-date-label">納品場所:</span><span>${esc(nohinPlace)}</span></div>`;
+    html += '</div>';
+  }
+
+  // ── Product Table ──
+  if (dataSheet && Array.isArray(dataSheet.rows) && dataSheet.rows.length) {
+    html += _buildFusuiTable(dataSheet);
+  } else if (fullText) {
+    html += `<div style="padding:16px 28px"><pre style="font-size:.82rem;white-space:pre-wrap">${esc(fullText)}</pre></div>`;
+  }
+
+  // ── Notes ──
+  if (noteLines.length) {
+    html += '<div class="fusui-hanchu-notes">';
+    for (const note of noteLines) html += `<div class="fusui-hanchu-note">${esc(note)}</div>`;
+    html += '</div>';
+  }
+
+  html += '</div>';
+  wrap.innerHTML = html;
+}
+// ── End 風水プロジェクト Renderer ──
+
+function _renderDocumentView(result) {
+  const wrap = document.getElementById('xlsDocWrap');
+  if (!wrap) return;
+  if (!result) { wrap.innerHTML = '<div class="doc-empty">データがありません</div>'; return; }
+
+  const dataSheet = _xlsSheets.find(s => s.name !== 'Full Text') || _xlsSheets[0];
+  const selClient = typeof _getXlsSelectedClient === 'function' ? _getXlsSelectedClient() : null;
+  const clientName = selClient ? (selClient.name_ja || '') : (result.client?.name_ja || '');
+
+  // Client-specific renderers
+  if (_isFusuiClient(selClient, result)) {
+    _renderFusuiHanchuView(result, wrap, selClient);
+    return;
+  }
+
+  const fullText = (result.fused_text || result.text || '');
+  const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
+  const noteLines = lines.filter(l => l.startsWith('※') || l.startsWith('＊'));
+
+  // Rows before the client header row are document preamble/metadata
+  const hIdx = dataSheet && dataSheet.hasHeader && dataSheet.headerIdx >= 0 ? dataSheet.headerIdx : -1;
+  const preambleRows = hIdx > 0 && dataSheet ? dataSheet.rows.slice(0, hIdx) : [];
+
+  // Find document title: prefer preamble, fallback to full text
+  const DOC_KEYWORDS = ['発注書','注文書','週間','明細書','連絡表','発注リスト','確認書','請求書','見積書'];
+  let titleText = '';
+  for (const row of preambleRows) {
+    const t = row.filter(Boolean).join(' ').trim();
+    if (DOC_KEYWORDS.some(kw => t.includes(kw))) { titleText = t; break; }
+  }
+  if (!titleText) for (const l of lines) { if (DOC_KEYWORDS.some(kw => l.includes(kw))) { titleText = l; break; } }
+  if (!titleText && lines.length) titleText = lines[0];
+
+  // Build metadata from preamble rows — skip title row and noise (email headers, @ addresses)
+  const NOISE_RE = /^Gmail|@|^<|^\s*$|^Inbox|^Re:|^Fwd:/i;
+  const metaItems = preambleRows
+    .map(row => row.filter(Boolean).join('　').trim())
+    .filter(t => t && t !== titleText && !NOISE_RE.test(t));
+
+  let html = '<div class="doc-view">';
+
+  // ── Header ──
+  html += '<div class="doc-header">';
+  if (titleText) html += `<div class="doc-title">${esc(titleText)}</div>`;
+  if (clientName && !titleText.includes(clientName)) html += `<div class="doc-client-name">${esc(clientName)}</div>`;
+  if (metaItems.length) {
+    html += '<div class="doc-meta">';
+    for (const item of metaItems) {
+      const parts = item.split(/[\/／]/);
+      html += '<div class="doc-meta-row">';
+      for (const p of parts) if (p.trim()) html += `<span class="doc-meta-item">${esc(p.trim())}</span>`;
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // ── Table (only rows from headerIdx onward) ──
+  if (dataSheet && Array.isArray(dataSheet.rows) && dataSheet.rows.length) {
+    html += _buildDocTable(dataSheet);
+  } else {
+    html += `<div class="doc-fulltext"><pre>${esc(fullText)}</pre></div>`;
+  }
+
+  // ── Notes ──
+  if (noteLines.length) {
+    html += '<div class="doc-notes">';
+    for (const note of noteLines) html += `<div class="doc-note">${esc(note)}</div>`;
+    html += '</div>';
+  }
+  html += '</div>';
+  wrap.innerHTML = html;
+}
+
+function _buildDocTable(sheet) {
+  const rows = sheet.rows || [];
+  if (!rows.length) return '';
+  const hIdx = (sheet.hasHeader && sheet.headerIdx >= 0) ? sheet.headerIdx : -1;
+  const startRow = hIdx >= 0 ? hIdx + 1 : 0;   // data starts after header
+  const maxCols = Math.max(1, ...rows.map(r => r.length));
+
+  let html = '<div class="doc-table-wrap"><table class="doc-table">';
+
+  // Client-aware column headers
+  if (hIdx >= 0) {
+    html += '<thead><tr>';
+    for (let ci = 0; ci < maxCols; ci++) {
+      const h = (_resolveSheetColHeading(sheet, ci) || _cleanExcelCell((rows[hIdx] || [])[ci])).trim();
+      html += `<th class="doc-th">${esc(h)}</th>`;
+    }
+    html += '</tr></thead>';
+  }
+
+  // Only data rows (hIdx+1 onward)
+  html += '<tbody>';
+  let visibleRow = 0;
+  for (let ri = startRow; ri < rows.length; ri++) {
+    const vals = Array.from({length: maxCols}, (_, ci) => _cleanExcelCell((rows[ri] || [])[ci]));
+    if (!vals.some(Boolean)) continue;
+    visibleRow++;
+    const hasTotal = vals.some(v => /合計|小計|TOTAL/i.test(v));
+    const isCategory = vals.filter(Boolean).length <= 2 && !((vals[0] || '').match(/^\d/)) && maxCols > 2;
+    const rowClass = hasTotal ? 'doc-row-total' : isCategory ? 'doc-row-category' : visibleRow % 2 === 0 ? 'doc-row-alt' : '';
+    html += `<tr class="${rowClass}">`;
+    for (let ci = 0; ci < maxCols; ci++) {
+      const v = vals[ci] || '';
+      const isNum = v && !isNaN(parseFloat(v.replace(/[¥円,，\s]/g, ''))) && /[\d]/.test(v);
+      html += `<td class="doc-td${isNum ? ' doc-td-num' : ''}">${esc(v)}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
 async function openOrderPreview(jobId, filename) {
   const modal       = document.getElementById('xlsModal');
   const titleEl     = document.getElementById('xlsTitle');
@@ -2735,13 +4286,34 @@ async function openOrderPreview(jobId, filename) {
     }
   }
 
+  // Document View tab (default)
+  const docTab = document.createElement('div');
+  docTab.className = 'xls-sheet-tab xls-sheet-tab-doc active';
+  docTab.textContent = '文書プレビュー';
+  docTab.addEventListener('click', () => {
+    _xlsActiveSheet = -1;
+    sheetTabsEl.querySelectorAll('.xls-sheet-tab').forEach(t => t.classList.remove('active'));
+    docTab.classList.add('active');
+    document.getElementById('xlsGridWrap').classList.add('hidden');
+    document.getElementById('xlsDocWrap').classList.remove('hidden');
+    document.querySelector('.xls-formulabar').classList.add('xls-formulabar-hidden');
+    document.getElementById('xlsClientHeadingBar').classList.add('xls-client-bar-hidden');
+    _renderDocumentView(_xlsResult);
+  });
+  sheetTabsEl.appendChild(docTab);
+
   _xlsSheets.forEach((sheet, i) => {
     const tab = document.createElement('div');
-    tab.className = 'xls-sheet-tab' + (i === 0 ? ' active' : '');
+    tab.className = 'xls-sheet-tab';
     tab.textContent = sheet.name;
     tab.addEventListener('click', () => {
       _xlsActiveSheet = i;
-      sheetTabsEl.querySelectorAll('.xls-sheet-tab').forEach((t, j) => t.classList.toggle('active', j === i));
+      sheetTabsEl.querySelectorAll('.xls-sheet-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('xlsDocWrap').classList.add('hidden');
+      document.getElementById('xlsGridWrap').classList.remove('hidden');
+      document.querySelector('.xls-formulabar').classList.remove('xls-formulabar-hidden');
+      document.getElementById('xlsClientHeadingBar').classList.remove('xls-client-bar-hidden');
       _renderXlsGrid(_xlsSheets[i]);
       _updateXlsClientBarUI();
     });
@@ -3105,9 +4677,11 @@ async function openOrderPreview(jobId, filename) {
   }
 
   loading.classList.add('hidden');
-  gridWrap.classList.remove('hidden');
-  _renderXlsGrid(_xlsSheets[0]);
-  _updateXlsClientBarUI();
+  _xlsActiveSheet = -1;
+  document.getElementById('xlsDocWrap').classList.remove('hidden');
+  document.querySelector('.xls-formulabar').classList.add('xls-formulabar-hidden');
+  document.getElementById('xlsClientHeadingBar').classList.add('xls-client-bar-hidden');
+  _renderDocumentView(_xlsResult);
 
   document.getElementById('xlsCsvBtn').onclick = () => {
     const sheet = _xlsSheets[_xlsActiveSheet];
@@ -3153,13 +4727,23 @@ function closeXlsModal() { document.getElementById('xlsModal')?.classList.add('h
 document.getElementById('xlsClose')?.addEventListener('click', closeXlsModal);
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    const todayItemModal = document.getElementById('todayOrderItemModalBackdrop');
+    if (todayItemModal && !todayItemModal.classList.contains('hidden')) {
+      closeTodayOrderItemModal();
+      return;
+    }
+    const todayMetaModal = document.getElementById('todayOrderMetaModalBackdrop');
+    if (todayMetaModal && !todayMetaModal.classList.contains('hidden')) {
+      closeTodayOrderMetaModal();
+      return;
+    }
     const chModal = document.getElementById('clientHeadingModalBackdrop');
     if (chModal && !chModal.classList.contains('hidden')) {
       closeClientHeadingModal();
       return;
     }
     const active = document.activeElement;
-    if (active && (active.classList.contains('xls-cell-input') || active.classList.contains('xls-th-input') || active.id === 'xlsCellVal')) {
+    if (active && (active.classList.contains('xls-cell-input') || active.classList.contains('xls-th-input') || active.id === 'xlsCellVal' || active.id === 'todayOrderCellVal')) {
       return;
     }
     closeXlsModal();
@@ -3859,17 +5443,44 @@ function renderResults(res, opts = {}) {
       return renderHtmlTableBlock(caption, formatted.headerCols, formatted.bodyRows, formatted.isClientFormatted);
     }).join('');
   } else if (!tables.length) {
-    const recon = reconstructTableFromBbox(res.paddle?.lines);
-    document.getElementById("tablesOutput").innerHTML = recon
-      ? renderBboxTable("Table 1", recon)
-      : `<div class="tbl-empty">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
-          <span>No tables detected in this document.</span>
-        </div>`;
+    // Use backend bbox-aligned rows first (most accurate for structured order forms)
+    const paddleExtracted = res.paddle_extracted_rows;
+    if (Array.isArray(paddleExtracted) && paddleExtracted.length > 0 && activeClient) {
+      const clientCols = _parseClientHeadingCols(activeClient);
+      const allKeys = [...clientCols];
+      paddleExtracted.forEach(row => {
+        Object.keys(row).forEach(k => { if (!allKeys.includes(k)) allKeys.push(k); });
+      });
+      const bodyRows2D = paddleExtracted.map(row => allKeys.map(k => row[k] || ''));
+      document.getElementById("tablesOutput").innerHTML =
+        renderHtmlTableBlock('Table 1', allKeys, bodyRows2D, true);
+    } else {
+      const recon = reconstructTableFromBbox(res.paddle?.lines);
+      document.getElementById("tablesOutput").innerHTML = recon
+        ? renderBboxTable("Table 1", recon)
+        : `<div class="tbl-empty">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
+            <span>No tables detected in this document.</span>
+          </div>`;
+    }
   } else {
     document.getElementById("tablesOutput").innerHTML = tables.map((tbl, i) => {
       const rows = tbl.data || [];
       const caption = tbl.caption ? esc(tbl.caption) : `Table ${i + 1}`;
+
+      // --- Priority 1: use backend-aligned rows when available ----------
+      const backendExtracted = tbl.client_extracted_rows;
+      if (Array.isArray(backendExtracted) && backendExtracted.length > 0 && activeClient) {
+        const clientCols = _parseClientHeadingCols(activeClient);
+        // Collect all keys present across extracted rows (preserve client order first)
+        const allKeys = [...clientCols];
+        backendExtracted.forEach(row => {
+          Object.keys(row).forEach(k => { if (!allKeys.includes(k)) allKeys.push(k); });
+        });
+        const headerCols = allKeys;
+        const bodyRows2D = backendExtracted.map(row => allKeys.map(k => row[k] || ''));
+        return renderHtmlTableBlock(caption, headerCols, bodyRows2D, true);
+      }
 
       // If no row data, try to parse the markdown or fall back to docling full markdown
       if (!rows.length) {
@@ -3892,6 +5503,17 @@ function renderResults(res, opts = {}) {
 
         // Final fallback: reconstruct from PaddleOCR bbox (only on first table to avoid duplication)
         if (i === 0) {
+          // Use backend bbox-extracted rows if available
+          const paddleExtracted = res.paddle_extracted_rows;
+          if (Array.isArray(paddleExtracted) && paddleExtracted.length > 0 && activeClient) {
+            const clientCols = _parseClientHeadingCols(activeClient);
+            const allKeys = [...clientCols];
+            paddleExtracted.forEach(row => {
+              Object.keys(row).forEach(k => { if (!allKeys.includes(k)) allKeys.push(k); });
+            });
+            const bodyRows2D = paddleExtracted.map(row => allKeys.map(k => row[k] || ''));
+            return renderHtmlTableBlock(caption, allKeys, bodyRows2D, true);
+          }
           const recon = reconstructTableFromBbox(res.paddle?.lines);
           if (recon) return renderBboxTable(caption || `Table ${i + 1}`, recon);
         }

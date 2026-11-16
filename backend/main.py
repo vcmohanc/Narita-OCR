@@ -1,8 +1,10 @@
 """FastAPI backend for the dual-engine OCR web app — with MySQL persistence."""
 
 import os
+import json
 import hmac
 import time
+import unicodedata
 import uuid
 import shutil
 import logging
@@ -399,6 +401,214 @@ class BulkDeleteRequest(BaseModel):
     job_ids: list[str] = Field(..., min_length=1, max_length=200)
 
 
+class TodayOrderRow(BaseModel):
+    type: str = Field(default="data", max_length=20)
+    cells: list[str] = Field(default_factory=list, max_length=20)
+
+
+class TodayOrderPayload(BaseModel):
+    rows: list[TodayOrderRow] = Field(..., min_length=1, max_length=500)
+
+
+TODAY_ORDER_JSON = RESULT_DIR / "today_order_sheet.json"
+TODAY_ORDER_XLSX = FRONTEND_DIR / "static" / "chiba_auto_order.xlsx"
+_TODAY_ORDER_COLS = 8
+_TODAY_VALID_UNITS = (
+    "cs", "p", "kg", "g", "束", "袋", "箱", "本", "個",
+    "玉", "パック", "ケース", "枚", "セット", "ネット", "把", "丁", "尾", "杯",
+)
+
+
+def _validate_today_unit(raw_unit: str) -> tuple[bool, str, str]:
+    val = unicodedata.normalize("NFKC", str(raw_unit or "")).strip()
+    if not val:
+        return False, "", "単位を入力・選択してください"
+    lower = val.lower()
+    for unit in _TODAY_VALID_UNITS:
+        if unit.lower() == lower:
+            return True, unit, ""
+    return False, val, f"無効な単位「{val}」です（有効: cs, p, kg, 束, 袋, 箱, 本, 個 など）"
+
+
+def _default_today_order_rows() -> list[dict]:
+    rows = [
+        {"type": "title",  "cells": ["千葉自動発注書（発注分のみ）", "", "", "", "", "", "", ""]},
+        {"type": "meta",   "cells": ["宛先：千葉成田センター\u3000／\u3000発注先：葛西産直ファーム", "", "", "", "", "", "", ""]},
+        {"type": "meta",   "cells": ["対象期間：2026年10月26日（月）〜10月31日（土）", "", "", "", "", "", "", ""]},
+        {"type": "spacer", "cells": [""] * _TODAY_ORDER_COLS},
+        {"type": "header", "cells": ["品目", "単位", "10/26\n月", "10/27\n火", "10/28\n水", "10/29\n木", "10/30\n金", "10/31\n土"]},
+        {"type": "merged", "cells": ["今週（10/26〜10/31）の発注はありません（全品目 休止）", "", "", "", "", "", "", ""]},
+        {"type": "spacer", "cells": [""] * _TODAY_ORDER_COLS},
+        {"type": "note",   "cells": ["※ 発注数の入っている品目のみ表示する設定ですが、今週は該当する品目がありません。", "", "", "", "", "", "", ""]},
+        {"type": "note",   "cells": ["※ 原本では大根・赤からし水菜・小江戸菜・スイスチャード・ほうれん草・キャベツが休止、ホテル風か様用は数量未記入。", "", "", "", "", "", "", ""]},
+    ]
+    for _ in range(6):
+        rows.append({"type": "data", "cells": [""] * _TODAY_ORDER_COLS})
+    return rows
+
+
+def _normalize_today_order_rows(raw_rows: list) -> list[dict]:
+    allowed_types = {"title", "meta", "spacer", "header", "item", "merged", "note", "data"}
+    clean = []
+    for r in raw_rows:
+        rtype = (r.get("type") if isinstance(r, dict) else getattr(r, "type", "data")) or "data"
+        if rtype not in allowed_types:
+            rtype = "data"
+        raw_cells = r.get("cells") if isinstance(r, dict) else getattr(r, "cells", [])
+        cells = [str(c) if c is not None else "" for c in (raw_cells or [])[:_TODAY_ORDER_COLS]]
+        while len(cells) < _TODAY_ORDER_COLS:
+            cells.append("")
+        clean.append({"type": rtype, "cells": cells})
+    return clean
+
+
+def _write_today_order_xlsx(rows: list[dict]) -> None:
+    import openpyxl
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    last_non_empty = -1
+    for idx, r in enumerate(rows):
+        if any(str(c).strip() for c in r.get("cells", [])):
+            last_non_empty = idx
+    export_rows = rows[: max(1, last_non_empty + 1)]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "発注書"
+
+    ws.column_dimensions["A"].width = 48.0
+    for col_letter in ("B", "C", "D", "E", "F", "G", "H"):
+        ws.column_dimensions[col_letter].width = 10.0
+
+    font_title = Font(name="Arial", size=18, bold=True, color="1F3864")
+    font_meta = Font(name="Arial", size=11, bold=False, color="333333")
+    font_hdr = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+    font_body = Font(name="Arial", size=11, bold=False, color="000000")
+    font_note = Font(name="Arial", size=10, bold=False, color="333333")
+    fill_hdr = PatternFill(fill_type="solid", start_color="1F3864", end_color="1F3864")
+    thin_side = Side(style="thin", color="333333")
+    grid_side = Side(style="thin", color="D0D0D0")
+
+    for r_idx, row in enumerate(export_rows, start=1):
+        rtype = row.get("type", "data")
+        cells = row.get("cells", [])
+
+        if rtype == "header":
+            ws.row_dimensions[r_idx].height = 36.0
+        elif rtype == "merged":
+            ws.row_dimensions[r_idx].height = 28.0
+
+        for c_idx in range(1, _TODAY_ORDER_COLS + 1):
+            raw_val = cells[c_idx - 1] if c_idx - 1 < len(cells) else ""
+            val = raw_val
+            if rtype in ("item", "data") and c_idx >= 3 and raw_val.strip():
+                try:
+                    num = float(raw_val.replace(",", "").strip())
+                    val = int(num) if num.is_integer() else num
+                except ValueError:
+                    val = raw_val
+            cell = ws.cell(row=r_idx, column=c_idx, value=val if val != "" else None)
+
+            if rtype == "title" and c_idx == 1:
+                cell.font = font_title
+            elif rtype == "meta" and c_idx == 1:
+                cell.font = font_meta
+            elif rtype == "header":
+                cell.font = font_hdr
+                cell.fill = fill_hdr
+                horiz = "left" if c_idx == 1 else ("right" if c_idx == 2 else "center")
+                cell.alignment = Alignment(horizontal=horiz, vertical="center", wrap_text=True)
+            elif rtype == "merged":
+                cell.font = font_body
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = Border(bottom=thin_side)
+            elif rtype == "note" and c_idx == 1:
+                cell.font = font_note
+            elif rtype in ("item", "data"):
+                cell.font = font_body
+                if c_idx == 2:
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif c_idx >= 3:
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                cell.border = Border(top=grid_side, bottom=grid_side, left=grid_side, right=grid_side)
+
+        if rtype == "merged":
+            ws.merge_cells(start_row=r_idx, start_column=1, end_row=r_idx, end_column=_TODAY_ORDER_COLS)
+
+    dv_units = DataValidation(
+        type="list",
+        formula1='"' + ",".join(_TODAY_VALID_UNITS) + '"',
+        allow_blank=False,
+    )
+    dv_units.errorTitle = "無効な単位"
+    dv_units.error = "有効な単位を選択してください（cs, p, kg, 束, 袋, 箱, 本, 個 など）"
+    ws.add_data_validation(dv_units)
+    dv_units.add(f"B6:B{max(50, len(export_rows) + 10)}")
+
+    TODAY_ORDER_XLSX.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(str(TODAY_ORDER_XLSX))
+
+
+@app.get("/api/today-order", dependencies=[Depends(_require_api_key)])
+async def get_today_order():
+    """Return the persisted Today Order spreadsheet rows (or defaults if none saved yet)."""
+    if TODAY_ORDER_JSON.exists():
+        try:
+            data = json.loads(TODAY_ORDER_JSON.read_text(encoding="utf-8"))
+            rows = _normalize_today_order_rows(data.get("rows") or [])
+            if rows:
+                return {"rows": rows, "updated_at": data.get("updated_at"), "is_default": False}
+        except Exception as exc:
+            logger.warning("Failed to read today_order_sheet.json: %s", exc)
+    return {"rows": _default_today_order_rows(), "updated_at": None, "is_default": True}
+
+
+@app.put("/api/today-order", dependencies=[Depends(_require_api_key)])
+async def save_today_order(request: Request, payload: TodayOrderPayload):
+    """Save Today Order spreadsheet rows to disk and regenerate chiba_auto_order.xlsx."""
+    _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
+    clean_rows = _normalize_today_order_rows(payload.rows)
+    for idx, row in enumerate(clean_rows, start=1):
+        rtype = row.get("type", "data")
+        cells = row.get("cells", [])
+        name = (cells[0] if len(cells) > 0 else "").strip()
+        if (rtype == "item" or (rtype == "data" and name)) and name:
+            ok, norm_unit, err_msg = _validate_today_unit(cells[1] if len(cells) > 1 else "")
+            if not ok:
+                raise HTTPException(status_code=400, detail=f"Row {idx} ({name}): {err_msg}")
+            cells[1] = norm_unit
+    updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    TODAY_ORDER_JSON.parent.mkdir(parents=True, exist_ok=True)
+    TODAY_ORDER_JSON.write_text(
+        json.dumps({"rows": clean_rows, "updated_at": updated_at}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _write_today_order_xlsx, clean_rows)
+    except Exception as exc:
+        logger.warning("Failed to regenerate chiba_auto_order.xlsx: %s", exc)
+    _audit(request, "today_order_save", f"rows={len(clean_rows)}")
+    return {"saved": True, "row_count": len(clean_rows), "updated_at": updated_at}
+
+
+@app.delete("/api/today-order", dependencies=[Depends(_require_api_key)])
+async def reset_today_order(request: Request):
+    """Delete saved Today Order overrides and restore default workbook."""
+    _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
+    if TODAY_ORDER_JSON.exists():
+        TODAY_ORDER_JSON.unlink()
+    default_rows = _default_today_order_rows()
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _write_today_order_xlsx, default_rows)
+    except Exception as exc:
+        logger.warning("Failed to reset chiba_auto_order.xlsx: %s", exc)
+    _audit(request, "today_order_reset", "")
+    return {"reset": True, "rows": default_rows}
+
+
 @app.post("/api/ocr/save/{job_id}", dependencies=[Depends(_require_api_key)])
 async def save_ocr_job(request: Request, job_id: str, payload: Optional[SaveJobRequest] = None):
     """Persist an extracted OCR result to MySQL when Save is clicked, using explicit or auto-detected client."""
@@ -770,10 +980,16 @@ async def _run_ocr(
     client_id: Optional[int] = None,
 ):
     jobs[job_id]["status"] = "processing"
+
+    # Fetch client data before OCR so engine can use heading/keyword hints.
+    pre_client: Optional[dict] = None
+    if db.is_connected() and client_id is not None and client_id > 0:
+        pre_client = db.get_client_by_id(client_id)
+
     try:
         loop = asyncio.get_event_loop()
         result = await asyncio.wait_for(
-            loop.run_in_executor(_ocr_executor, _sync_ocr, file_path, engine),
+            loop.run_in_executor(_ocr_executor, _sync_ocr, file_path, engine, pre_client),
             timeout=OCR_TIMEOUT_S,
         )
         if isinstance(result, dict):
@@ -784,7 +1000,7 @@ async def _run_ocr(
             matched_mode = "auto"
             if db.is_connected():
                 if client_id is not None and client_id > 0:
-                    matched_client = db.get_client_by_id(client_id)
+                    matched_client = pre_client or db.get_client_by_id(client_id)
                     matched_mode = "manual"
                 if not matched_client:
                     matched_client = db.detect_client_for_result(result, filename=filename)
@@ -809,6 +1025,6 @@ async def _run_ocr(
         jobs[job_id]["error"]  = "OCR processing failed"
 
 
-def _sync_ocr(file_path: str, engine: str) -> dict:
+def _sync_ocr(file_path: str, engine: str, client_data: Optional[dict] = None) -> dict:
     from backend.ocr_engine import process_file
-    return process_file(file_path, engines=engine)
+    return process_file(file_path, engines=engine, client_data=client_data)
