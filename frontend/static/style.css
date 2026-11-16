@@ -1854,64 +1854,115 @@ td{color:var(--muted)}
 .today-xls-wrap{
   background:#fff;
 }
+/* Today Order Spreadsheet Table (Responsive Excel Layout) */
 .today-xls-table{
   table-layout:fixed;
   width:100%;
-  min-width:1212px;
+  min-width:1120px;
+  border-collapse:collapse;
 }
 .today-xls-table col.today-col-rn{
-  width:52px;
+  width:46px;
 }
 .today-xls-table col.today-col-a{
-  width:380px;
+  width:320px;
 }
 .today-xls-table col.today-col-other{
-  width:92px;
+  width:88px;
 }
 .today-xls-table col.today-col-act{
-  width:136px;
+  width:116px;
 }
 .today-xls-table .today-th-col-a{
-  width:380px;
-  min-width:360px;
+  width:320px;
+  min-width:280px;
 }
 .today-xls-table .today-th-col-other{
-  width:92px;
-  min-width:88px;
+  width:88px;
+  min-width:80px;
 }
 .today-xls-table .today-th-col-act{
-  width:136px;
-  min-width:132px;
+  width:116px;
+  min-width:110px;
 }
+
+/* Sticky column headers & operations for seamless responsive scrolling */
+.today-xls-table th.xls-th-corner{
+  position:sticky;
+  left:0;
+  top:0;
+  z-index:6;
+  background:#e2e8f0;
+}
+.today-xls-table td.xls-td-row{
+  position:sticky;
+  left:0;
+  z-index:2;
+  background:#f8fafc;
+  box-shadow:2px 0 4px -2px rgba(0,0,0,0.1);
+}
+.today-xls-table th.today-th-col-act{
+  position:sticky;
+  right:0;
+  top:0;
+  z-index:6;
+  background:#e2e8f0;
+  box-shadow:-2px 0 4px -2px rgba(0,0,0,0.12);
+}
+.today-xls-table td.today-xls-actions{
+  position:sticky;
+  right:0;
+  z-index:3;
+  background:#fff;
+  border:1px solid #d0d0d0;
+  padding:2px 6px;
+  text-align:center;
+  vertical-align:middle;
+  white-space:nowrap;
+  box-shadow:-2px 0 4px -2px rgba(0,0,0,0.08);
+}
+.today-xls-table td.today-xls-actions.today-xls-actions-hdr{
+  background:#1F3864 !important;
+  border-color:#2c4a7e !important;
+  color:#ffffff !important;
+  font-size:12px;
+  font-weight:700;
+  z-index:4;
+  box-shadow:-2px 0 4px -2px rgba(0,0,0,0.2);
+}
+
 .today-xls-table .xls-cell{
   max-width:none;
   font-family:'Arial','Hiragino Kaku Gothic ProN','Yu Gothic','Meiryo',sans-serif;
-  height:26px;
+  height:28px;
   line-height:1.35;
+  font-size:12.5px;
 }
 .today-xls-table .today-xls-title{
-  font-size:24px;
+  font-size:20px;
   font-weight:700;
   color:#1F3864;
   height:36px;
   padding:4px 10px;
   vertical-align:middle;
+  white-space:nowrap;
 }
 .today-xls-table .today-xls-meta{
-  font-size:14.5px;
+  font-size:13px;
   font-weight:400;
-  color:#333333;
+  color:#334155;
   height:26px;
   padding:3px 10px;
   vertical-align:middle;
+  white-space:nowrap;
 }
 .today-xls-table .today-xls-header{
   background:#1F3864 !important;
   color:#ffffff !important;
-  font-size:14.5px;
+  font-size:13px;
   font-weight:700;
-  height:48px;
-  padding:6px 10px;
+  height:44px;
+  padding:4px 8px;
   white-space:pre-line;
   vertical-align:middle;
   border-color:#2c4a7e !important;
@@ -1933,15 +1984,15 @@ td{color:var(--muted)}
 }
 .today-xls-table .today-xls-merged{
   height:38px;
-  font-size:14.5px;
+  font-size:14px;
   color:#000000;
   text-align:center;
   vertical-align:middle;
   border-bottom:1px solid #333333 !important;
 }
 .today-xls-table .today-xls-note{
-  font-size:13.3px;
-  color:#333333;
+  font-size:12.5px;
+  color:#475569;
   height:24px;
   padding:3px 10px;
   vertical-align:middle;
@@ -1980,49 +2031,84 @@ td{color:var(--muted)}
   font-size:12px;
   color:#334155;
 }
+
+/* Haibukiya 20-Column Responsive Tuning */
 .today-xls-table.format-haibukiya{
-  min-width:1420px;
+  min-width:1760px;
 }
 .today-xls-table.format-haibukiya col.today-col-h-0,
-.today-xls-table.format-haibukiya .today-th-h-0{width:170px;min-width:150px;}
+.today-xls-table.format-haibukiya .today-th-h-0{width:150px;min-width:140px;}
 .today-xls-table.format-haibukiya col.today-col-h-1,
-.today-xls-table.format-haibukiya .today-th-h-1{width:128px;min-width:110px;}
+.today-xls-table.format-haibukiya .today-th-h-1{width:155px;min-width:140px;}
 .today-xls-table.format-haibukiya col.today-col-h-2,
-.today-xls-table.format-haibukiya .today-th-h-2{width:96px;min-width:86px;}
+.today-xls-table.format-haibukiya .today-th-h-2{width:80px;min-width:76px;}
 .today-xls-table.format-haibukiya col.today-col-h-3,
-.today-xls-table.format-haibukiya .today-th-h-3{width:72px;min-width:68px;}
+.today-xls-table.format-haibukiya .today-th-h-3{width:98px;min-width:88px;}
 .today-xls-table.format-haibukiya col.today-col-h-4,
-.today-xls-table.format-haibukiya .today-th-h-4{width:76px;min-width:72px;}
+.today-xls-table.format-haibukiya .today-th-h-4{width:68px;min-width:62px;}
 .today-xls-table.format-haibukiya col.today-col-h-5,
-.today-xls-table.format-haibukiya .today-th-h-5{width:120px;min-width:112px;}
+.today-xls-table.format-haibukiya .today-th-h-5{width:76px;min-width:68px;}
+.today-xls-table.format-haibukiya col.today-col-h-6,
+.today-xls-table.format-haibukiya .today-th-h-6{width:122px;min-width:116px;}
 .today-xls-table.format-haibukiya col.today-col-h-day,
-.today-xls-table.format-haibukiya .today-th-h-day{width:64px;min-width:60px;}
-.today-xls-table.format-haibukiya col.today-col-h-12,
-.today-xls-table.format-haibukiya .today-th-h-12{width:225px;min-width:180px;}
+.today-xls-table.format-haibukiya .today-th-h-day{width:66px;min-width:60px;}
+.today-xls-table.format-haibukiya col.today-col-h-chg,
+.today-xls-table.format-haibukiya .today-th-h-chg{width:56px;min-width:50px;}
+.today-xls-table.format-haibukiya col.today-col-h-19,
+.today-xls-table.format-haibukiya .today-th-h-19{width:260px;min-width:220px;}
+
+/* Day header cells in Haibukiya: compact font, perfect centering, zero ellipsis */
+.today-xls-table.format-haibukiya .today-xls-header.today-th-h-day{
+  font-size:11.5px !important;
+  font-weight:700;
+  padding:3px 2px !important;
+  line-height:1.22;
+  text-align:center;
+}
+.today-xls-table.format-haibukiya .today-xls-header.today-th-h-chg{
+  font-size:11px !important;
+  font-weight:600;
+  padding:3px 2px !important;
+  line-height:1.22;
+  text-align:center;
+  background:#1a3057 !important;
+  color:#bfdbfe !important;
+}
+.today-xls-table .today-xls-change{
+  background:#f8fafc;
+  color:#1e293b;
+  font-size:12px;
+  font-weight:500;
+}
+.today-xls-table .today-th-h-chg .xls-th-letter{
+  color:#94a3b8;
+  font-size:10px;
+}
 .today-modal-box-haibukiya{
-  width:1180px;
-  max-width:97vw;
+  width:96vw;
+  max-width:1440px;
+  max-height:92vh;
+  display:flex;
+  flex-direction:column;
+  padding:18px 22px;
+}
+.today-modal-box-haibukiya .today-modal-items-wrap{
+  flex:1 1 auto;
+  max-height:54vh;
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+  border:1px solid #cbd5e1;
+  border-radius:6px;
+}
+.today-modal-box-haibukiya .today-modal-items-table{
+  min-width:1380px;
+  table-layout:fixed;
 }
 .today-xls-table tr.today-row-item:hover td:not(.today-xls-header):not(.xls-td-row){
   background:#f8fafc;
 }
 .today-xls-table tr.today-row-match td:not(.xls-td-row){
   background:#fef9c3 !important;
-}
-.today-xls-table td.today-xls-actions{
-  border:1px solid #d0d0d0;
-  padding:2px 6px;
-  background:#fafafa;
-  text-align:center;
-  vertical-align:middle;
-  white-space:nowrap;
-}
-.today-xls-table td.today-xls-actions.today-xls-actions-hdr{
-  background:#1F3864 !important;
-  border-color:#2c4a7e !important;
-  color:#ffffff !important;
-  font-size:12px;
-  font-weight:700;
 }
 .today-row-act-group{
   display:inline-flex;
@@ -2105,7 +2191,7 @@ td{color:var(--muted)}
   color:#1F3864;
 }
 .today-modal-items-wrap{
-  max-height:42vh;
+  max-height:48vh;
   overflow:auto;
   border:1px solid var(--border);
   border-radius:var(--radius-sm);
@@ -2205,6 +2291,7 @@ td{color:var(--muted)}
   border-color:#fca5a5;
   color:#dc2626;
 }
+
 .today-modal-table-actions{
   display:flex;
   align-items:center;
@@ -2240,7 +2327,55 @@ td{color:var(--muted)}
   text-align:right;
   font-variant-numeric:tabular-nums;
 }
-@media(max-width:768px){
+/* Comprehensive Responsive Media Queries */
+@media(max-width: 1440px){
+  .order-topbar{
+    padding:8px 14px;
+    gap:8px 12px;
+  }
+  .today-order-filterbar{
+    padding:6px 14px;
+    gap:8px 12px;
+  }
+  .today-format-select{
+    max-width:260px;
+    font-size:12px;
+    height:30px;
+  }
+  .order-toolbar-actions .btn-sm{
+    padding:3px 7px;
+    font-size:11.5px;
+    height:28px;
+  }
+}
+
+@media(max-width: 1100px){
+  .order-topbar{
+    flex-direction:column;
+    align-items:stretch;
+    gap:8px;
+  }
+  .order-toolbar-actions{
+    justify-content:flex-start;
+    overflow-x:auto;
+    white-space:nowrap;
+    padding-bottom:4px;
+    scrollbar-width:none;
+  }
+  .today-order-filterbar{
+    flex-direction:column;
+    align-items:stretch;
+    gap:8px;
+  }
+  .today-order-filterbar .filter-search-wrap{
+    max-width:100%;
+  }
+  .today-inline-date-wrap{
+    justify-content:flex-start;
+  }
+}
+
+@media(max-width: 768px){
   .today-xls-main{
     min-height:420px;
   }
@@ -2250,6 +2385,14 @@ td{color:var(--muted)}
   #todayOrderItemCount{
     margin-right:0;
   }
+  .today-xls-table{
+    min-width:1500px;
+  }
+  .modal-box.today-modal-box-haibukiya{
+    width:98vw;
+    padding:12px 10px;
+  }
+  .today-modal-box-haibukiya .today-modal-items-wrap{
+    max-height:46vh;
+  }
 }
-
-

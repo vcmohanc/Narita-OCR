@@ -415,7 +415,7 @@ TODAY_ORDER_XLSX = FRONTEND_DIR / "static" / "chiba_auto_order.xlsx"
 TODAY_HAIBUKIYA_JSON = RESULT_DIR / "today_order_haibukiya.json"
 TODAY_HAIBUKIYA_XLSX = FRONTEND_DIR / "static" / "haibukiya_order.xlsx"
 _TODAY_ORDER_COLS = 8
-_TODAY_HAIBUKIYA_COLS = 13
+_TODAY_HAIBUKIYA_COLS = 20
 _TODAY_VALID_UNITS = (
     "cs", "p", "kg", "g", "束", "袋", "箱", "本", "個",
     "玉", "パック", "ケース", "枚", "セット", "ネット", "把", "丁", "尾", "杯",
@@ -424,7 +424,7 @@ _TODAY_VALID_UNITS = (
 
 def _get_today_format_cfg(fmt: str) -> tuple[str, int, Path, Path]:
     key = (fmt or "chiba").strip().lower()
-    if key == "haibukiya":
+    if key in ("haibukiya", "灰吹屋"):
         return "haibukiya", _TODAY_HAIBUKIYA_COLS, TODAY_HAIBUKIYA_JSON, TODAY_HAIBUKIYA_XLSX
     if key == "chiba":
         return "chiba", _TODAY_ORDER_COLS, TODAY_ORDER_JSON, TODAY_ORDER_XLSX
@@ -448,31 +448,43 @@ def _validate_today_unit(raw_unit: str) -> tuple[bool, str, str]:
 def _default_today_order_rows(fmt: str = "chiba") -> list[dict]:
     if fmt == "haibukiya":
         rows = [
-            {"type": "title",    "cells": ["発注書　株式会社灰吹屋 御中（発注分のみ）"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "title",    "cells": ["発注書　株式会社灰吹屋 御中（全列フォーマット）"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
             {"type": "meta",     "cells": ["販売部 部長 石川様　／　宮前平店 店長 佐藤様　／　発注先：㈱ベジコープ（FAX 03-6808-0900）"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
             {"type": "meta",     "cells": ["見積期間：2026年10月19日（月）〜10月24日（土）販売分　／　価格は店着価格（税別）　／　作成：2026年10月19日 佐藤・栗山"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
             {"type": "spacer",   "cells": [""] * _TODAY_HAIBUKIYA_COLS},
-            {"type": "header",   "cells": ["品目", "産地", "規格・入数", "単価/p", "単価/cs", "JANコード", "10/19\n月", "10/20\n火", "10/21\n水", "10/22\n木", "10/23\n金", "10/24\n土", "備考・産地状況"]},
+            {"type": "header",   "cells": [
+                "品目", "産地", "栽培区分", "規格・入数", "単価/p", "単価/cs", "JANコード",
+                "10/19\n月", "変更",
+                "10/20\n火", "変更",
+                "10/21\n水", "変更",
+                "10/22\n木", "変更",
+                "10/23\n金", "変更",
+                "10/24\n土", "変更",
+                "備考・産地状況",
+            ]},
             {"type": "category", "cells": ["葉物類"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
-            {"type": "item",     "cells": ["水菜", "千葉", "150g/5p", "165", "825", "4514811010524", "1", "", "", "6→1", "", "", "生育不良により欠品の可能性あり"]},
-            {"type": "item",     "cells": ["ベビーリーフ", "千葉", "40g/5p", "165", "825", "4514811010470", "1", "", "", "1→6", "", "", "生育不良により欠品の可能性あり"]},
+            {"type": "item",     "cells": ["水菜", "千葉", "特別栽培", "150g/5p", "165", "825", "4514811010524", "1", "", "", "", "", "", "6", "1", "", "", "", "", "生育不良により欠品の可能性あり"]},
+            {"type": "item",     "cells": ["ベビーリーフ", "千葉", "特別栽培", "40g/5p", "165", "825", "4514811010470", "1", "", "", "", "", "", "1", "6", "", "", "", "", "生育不良により欠品の可能性あり"]},
             {"type": "category", "cells": ["葉菜類"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
-            {"type": "item",     "cells": ["サニーレタス", "群馬・長野", "L/5玉", "190", "950", "4514811010036", "5", "", "", "5", "", "", ""]},
+            {"type": "item",     "cells": ["サニーレタス", "群馬・長野", "特別栽培", "L/5玉", "190", "950", "4514811010036", "5", "", "", "", "", "", "5", "", "", "", "", "", ""]},
             {"type": "category", "cells": ["根菜類"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
-            {"type": "item",     "cells": ["人参", "青森・北海道・山梨", "400g/5p", "225", "1,125", "4514811010111", "1", "", "", "", "", "", ""]},
-            {"type": "item",     "cells": ["じゃが芋", "青森・岩手・北海道", "約500g/5p", "275", "1,375", "4514811010128", "", "", "", "1", "", "", ""]},
-            {"type": "item",     "cells": ["玉ねぎ", "北海道", "500g/5p", "280", "1,400", "4514811050339", "", "", "", "1", "", "", ""]},
-            {"type": "item",     "cells": ["生姜", "熊本・千葉", "50g/5p", "145", "725", "4514811013730", "1", "", "", "", "", "", ""]},
-            {"type": "item",     "cells": ["にんにく", "長野", "1〜2コ/5p", "198", "990", "4514811011187", "1", "", "", "", "", "", "群馬県産終了"]},
+            {"type": "item",     "cells": ["人参", "青森・北海道・山梨", "特別栽培", "400g/5p", "225", "1,125", "4514811010111", "1", "", "", "", "", "", "", "", "", "", "", "", ""]},
+            {"type": "item",     "cells": ["じゃが芋", "青森・岩手・北海道", "特別栽培", "約500g/5p", "275", "1,375", "4514811010128", "", "", "", "", "", "", "1", "", "", "", "", "", ""]},
+            {"type": "item",     "cells": ["玉ねぎ", "北海道", "特別栽培", "500g/5p", "280", "1,400", "4514811050339", "", "", "", "", "", "", "1", "", "", "", "", "", ""]},
+            {"type": "item",     "cells": ["生姜", "熊本・千葉", "特別栽培", "50g/5p", "145", "725", "4514811013730", "1", "", "", "", "", "", "", "", "", "", "", "", ""]},
+            {"type": "item",     "cells": ["にんにく", "長野", "特別栽培", "1〜2コ/5p", "198", "990", "4514811011187", "1", "", "", "", "", "", "", "", "", "", "", "", "群馬県産終了"]},
             {"type": "category", "cells": ["果物類"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
-            {"type": "item",     "cells": ["レモン", "香川", "2コ/5p", "245", "1,225", "4514811010678", "1", "", "", "", "", "", ""]},
+            {"type": "item",     "cells": ["レモン", "香川", "特別栽培", "2コ/5p", "245", "1,225", "4514811010678", "1", "", "", "", "", "", "", "", "", "", "", "", ""]},
             {"type": "category", "cells": ["イタリア・レストラン野菜"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
-            {"type": "item",     "cells": ["カリーノケール", "群馬・長野", "100g/5p", "155", "775", "4514811014966", "3", "", "", "3", "", "", "生育不良により欠品の可能性あり"]},
+            {"type": "item",     "cells": ["カリーノケール", "群馬・長野", "特別栽培", "100g/5p", "155", "775", "4514811014966", "3", "", "", "", "", "", "3", "", "", "", "", "", "生育不良により欠品の可能性あり"]},
             {"type": "spacer",   "cells": [""] * _TODAY_HAIBUKIYA_COLS},
-            {"type": "note",     "cells": ["※ 「6→1」は原本の「変更」欄による修正（元の数量→変更後）。"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
+            {"type": "note",     "cells": ["※ 原本の「数量」欄および「変更」欄の数値を全列に反映。"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
             {"type": "note",     "cells": ["※ 10/21（水）は納品なし（グレー）。店舗直納のため、1回あたりの発注合計は8,000円以上でお願いします。"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
             {"type": "note",     "cells": ["※ 発注数の入っている品目のみ表示（発注なし・休止の品目は省略）。"] + [""] * (_TODAY_HAIBUKIYA_COLS - 1)},
         ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _TODAY_HAIBUKIYA_COLS})
+        return rows
         for _ in range(4):
             rows.append({"type": "data", "cells": [""] * _TODAY_HAIBUKIYA_COLS})
         return rows
@@ -528,8 +540,10 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
 
     if fmt == "haibukiya":
         col_widths = {
-            "A": 20.0, "B": 18.0, "C": 14.0, "D": 10.0, "E": 10.0, "F": 16.0,
-            "G": 9.0, "H": 9.0, "I": 9.0, "J": 9.0, "K": 9.0, "L": 9.0, "M": 32.0,
+            "A": 18.0, "B": 15.0, "C": 12.0, "D": 14.0, "E": 9.5, "F": 9.5, "G": 16.0,
+            "H": 7.5, "I": 7.5, "J": 7.5, "K": 7.5, "L": 7.5, "M": 7.5,
+            "N": 7.5, "O": 7.5, "P": 7.5, "Q": 7.5, "R": 7.5, "S": 7.5,
+            "T": 28.0,
         }
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
@@ -564,10 +578,10 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
         for c_idx in range(1, ncols + 1):
             raw_val = cells[c_idx - 1] if c_idx - 1 < len(cells) else ""
             val = raw_val
-            is_num_col = (c_idx >= 3) if fmt == "chiba" else (c_idx in (4, 5, 7, 8, 9, 10, 11, 12))
-            if rtype in ("item", "data") and is_num_col and raw_val.strip():
+            is_num_col = (c_idx >= 3) if fmt == "chiba" else (c_idx in (5, 6) or (c_idx >= 8 and c_idx <= 19))
+            if rtype in ("item", "data") and is_num_col and str(raw_val).strip():
                 try:
-                    num = float(raw_val.replace(",", "").strip())
+                    num = float(str(raw_val).replace(",", "").strip())
                     val = int(num) if num.is_integer() else num
                 except ValueError:
                     val = raw_val
@@ -581,7 +595,7 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                 cell.font = font_hdr
                 cell.fill = fill_hdr
                 if fmt == "haibukiya":
-                    horiz = "left" if c_idx in (1, 2, 3, 13) else ("right" if c_idx in (4, 5) else "center")
+                    horiz = "left" if c_idx in (1, 2, 3, 4, 20) else ("right" if c_idx in (5, 6) else "center")
                 else:
                     horiz = "left" if c_idx == 1 else ("right" if c_idx == 2 else "center")
                 cell.alignment = Alignment(horizontal=horiz, vertical="center", wrap_text=True)
@@ -599,11 +613,11 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
             elif rtype in ("item", "data"):
                 cell.font = font_body
                 if fmt == "haibukiya":
-                    if c_idx == 9:
+                    if c_idx in (12, 13):
                         cell.fill = fill_wed_off
-                    if c_idx in (4, 5, 7, 8, 9, 10, 11, 12):
+                    if c_idx in (5, 6) or (c_idx >= 8 and c_idx <= 19):
                         cell.alignment = Alignment(horizontal="right", vertical="center")
-                    elif c_idx == 6:
+                    elif c_idx == 7:
                         cell.alignment = Alignment(horizontal="center", vertical="center")
                 else:
                     if c_idx == 2 or c_idx >= 3:
