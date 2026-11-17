@@ -100,21 +100,18 @@ class TestSecurityHardening(unittest.TestCase):
         req = MagicMock()
         req.url.path = "/api/ocr/upload"
         req.client.host = "127.0.0.1"
+        req.cookies = {}
+        req.headers = {}
 
-        # Mode 1: No API key set and REQUIRE_AUTH is false -> Pass
+        # Mode 1: No API key set and no session -> 401 Authentication required
         main.OCR_API_KEY = ""
         main.REQUIRE_AUTH = False
         main.ENVIRONMENT = "development"
-        main._require_api_key(req)
-
-        # Mode 2: No API key set and REQUIRE_AUTH is true -> 500 Misconfigured
-        main.REQUIRE_AUTH = True
         with self.assertRaises(HTTPException) as ctx:
             main._require_api_key(req)
-        self.assertEqual(ctx.exception.status_code, 500)
+        self.assertEqual(ctx.exception.status_code, 401)
 
-        # Mode 3: API key configured -> requires matching key
-        main.REQUIRE_AUTH = False
+        # Mode 2: API key configured -> unauthenticated without key
         main.OCR_API_KEY = "super-secret-key-12345"
         req.headers = {}
 
@@ -130,11 +127,13 @@ class TestSecurityHardening(unittest.TestCase):
 
         # Valid X-API-Key
         req.headers = {"X-API-Key": "super-secret-key-12345"}
-        main._require_api_key(req)
+        user = main._require_api_key(req)
+        self.assertEqual(user["username"], "api-key")
 
         # Valid Bearer token
         req.headers = {"Authorization": "Bearer super-secret-key-12345"}
-        main._require_api_key(req)
+        user = main._require_api_key(req)
+        self.assertEqual(user["username"], "api-key")
 
         # Reset
         main.OCR_API_KEY = ""

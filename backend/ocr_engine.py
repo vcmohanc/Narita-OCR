@@ -578,7 +578,29 @@ def process_pdf(file_path: str, engines: str = "all") -> dict:
                 }
 
             if use_deepseek:
-                output["deepseek"] = _deepseek_ocr_image(str(page_images[0]), mode="markdown", docling_cache=output.get("docling"))
+                if len(page_images) == 1:
+                    output["deepseek"] = _deepseek_ocr_image(str(page_images[0]), mode="markdown", docling_cache=output.get("docling"))
+                else:
+                    ds_texts, ds_mds = [], []
+                    max_pages = min(len(page_images), 10)
+                    for p_idx in range(max_pages):
+                        p_img = page_images[p_idx]
+                        p_cache = output.get("docling") if p_idx == 0 else None
+                        p_res = _deepseek_ocr_image(str(p_img), mode="markdown", docling_cache=p_cache)
+                        p_text = p_res.get("markdown") or p_res.get("text", "")
+                        if p_text.strip():
+                            hdr = f"--- Page {p_idx + 1} ---"
+                            ds_texts.append(f"{hdr}\n{p_text}")
+                            ds_mds.append(f"{hdr}\n{p_text}")
+                    merged_md = "\n\n".join(ds_mds)
+                    output["deepseek"] = {
+                        "engine": "DeepSeek-OCR",
+                        "mode": "markdown",
+                        "device": "cuda" if _check_gpu() else "cpu",
+                        "text": "\n\n".join(ds_texts),
+                        "markdown": merged_md,
+                        "page_count": len(page_images),
+                    }
 
             # PPStructure fallback: when Docling returned no structured table data
             if not output["tables"] or all(not t.get("data") for t in output["tables"]):

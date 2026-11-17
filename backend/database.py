@@ -169,6 +169,10 @@ def _get_connection():
         raise RuntimeError("Database pool not initialised")
     con = _pool.get_connection()
     try:
+        con.ping(reconnect=True, attempts=3, delay=1)
+    except Exception as exc:
+        logger.debug("Database ping reconnect check failed: %s", exc)
+    try:
         yield con
         con.commit()
     except Exception:
@@ -1559,6 +1563,10 @@ def _migrate():
             cur.execute("ALTER TABLE ocr_jobs ADD COLUMN client_id INT UNSIGNED NULL AFTER engine_requested")
         if not _index_exists(cur, "ocr_jobs", "idx_client"):
             cur.execute("ALTER TABLE ocr_jobs ADD INDEX idx_client (client_id)")
+        if not _index_exists(cur, "ocr_jobs", "idx_client_created"):
+            cur.execute("ALTER TABLE ocr_jobs ADD INDEX idx_client_created (client_id, created_at)")
+        if not _index_exists(cur, "ocr_products", "idx_client_id"):
+            cur.execute("ALTER TABLE ocr_products ADD INDEX idx_client_id (client_id, id)")
         if not _constraint_exists(cur, "ocr_jobs", "fk_job_client"):
             cur.execute(
                 """
@@ -1592,7 +1600,7 @@ def _migrate():
             UPDATE ocr_clients
                SET header_row = 1,
                    heading_columns = '商品コード, 商品名, 規格, 数量, 単価, 金額'
-             WHERE code != 'fusui_project' AND (heading_columns IS NULL OR heading_columns = '')
+             WHERE code NOT IN ('fusui_project', 'nanohana') AND (heading_columns IS NULL OR heading_columns = '')
             """
         )
         _seed_clients(cur)

@@ -1,6 +1,7 @@
 """FastAPI backend for the dual-engine OCR web app — with MySQL persistence."""
 
 import os
+import io
 import json
 import hmac
 import time
@@ -26,12 +27,13 @@ except ImportError:
 
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks, Query, Depends, Path as FPath
-from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 import aiofiles
 import zipfile
+import csv
 
 from backend import database as db
 
@@ -163,13 +165,17 @@ def _get_authenticated_user(request: Request) -> Optional[dict]:
       2. Configured `OCR_API_KEY` via `X-API-Key` / `Authorization: Bearer` header.
     Returns None if unauthenticated. Never fails open.
     """
-    raw_token = request.cookies.get(SESSION_COOKIE_NAME, "").strip()
+    raw_token = ""
+    if hasattr(request, "cookies") and hasattr(request.cookies, "get"):
+        val = request.cookies.get(SESSION_COOKIE_NAME, "")
+        if isinstance(val, str):
+            raw_token = val.strip()
     if raw_token:
         user = db.get_session_user(raw_token)
         if user:
             return user
 
-    active_api_key = db.get_setting("ocr_api_key", OCR_API_KEY).strip()
+    active_api_key = (db.get_setting("ocr_api_key", "").strip() or OCR_API_KEY).strip()
     if active_api_key:
         key = request.headers.get("X-API-Key", "")
         if not key:
@@ -713,6 +719,8 @@ TODAY_ROSEN_JSON = RESULT_DIR / "today_order_rosen.json"
 TODAY_ROSEN_XLSX = FRONTEND_DIR / "static" / "rosen_order.xlsx"
 TODAY_WORLDDELICA_JSON = RESULT_DIR / "today_order_worlddelica.json"
 TODAY_WORLDDELICA_XLSX = FRONTEND_DIR / "static" / "worlddelica_order.xlsx"
+TODAY_SANTOKU_JSON = RESULT_DIR / "today_order_santoku.json"
+TODAY_SANTOKU_XLSX = FRONTEND_DIR / "static" / "santoku_order.xlsx"
 _TODAY_ORDER_COLS = 8
 _TODAY_HAIBUKIYA_COLS = 20
 _TODAY_PROPS_COLS = 10
@@ -723,6 +731,7 @@ _TODAY_NANOHANA_COLS = 6
 _TODAY_GREENWORLD_COLS = 7
 _TODAY_ROSEN_COLS = 13
 _TODAY_WORLDDELICA_COLS = 5
+_TODAY_SANTOKU_COLS = 8
 _TODAY_VALID_UNITS = (
     "cs", "p", "kg", "g", "束", "袋", "箱", "本", "個",
     "玉", "パック", "ケース", "枚", "セット", "ネット", "把", "丁", "尾", "杯",
@@ -749,6 +758,8 @@ def _get_today_format_cfg(fmt: str) -> tuple[str, int, Path, Path]:
         return "rosen", _TODAY_ROSEN_COLS, TODAY_ROSEN_JSON, TODAY_ROSEN_XLSX
     if key in ("worlddelica", "ワールドデリカ", "株式会社ワールドデリカ"):
         return "worlddelica", _TODAY_WORLDDELICA_COLS, TODAY_WORLDDELICA_JSON, TODAY_WORLDDELICA_XLSX
+    if key in ("santoku", "三徳", "株式会社三徳"):
+        return "santoku", _TODAY_SANTOKU_COLS, TODAY_SANTOKU_JSON, TODAY_SANTOKU_XLSX
     if key == "chiba":
         return "chiba", _TODAY_ORDER_COLS, TODAY_ORDER_JSON, TODAY_ORDER_XLSX
     raise HTTPException(status_code=400, detail=f"Unsupported today-order format '{fmt}'")
@@ -992,6 +1003,24 @@ def _default_today_order_rows(fmt: str = "chiba") -> list[dict]:
             rows.append({"type": "data", "cells": [""] * _TODAY_WORLDDELICA_COLS})
         return rows
 
+    if fmt == "santoku":
+        rows = [
+            {"type": "title",  "cells": ["発注書　株式会社三徳"] + [""] * (_TODAY_SANTOKU_COLS - 1)},
+            {"type": "meta",   "cells": ["宛先：株式会社ベジコープ 御中　／　発注者：㈱三徳 中小原"] + [""] * (_TODAY_SANTOKU_COLS - 1)},
+            {"type": "meta",   "cells": ["対象期間：2026年9月28日〜10月4日"] + [""] * (_TODAY_SANTOKU_COLS - 1)},
+            {"type": "spacer", "cells": [""] * _TODAY_SANTOKU_COLS},
+            {"type": "header", "cells": ["商品名", "産地", "規格", "09/28", "09/29", "10/01", "10/02", "総計"]},
+            {"type": "item",   "cells": ["ベジコープ 小松菜", "千葉・茨城", "200g", "", "", "", "", ""]},
+            {"type": "item",   "cells": ["ベジコープ ベビーリーフ", "千葉", "40g", "", "", "", "", ""]},
+            {"type": "item",   "cells": ["ベジコープ グリーンリーフ", "千葉・群馬", "L", "", "", "", "", ""]},
+            {"type": "item",   "cells": ["ベジコープ サニーレタス", "千葉・群馬", "L", "", "", "", "", ""]},
+            {"type": "spacer", "cells": [""] * _TODAY_SANTOKU_COLS},
+            {"type": "note",   "cells": ["※ いつもお世話になっております。9/28〜の発注書です。宜しくお願いします。"] + [""] * (_TODAY_SANTOKU_COLS - 1)},
+        ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _TODAY_SANTOKU_COLS})
+        return rows
+
     rows = [
         {"type": "title",  "cells": ["千葉自動発注書（発注分のみ）", "", "", "", "", "", "", ""]},
         {"type": "meta",   "cells": ["宛先：千葉成田センター\u3000／\u3000発注先：葛西産直ファーム", "", "", "", "", "", "", ""]},
@@ -1095,6 +1124,10 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
             ws.column_dimensions[col_letter].width = width
     elif fmt == "worlddelica":
         col_widths = {"A": 10.0, "B": 36.0, "C": 8.0, "D": 8.0, "E": 24.0}
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
+    elif fmt == "santoku":
+        col_widths = {"A": 36.0, "B": 16.0, "C": 10.0, "D": 10.0, "E": 10.0, "F": 10.0, "G": 10.0, "H": 10.0}
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
     else:
@@ -1701,6 +1734,20 @@ async def db_job_detail(job_id: str = FPath(..., pattern=JOB_ID_REGEX, max_lengt
     return row
 
 
+def _clean_job_files(job_id: str) -> None:
+    """Safely unlink uploaded files and result artifacts for a deleted job."""
+    for p in UPLOAD_DIR.glob(f"{job_id}.*"):
+        try:
+            p.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Failed to unlink upload file %s: %s", p, exc)
+    for p in RESULT_DIR.glob(f"{job_id}.*"):
+        try:
+            p.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Failed to unlink result file %s: %s", p, exc)
+
+
 @app.delete("/api/db/jobs", dependencies=[Depends(_require_api_key)])
 async def delete_jobs_bulk(job_ids: list[str] = None, body: dict = None):
     """Bulk delete jobs by a list of job_ids passed as JSON body."""
@@ -1718,6 +1765,7 @@ async def bulk_delete_jobs(request: Request, payload: BulkDeleteRequest):
     deleted = db.delete_jobs_bulk(job_ids)
     for jid in job_ids:
         jobs.pop(jid, None)
+        _clean_job_files(jid)
     _audit(request, "jobs_bulk_delete", f"requested={len(job_ids)} deleted={deleted}")
     return {"deleted": deleted, "requested": len(job_ids)}
 
@@ -1734,8 +1782,9 @@ async def delete_job(
     deleted = db.delete_job(job_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Job not found")
-    # Also remove from in-memory registry if present
+    # Also remove from in-memory registry and disk if present
     jobs.pop(job_id, None)
+    _clean_job_files(job_id)
     _audit(request, "job_delete", f"job_id={job_id}")
     return {"deleted": True, "job_id": job_id}
 
@@ -1745,6 +1794,88 @@ async def db_statistics(request: Request):
     """Return aggregate statistics from the MySQL database."""
     _check_rate_limit(request, "db_read", max_requests=120, window_s=60)
     return db.db_stats()
+
+
+@app.get("/api/ocr/export/{job_id}", dependencies=[Depends(_require_api_key)])
+async def export_job_result(
+    request: Request,
+    job_id: str = FPath(..., pattern=JOB_ID_REGEX, max_length=64),
+    format: str = Query(default="csv", pattern=r"^(csv|tsv|json|txt|md)$"),
+    encoding: str = Query(default="utf-8", pattern=r"^(utf-8|shift_jis|cp932)$"),
+):
+    """
+    Export OCR result table or text with specified format and character encoding.
+    Supports Shift_JIS/CP932 for seamless import into Japanese accounting software (Yayoi, Bugyo, etc.).
+    """
+    _check_rate_limit(request, "db_read", max_requests=60, window_s=60)
+    res = None
+    if job_id in jobs and jobs[job_id].get("status") == "done":
+        res = jobs[job_id].get("result")
+    if res is None and db.is_connected():
+        res = db.get_job_result(job_id)
+    if not res:
+        raise HTTPException(status_code=404, detail="OCR result not found or not finished")
+
+    filename_base = (res.get("filename") or f"ocr_{job_id}").rsplit(".", 1)[0]
+
+    rows: list[dict] = []
+    tables = res.get("tables") or []
+    if tables and isinstance(tables[0], dict) and tables[0].get("data"):
+        rows = tables[0].get("data", [])
+    elif res.get("custom_sheets"):
+        cs = res["custom_sheets"][0]
+        sheet_rows = cs.get("rows", [])
+        hdr_idx = cs.get("headerIdx", 0)
+        if len(sheet_rows) > hdr_idx:
+            headers = [str(c) for c in sheet_rows[hdr_idx]]
+            for r in sheet_rows[hdr_idx + 1:]:
+                row_dict = {headers[i] if i < len(headers) else f"col_{i}": str(v) for i, v in enumerate(r)}
+                rows.append(row_dict)
+
+    enc = "cp932" if encoding.lower() in ("shift_jis", "cp932") else "utf-8"
+
+    import urllib.parse
+    def _build_content_disposition(ext_str: str) -> str:
+        safe_ascii = re.sub(r"[^\w\-.]", "_", filename_base) or "export"
+        quoted = urllib.parse.quote(f"{filename_base}.{ext_str}")
+        return f'attachment; filename="{safe_ascii}.{ext_str}"; filename*=UTF-8\'\'{quoted}'
+
+    if format in ("csv", "tsv"):
+        delimiter = "\t" if format == "tsv" else ","
+        output = io.StringIO()
+        if rows:
+            fieldnames = list(rows[0].keys())
+            writer = csv.DictWriter(output, fieldnames=fieldnames, delimiter=delimiter, lineterminator="\r\n")
+            writer.writeheader()
+            for r in rows:
+                writer.writerow(r)
+        else:
+            text = res.get("fused_text") or res.get("text") or ""
+            output.write(text)
+
+        content_bytes = output.getvalue().encode(enc, errors="replace")
+        ext = "tsv" if format == "tsv" else "csv"
+        media_type = "text/tab-separated-values" if format == "tsv" else "text/csv"
+        return Response(
+            content=content_bytes,
+            media_type=f"{media_type}; charset={enc}",
+            headers={"Content-Disposition": _build_content_disposition(ext)},
+        )
+    elif format == "json":
+        json_str = json.dumps(res, ensure_ascii=(enc != "utf-8"), indent=2)
+        return Response(
+            content=json_str.encode(enc, errors="replace"),
+            media_type=f"application/json; charset={enc}",
+            headers={"Content-Disposition": _build_content_disposition("json")},
+        )
+    else:
+        text = (res.get("markdown") if format == "md" else (res.get("fused_text") or res.get("text") or "")) or ""
+        ext = "md" if format == "md" else "txt"
+        return Response(
+            content=text.encode(enc, errors="replace"),
+            media_type=f"text/plain; charset={enc}",
+            headers={"Content-Disposition": _build_content_disposition(ext)},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1762,6 +1893,11 @@ async def _run_ocr(
     client_id: Optional[int] = None,
 ):
     jobs[job_id]["status"] = "processing"
+    if db.is_connected():
+        try:
+            db.save_job_processing(job_id)
+        except Exception as exc:
+            logger.warning("Failed to update job %s to processing in DB: %s", job_id, exc)
 
     # Fetch client data before OCR so engine can use heading/keyword hints.
     pre_client: Optional[dict] = None
@@ -1799,12 +1935,23 @@ async def _run_ocr(
         jobs[job_id]["status"] = "done"
     except asyncio.TimeoutError:
         logger.error("OCR timed out after %ds for job %s", OCR_TIMEOUT_S, job_id)
+        err_msg = f"Processing timed out ({OCR_TIMEOUT_S}s)"
         jobs[job_id]["status"] = "error"
-        jobs[job_id]["error"]  = f"Processing timed out ({OCR_TIMEOUT_S}s)"
+        jobs[job_id]["error"]  = err_msg
+        if db.is_connected():
+            try:
+                db.save_job_error(job_id, err_msg)
+            except Exception:
+                pass
     except Exception:
         logger.exception("OCR failed for job %s", job_id)
         jobs[job_id]["status"] = "error"
         jobs[job_id]["error"]  = "OCR processing failed"
+        if db.is_connected():
+            try:
+                db.save_job_error(job_id, "OCR processing failed")
+            except Exception:
+                pass
 
 
 def _sync_ocr(file_path: str, engine: str, client_data: Optional[dict] = None) -> dict:
