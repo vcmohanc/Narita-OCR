@@ -258,6 +258,19 @@ const TODAY_ORDER_FORMATS = {
     defaultDate: '2026-09-28',
     titleMatch: '三徳',
   },
+  josoSeikyo: {
+    cols: 8,
+    dayStartCol: null,
+    dayStep: 1,
+    dayCount: 0,
+    storageKey: 'ocr_today_order_sheet_v1_joso',
+    legacyStorageKey: null,
+    xlsxFile: 'joso_order.xlsx',
+    downloadName: '発注明細書_常総生協.xlsx',
+    csvName: '常総生協_発注明細書.csv',
+    defaultDate: '2026-10-29',
+    titleMatch: '常総生協',
+  },
 };
 const TODAY_NANOHANA_PRESETS = [
   { orderNo: '648', name: '有機じゃが芋', spec: '600g', price: '230.0', qty: '23', amount: '5,290' },
@@ -302,6 +315,19 @@ const TODAY_SANTOKU_PRESETS = [
   { name: 'ベジコープ ベビーリーフ', origin: '千葉', spec: '40g', days: Array(6).fill('') },
   { name: 'ベジコープ グリーンリーフ', origin: '千葉・群馬', spec: 'L', days: Array(6).fill('') },
   { name: 'ベジコープ サニーレタス', origin: '千葉・群馬', spec: 'L', days: Array(6).fill('') },
+];
+const TODAY_JOSO_PRESETS = [
+  { ocr: '51', name: '館野さんの梨（新高）', spec: '2〜3玉（約1kg）', tanka: '470', irisu: '1' },
+  { ocr: '70', name: 'レタス', spec: '1玉', tanka: '170', irisu: '1' },
+  { ocr: '71', name: 'サニーレタス', spec: '1玉', tanka: '155', irisu: '1' },
+  { ocr: '74', name: '小松菜', spec: '1束（200g）', tanka: '155', irisu: '1' },
+  { ocr: '78', name: 'ベビーリーフ', spec: '40g', tanka: '145', irisu: '1' },
+  { ocr: '84', name: '白菜', spec: '1玉', tanka: '320', irisu: '1' },
+  { ocr: '85', name: 'ミニ白菜', spec: '1玉（600〜800g）', tanka: '165', irisu: '1' },
+  { ocr: '91', name: 'キャベツ', spec: '1玉', tanka: '200', irisu: '1' },
+  { ocr: '92', name: 'キャベツ（カット）', spec: '1/2カット（500g）', tanka: '140', irisu: '1' },
+  { ocr: '93', name: '大根', spec: '1本（900g前後）', tanka: '180', irisu: '1' },
+  { ocr: '94', name: '大根（カット）', spec: '1/2本（500g前後）', tanka: '125', irisu: '1' },
 ];
 const TODAY_PRESET_ITEMS = ['大根', '赤からし水菜', '小江戸菜', 'スイスチャード', 'ほうれん草', 'キャベツ', 'ホテル風か様用'];
 const TODAY_TSUKIJI_PRESETS = [
@@ -575,6 +601,30 @@ function _createTodayOrderInitialRows(fmt = _todayOrderCurrentFormat) {
     return rows;
   }
 
+  if (fmt === 'josoSeikyo') {
+    const cfg = TODAY_ORDER_FORMATS.josoSeikyo;
+    const ncols = cfg.cols;
+    const pad = (text) => [text, ...Array(ncols - 1).fill('')];
+    const rows = [
+      { type: 'title',  cells: pad('常総生協　発注明細書') },
+      { type: 'meta',   cells: pad('納期：2026年10月29日（木）　10月4回 ／ 発注日：2026年10月23日') },
+      { type: 'meta',   cells: pad('発注元：常総生活協同組合　本部物流システムG ／ 納入先：茨城県守谷市本町281') },
+      { type: 'spacer', cells: Array(ncols).fill('') },
+      { type: 'header', cells: ['OCR No.', '商品名', '規格', '納品数', '単価（円）', '入数', '発注数', '金額（円）'] },
+      ...TODAY_JOSO_PRESETS.map(p => ({
+        type: 'item',
+        cells: [p.ocr, p.name, p.spec, '', p.tanka, p.irisu, '', '']
+      })),
+      { type: 'merged', cells: ['合計', '', '', '', '', '', '', ''] },
+      { type: 'spacer', cells: Array(ncols).fill('') },
+      { type: 'note',   cells: pad('※ 納品はAM必着でお願いいたします。PMになる場合はご連絡ください。') },
+      { type: 'note',   cells: pad('※ 納品書には発送日ではなく、上記の納期を納品日として記入してください。') },
+      { type: 'note',   cells: pad('※ 金額は単価×発注数で算出した参考値です。') },
+    ];
+    for (let i = 0; i < 4; i++) rows.push({ type: 'data', cells: Array(ncols).fill('') });
+    return rows;
+  }
+
   if (fmt === 'worlddelica') {
     const ncols = TODAY_ORDER_FORMATS.worlddelica.cols;
     const pad = (text) => [text, ...Array(ncols - 1).fill('')];
@@ -808,9 +858,10 @@ function _renderTodayPresetChips() {
   const isRosen = _todayOrderCurrentFormat === 'rosen';
   const isWorldDelica = _todayOrderCurrentFormat === 'worlddelica';
   const isSantoku = _todayOrderCurrentFormat === 'santoku';
+  const isJosoSeikyo = _todayOrderCurrentFormat === 'josoSeikyo';
   const items = isHaibukiya
     ? TODAY_HAIBUKIYA_PRESETS.map(p => p.name)
-    : (isProps ? TODAY_PROPS_PRESETS.map(p => p.name) : (isNationalAzabu ? TODAY_NATIONAL_AZABU_PRESETS.map(p => p.name) : (isTsukiji ? TODAY_TSUKIJI_PRESETS.map(p => p.name) : (isNanohana ? TODAY_NANOHANA_PRESETS.map(p => p.name) : (isFusui ? TODAY_FUSUI_PRESETS.map(p => p.name) : (isGreenworld ? TODAY_GREENWORLD_PRESETS.map(p => p.name) : (isRosen ? TODAY_ROSEN_PRESETS.map(p => p.name) : (isWorldDelica ? TODAY_WORLDDELICA_PRESETS.map(p => p.name) : (isSantoku ? TODAY_SANTOKU_PRESETS.map(p => p.name) : TODAY_PRESET_ITEMS)))))))));
+    : (isProps ? TODAY_PROPS_PRESETS.map(p => p.name) : (isNationalAzabu ? TODAY_NATIONAL_AZABU_PRESETS.map(p => p.name) : (isTsukiji ? TODAY_TSUKIJI_PRESETS.map(p => p.name) : (isNanohana ? TODAY_NANOHANA_PRESETS.map(p => p.name) : (isFusui ? TODAY_FUSUI_PRESETS.map(p => p.name) : (isGreenworld ? TODAY_GREENWORLD_PRESETS.map(p => p.name) : (isRosen ? TODAY_ROSEN_PRESETS.map(p => p.name) : (isWorldDelica ? TODAY_WORLDDELICA_PRESETS.map(p => p.name) : (isSantoku ? TODAY_SANTOKU_PRESETS.map(p => p.name) : (isJosoSeikyo ? TODAY_JOSO_PRESETS.map(p => p.name) : TODAY_PRESET_ITEMS))))))))));
 
   if (quickEl) {
     quickEl.innerHTML =
@@ -1031,6 +1082,7 @@ function _getTodayHeaderDateSpan() {
     if (_todayOrderCurrentFormat === 'rosen') return '10/24〜10/30';
     if (_todayOrderCurrentFormat === 'worlddelica') return '10/25〜10/29';
     if (_todayOrderCurrentFormat === 'santoku') return '9/28〜10/3';
+    if (_todayOrderCurrentFormat === 'josoSeikyo') return '10/29';
     return '10/26〜10/31';
   }
   if (_todayOrderCurrentFormat === 'haibukiya') {
@@ -1070,13 +1122,16 @@ function _getTodayHeaderDateSpan() {
     const endRaw = String(hdr.cells[8] || '').split('\n')[0].trim() || '10/3';
     return `${startRaw}〜${endRaw}`;
   }
+  if (_todayOrderCurrentFormat === 'josoSeikyo') {
+    return '10/29';
+  }
   const startRaw = String(hdr.cells[startCol] || '').split('\n')[0].trim() || '10/26';
   const endRaw = String(hdr.cells[startCol + 5] || '').split('\n')[0].trim() || '10/31';
   return `${startRaw}〜${endRaw}`;
 }
 
 function _syncTodayOrderMergedNotice() {
-  if (_todayOrderCurrentFormat === 'haibukiya' || _todayOrderCurrentFormat === 'props_japan' || _todayOrderCurrentFormat === 'national_azabu' || _todayOrderCurrentFormat === 'tsukiji' || _todayOrderCurrentFormat === 'nanohana' || _todayOrderCurrentFormat === 'fusui' || _todayOrderCurrentFormat === 'greenworld' || _todayOrderCurrentFormat === 'rosen' || _todayOrderCurrentFormat === 'worlddelica' || _todayOrderCurrentFormat === 'santoku') return;
+  if (_todayOrderCurrentFormat === 'haibukiya' || _todayOrderCurrentFormat === 'props_japan' || _todayOrderCurrentFormat === 'national_azabu' || _todayOrderCurrentFormat === 'tsukiji' || _todayOrderCurrentFormat === 'nanohana' || _todayOrderCurrentFormat === 'fusui' || _todayOrderCurrentFormat === 'greenworld' || _todayOrderCurrentFormat === 'rosen' || _todayOrderCurrentFormat === 'worlddelica' || _todayOrderCurrentFormat === 'santoku' || _todayOrderCurrentFormat === 'josoSeikyo') return;
   const hasItems = _todayOrderRows.some(r => r.type === 'item');
   if (hasItems) {
     _todayOrderRows = _todayOrderRows.filter(r => r.type !== 'merged');
@@ -1109,6 +1164,7 @@ function _getTodayRowCellClass(rowObj, ci, val) {
   const isFusui = _todayOrderCurrentFormat === 'fusui';
   const isGreenworld = _todayOrderCurrentFormat === 'greenworld';
   const isRosen = _todayOrderCurrentFormat === 'rosen';
+  const isJoso = _todayOrderCurrentFormat === 'josoSeikyo';
   let cls = 'xls-cell';
   if (rowObj.type === 'title') cls += ' today-xls-title';
   else if (rowObj.type === 'meta') cls += ' today-xls-meta';
@@ -1152,6 +1208,9 @@ function _getTodayRowCellClass(rowObj, ci, val) {
       if (ci === 0) cls += ' today-xls-header-left';
       else if (ci === 2) cls += ' today-xls-header-right';
       else cls += ' today-xls-header-center';
+    } else if (isJoso) {
+      if (ci === 0 || ci === 1 || ci === 2) cls += ' today-xls-header-left';
+      else cls += ' today-xls-header-right';
     } else {
       if (ci === 0) cls += ' today-xls-header-left';
       else if (ci === 1) cls += ' today-xls-header-right';
@@ -1227,6 +1286,11 @@ function _getTodayRowCellClass(rowObj, ci, val) {
     else if (ci === 2) cls += ' today-xls-text';
     else if (ci >= 3 && ci <= 8) cls += ' today-xls-num today-cell-day';
     else if (ci === 9) cls += ' today-xls-num';
+  } else if (isJoso) {
+    if (ci === 0) cls += ' today-xls-num';
+    else if (ci === 1) cls += rowObj.type === 'item' ? ' today-xls-item-name' : ' today-xls-text';
+    else if (ci === 2) cls += ' today-xls-text';
+    else if (ci >= 3 && ci <= 7) cls += ' today-xls-num';
   } else {
     if (rowObj.type === 'item' && ci === 0) cls += ' today-xls-item-name';
     else if (ci === 1 && (rowObj.type === 'item' || String(rowObj.cells?.[0] || '').trim())) {
@@ -1721,6 +1785,19 @@ function _appendTodayModalItemRow(itemData = null) {
       const { td: dayTd } = makeInput('today-m-day', '', daysArr[d] != null ? String(daysArr[d]) : '');
       tr.appendChild(dayTd);
     }
+  } else if (_todayOrderCurrentFormat === 'josoSeikyo') {
+    const { td: ocrTd }   = makeInput('today-m-ocr', 'OCR No.', data.ocr || '');
+    const { td: nameTd }  = makeInput('today-m-name', '商品名', data.name || '');
+    const { td: specTd }  = makeInput('today-m-spec', '規格', data.spec || '');
+    const { td: tankaTd } = makeInput('today-m-tanka today-m-num', '単価', data.tanka || '');
+    const { td: irisuTd } = makeInput('today-m-irisu today-m-num', '入数', data.irisu || '1');
+    const { td: qtyTd }   = makeInput('today-m-qty today-m-num', '発注数', data.qty || '');
+    tr.appendChild(ocrTd);
+    tr.appendChild(nameTd);
+    tr.appendChild(specTd);
+    tr.appendChild(tankaTd);
+    tr.appendChild(irisuTd);
+    tr.appendChild(qtyTd);
   } else {
     if (isProps) {
       const { td: codeTd } = makeInput('today-m-code', '例: Y682', data.code || '');
@@ -1868,7 +1945,9 @@ function _fillTodayModalPreset(presetName) {
                                      ? (TODAY_WORLDDELICA_PRESETS.find(p => p.name === presetName) || { date: '', name: presetName, qty: '', unit: '', note: '' })
                                      : (_todayOrderCurrentFormat === 'santoku'
                                          ? (TODAY_SANTOKU_PRESETS.find(p => p.name === presetName) || { name: presetName, origin: '', spec: '', days: Array(6).fill('') })
-                                         : { name: presetName, unit: '', days: Array(6).fill('') })))))))));
+                                         : (_todayOrderCurrentFormat === 'josoSeikyo'
+                                             ? (TODAY_JOSO_PRESETS.find(p => p.name === presetName) || { ocr: '', name: presetName, spec: '', tanka: '', irisu: '1' })
+                                             : { name: presetName, unit: '', days: Array(6).fill('') }))))))))));
   const emptyRow = Array.from(tbody.children).find(tr => {
     const inp = tr.querySelector('.today-m-name');
     return inp && !inp.value.trim();
@@ -1964,6 +2043,13 @@ function _fillTodayModalPreset(presetName) {
       const dayInps = Array.from(emptyRow.querySelectorAll('.today-m-day'));
       dayInps.forEach((inp, idx) => { inp.value = (presetObj.days && presetObj.days[idx]) || ''; });
       dayInps[0]?.focus();
+    } else if (_todayOrderCurrentFormat === 'josoSeikyo') {
+      if (emptyRow.querySelector('.today-m-ocr')) emptyRow.querySelector('.today-m-ocr').value = presetObj.ocr || '';
+      emptyRow.querySelector('.today-m-name').value = presetObj.name || '';
+      if (emptyRow.querySelector('.today-m-spec')) emptyRow.querySelector('.today-m-spec').value = presetObj.spec || '';
+      if (emptyRow.querySelector('.today-m-tanka')) emptyRow.querySelector('.today-m-tanka').value = presetObj.tanka || '';
+      if (emptyRow.querySelector('.today-m-irisu')) emptyRow.querySelector('.today-m-irisu').value = presetObj.irisu || '1';
+      (emptyRow.querySelector('.today-m-qty') || emptyRow.querySelector('.today-m-name'))?.focus();
     } else {
       emptyRow.querySelector('.today-m-name').value = presetName;
       emptyRow.querySelector('.today-m-unit')?.focus();
@@ -1988,6 +2074,7 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
   const isRosen = _todayOrderCurrentFormat === 'rosen';
   const isWorldDelica = _todayOrderCurrentFormat === 'worlddelica';
   const isSantoku = _todayOrderCurrentFormat === 'santoku';
+  const isJosoSeikyo = _todayOrderCurrentFormat === 'josoSeikyo';
 
   const modalBox = backdrop.querySelector('.modal-box');
   if (modalBox) {
@@ -2017,7 +2104,9 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
                                       ? '※ 納品日・商品名・数量・単位・備考を入力してください。'
                                       : (isSantoku
                                           ? '※ 商品名・産地・規格・日別数量を入力してください。総計は自動計算されます。'
-                                          : '※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。')))))))));
+                                          : (isJosoSeikyo
+                                              ? '※ OCR No.・商品名・規格・単価・入数・発注数を入力してください。納品数・金額は自動計算されます。'
+                                              : '※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。')))))))))));
   }
 
   const baseIso = _extractTodayBaseIsoDate();
@@ -2132,11 +2221,20 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
                                               spec: row.cells[2] || '',
                                               days: row.cells.slice(3, 9),
                                             })
-                                          : _appendTodayModalItemRow({
-                                              name: row.cells[0] || '',
-                                              unit: row.cells[1] || '',
-                                              days: row.cells.slice(2, 8),
-                                            }))))))))));
+                                          : (isJosoSeikyo
+                                              ? _appendTodayModalItemRow({
+                                                  ocr: row.cells[0] || '',
+                                                  name: row.cells[1] || '',
+                                                  spec: row.cells[2] || '',
+                                                  tanka: row.cells[4] || '',
+                                                  irisu: row.cells[5] || '',
+                                                  qty: row.cells[6] || '',
+                                                })
+                                              : _appendTodayModalItemRow({
+                                                  name: row.cells[0] || '',
+                                                  unit: row.cells[1] || '',
+                                                  days: row.cells.slice(2, 8),
+                                                })))))))))));
     if (delBtn) delBtn.classList.remove('hidden');
     focusEl = tr?.querySelector('.today-m-name');
   } else if (options.fillAllPresets) {
@@ -2175,6 +2273,11 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
       TODAY_SANTOKU_PRESETS.forEach((p, idx) => {
         const tr = _appendTodayModalItemRow({ ...p, days: [...p.days] });
         if (idx === 0) focusEl = tr?.querySelector('.today-m-day');
+      });
+    } else if (isJosoSeikyo) {
+      TODAY_JOSO_PRESETS.forEach((p, idx) => {
+        const tr = _appendTodayModalItemRow({ ...p });
+        if (idx === 0) focusEl = tr?.querySelector('.today-m-qty');
       });
     } else {
       TODAY_PRESET_ITEMS.forEach((pName, idx) => {
@@ -2222,6 +2325,11 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
         const tr1 = _appendTodayModalItemRow({ ...pObj, days: [...(pObj.days || Array(6).fill(''))] });
         _appendTodayModalItemRow({ name: '', origin: '', spec: '', days: Array(6).fill('') });
         focusEl = tr1?.querySelector('.today-m-day');
+      } else if (isJosoSeikyo) {
+        const pObj = TODAY_JOSO_PRESETS.find(p => p.name === presetName) || { ocr: '', name: presetName, spec: '', tanka: '', irisu: '1' };
+        const tr1 = _appendTodayModalItemRow({ ...pObj });
+        _appendTodayModalItemRow({ ocr: '', name: '', spec: '', tanka: '', irisu: '1', qty: '' });
+        focusEl = tr1?.querySelector('.today-m-qty');
       } else {
         const tr1 = _appendTodayModalItemRow({ name: presetName, unit: '', days: Array(6).fill('') });
         _appendTodayModalItemRow();
@@ -2235,7 +2343,8 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
       const worlddelicaBlank = { date: '', name: '', qty: '', unit: '', note: '' };
       const rosenBlank = { code: '', name: '', irisu: '', cost: '', total: '', days: Array(7).fill(''), note: '' };
       const santokuBlank = { name: '', origin: '', spec: '', days: Array(6).fill('') };
-      const blankObj = isNationalAzabu ? naBlank : (isTsukiji ? tsukijiBlank : (isNanohana ? nanohanaBlank : (isFusui ? fusuiBlank : (isWorldDelica ? worlddelicaBlank : (isRosen ? rosenBlank : (isSantoku ? santokuBlank : { category: defCat, name: '', cultivation: '特別栽培', unit: isProps ? 'パック' : '', lot: isProps ? '10' : '', days: Array(isHaibukiya ? 12 : 6).fill('') }))))));
+      const josoBlank = { ocr: '', name: '', spec: '', tanka: '', irisu: '1', qty: '' };
+      const blankObj = isNationalAzabu ? naBlank : (isTsukiji ? tsukijiBlank : (isNanohana ? nanohanaBlank : (isFusui ? fusuiBlank : (isWorldDelica ? worlddelicaBlank : (isRosen ? rosenBlank : (isSantoku ? santokuBlank : (isJosoSeikyo ? josoBlank : { category: defCat, name: '', cultivation: '特別栽培', unit: isProps ? 'パック' : '', lot: isProps ? '10' : '', days: Array(isHaibukiya ? 12 : 6).fill('') })))))));
       const tr1 = _appendTodayModalItemRow(blankObj);
       _appendTodayModalItemRow({ ...blankObj });
       _appendTodayModalItemRow({ ...blankObj });
@@ -2328,6 +2437,7 @@ function _renderTodayOrderGrid() {
   const isRosen = _todayOrderCurrentFormat === 'rosen';
   const isWorldDelica = _todayOrderCurrentFormat === 'worlddelica';
   const isSantoku = _todayOrderCurrentFormat === 'santoku';
+  const isJoso = _todayOrderCurrentFormat === 'josoSeikyo';
   const ncols = _todayColCount();
 
   _updateTodayOrderHeaderBadges();
@@ -2344,7 +2454,7 @@ function _renderTodayOrderGrid() {
   let selectedRowIdx = -1;
 
   const table = document.createElement('table');
-  table.className = 'xls-table today-xls-table' + (isHaibukiya ? ' format-haibukiya' : (isNationalAzabu ? ' format-national-azabu' : (isTsukiji ? ' format-tsukiji' : (isProps ? ' format-props-japan' : (isNanohana ? ' format-nanohana' : (isFusui ? ' format-fusui' : (isGreenworld ? ' format-greenworld' : (isRosen ? ' format-rosen' : (isWorldDelica ? ' format-worlddelica' : (isSantoku ? ' format-santoku' : ''))))))))));
+  table.className = 'xls-table today-xls-table' + (isHaibukiya ? ' format-haibukiya' : (isNationalAzabu ? ' format-national-azabu' : (isTsukiji ? ' format-tsukiji' : (isProps ? ' format-props-japan' : (isNanohana ? ' format-nanohana' : (isFusui ? ' format-fusui' : (isGreenworld ? ' format-greenworld' : (isRosen ? ' format-rosen' : (isWorldDelica ? ' format-worlddelica' : (isSantoku ? ' format-santoku' : (isJoso ? ' format-joso' : ''))))))))))));
 
   const colgroup = document.createElement('colgroup');
   const rnCol = document.createElement('col');
@@ -2378,6 +2488,8 @@ function _renderTodayOrderGrid() {
       colEl.className = `today-col-wd-${ci}`;
     } else if (isSantoku) {
       colEl.className = ci >= 3 && ci <= 8 ? 'today-col-st-day' : `today-col-st-${ci}`;
+    } else if (isJoso) {
+      colEl.className = `today-col-joso-${ci}`;
     } else {
       colEl.className = ci === 0 ? 'today-col-a' : (ci === 1 ? 'today-col-1' : 'today-col-other');
     }
@@ -2419,6 +2531,8 @@ function _renderTodayOrderGrid() {
       th.className = `xls-th-col today-th-wd-${ci}`;
     } else if (isSantoku) {
       th.className = `xls-th-col today-th-st-${ci}`;
+    } else if (isJoso) {
+      th.className = `xls-th-col today-th-joso-${ci}`;
     } else {
       th.className = 'xls-th-col ' + (ci === 0 ? 'today-th-col-a' : (ci === 1 ? 'today-th-col-1' : 'today-th-col-other'));
     }
@@ -2477,7 +2591,7 @@ function _renderTodayOrderGrid() {
     let finalVal = newVal;
     const unitColIdx = isProps ? 2 : (isTsukiji ? 3 : 1);
     const nameColIdx = (isProps || isRosen) ? 1 : (isTsukiji ? 2 : 0);
-    const isUnitCell = !isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && ci === unitColIdx && (rowObj.type === 'item' || String(rowObj.cells[nameColIdx] || '').trim());
+    const isUnitCell = !isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && !isJoso && ci === unitColIdx && (rowObj.type === 'item' || String(rowObj.cells[nameColIdx] || '').trim());
     if (isUnitCell) {
       const check = _validateTodayUnit(newVal);
       if (check.valid) {
@@ -2516,12 +2630,38 @@ function _renderTodayOrderGrid() {
                                         ? ` today-td-wd-${ci}`
                                         : (isSantoku
                                             ? ` today-td-st-${ci}`
-                                            : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`)))))))))))
+                                            : (isJoso
+                                                ? ` today-td-joso-${ci}`
+                                                : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`))))))))))))
       td.className = _getTodayRowCellClass(rowObj, ci, finalVal) + colClass + (selectedRowIdx === ri && selectedColIdx === ci ? ' xls-sel' : '');
       td.textContent = finalVal;
       td.title = finalVal;
     }
-    if (!isHaibukiya && !isNationalAzabu && !isTsukiji && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && ci === nameColIdx) {
+    if (isJoso && rowObj.type === 'item' && ci === 6) {
+      const tanka = parseFloat(String(rowObj.cells[4] || '').replace(/,/g, '')) || 0;
+      const hatchu = parseFloat(String(rowObj.cells[6] || '').replace(/,/g, '')) || 0;
+      const nouhin = hatchu > 0 ? String(hatchu) : '';
+      const kin = (tanka > 0 && hatchu > 0) ? (tanka * hatchu).toLocaleString('ja-JP') : '';
+      rowObj.cells[3] = nouhin;
+      rowObj.cells[7] = kin;
+      const nd = cellMatrix[ri]?.[3];
+      if (nd && !nd.classList.contains('xls-editing')) { nd.textContent = nouhin; nd.title = nouhin; }
+      const kd = cellMatrix[ri]?.[7];
+      if (kd && !kd.classList.contains('xls-editing')) { kd.textContent = kin; kd.title = kin; }
+      const totRow = rows.find(r => r.type === 'merged' && String(r.cells[0] || '').trim() === '合計');
+      if (totRow) {
+        const tIdx = rows.indexOf(totRow);
+        const sumH = rows.filter(r => r.type === 'item').reduce((s, r) => s + (parseFloat(String(r.cells[6] || '').replace(/,/g, '')) || 0), 0);
+        const sumK = rows.filter(r => r.type === 'item').reduce((s, r) => s + (parseFloat(String(r.cells[7] || '').replace(/,/g, '')) || 0), 0);
+        totRow.cells[6] = sumH > 0 ? String(sumH) : '';
+        totRow.cells[7] = sumK > 0 ? sumK.toLocaleString('ja-JP') : '';
+        const t6 = cellMatrix[tIdx]?.[6];
+        if (t6) { t6.textContent = totRow.cells[6]; t6.title = totRow.cells[6]; }
+        const t7 = cellMatrix[tIdx]?.[7];
+        if (t7) { t7.textContent = totRow.cells[7]; t7.title = totRow.cells[7]; }
+      }
+    }
+    if (!isHaibukiya && !isNationalAzabu && !isTsukiji && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && !isJoso && ci === nameColIdx) {
       const unitTd = cellMatrix[ri]?.[unitColIdx];
       if (unitTd) {
         const unitVal = rowObj.cells[unitColIdx] != null ? String(rowObj.cells[unitColIdx]) : '';
@@ -2541,7 +2681,7 @@ function _renderTodayOrderGrid() {
 
   function startInlineEdit(ri, ci, initialChar = null) {
     if (_isTodayRowSpanned(rows[ri])) ci = 0;
-    const isUnitCol = !isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && ci === 1 && rows[ri]?.type !== 'header';
+    const isUnitCol = !isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && !isJoso && ci === 1 && rows[ri]?.type !== 'header';
     if (isUnitCol && initialChar !== null && /^[0-9０-９]$/.test(initialChar)) {
       showToast('単位列には数値を入力できません', true);
       return;
@@ -2717,7 +2857,9 @@ function _renderTodayOrderGrid() {
                                           ? ` today-td-wd-${ci}`
                                           : (isSantoku
                                               ? ` today-td-st-${ci}`
-                                              : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`)))))))))))
+                                              : (isJoso
+                                                  ? ` today-td-joso-${ci}`
+                                                  : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`))))))))))))
         td.className = _getTodayRowCellClass(rowObj, ci, val) + colClass;
         td.title = val;
         td.textContent = val;
@@ -2874,7 +3016,7 @@ function _renderTodayOrderGrid() {
     } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       const unitColIdx = isProps ? 2 : 1;
-      if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && selectedColIdx === unitColIdx && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key)) {
+      if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && !isJoso && selectedColIdx === unitColIdx && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key)) {
         showToast('単位列には数値を入力できません', true);
         return;
       }
@@ -2994,22 +3136,6 @@ async function initTodayOrderView() {
 
     document.getElementById('todayOrderSaveBtn')?.addEventListener('click', () => {
       saveTodayOrderSheet(false);
-    });
-
-    document.getElementById('todayOrderResetBtn')?.addEventListener('click', async () => {
-      if (!(await showConfirmToast('表示中の発注書を初期状態にリセットしますか？', { confirmText: 'リセット', danger: true }))) return;
-      const fmt = _todayOrderCurrentFormat;
-      const cfg = _todayFmtCfg(fmt);
-      try { localStorage.removeItem(cfg.storageKey); } catch {}
-      try {
-        await fetch(`${API_BASE}/api/today-order?format=${encodeURIComponent(fmt)}`, { method: 'DELETE' });
-      } catch {}
-      _todayOrderRows = _createTodayOrderInitialRows(fmt);
-      _todayOrderSelRow = 0;
-      _todayOrderSelCol = 0;
-      _markTodayOrderDirty(false);
-      _renderTodayOrderGrid();
-      showToast('初期データにリセットしました');
     });
 
     document.getElementById('todayOrderSearch')?.addEventListener('input', () => {
@@ -3310,6 +3436,20 @@ async function initTodayOrderView() {
             const totalVal = normalizedDays.reduce((s, v) => s + (parseFloat(v) || 0), 0);
             const totalStr = totalVal > 0 ? String(totalVal) : '';
             collected.push({ category: '', cells: [name, origin, spec, ...normalizedDays, totalStr] });
+          } else if (_todayOrderCurrentFormat === 'josoSeikyo') {
+            const ocr   = (tr.querySelector('.today-m-ocr')?.value || '').trim();
+            const spec  = (tr.querySelector('.today-m-spec')?.value || '').trim();
+            const tanka = (tr.querySelector('.today-m-tanka')?.value || '').trim();
+            const irisu = (tr.querySelector('.today-m-irisu')?.value || '').trim() || '1';
+            const qty   = (tr.querySelector('.today-m-qty')?.value || '').trim();
+            const hasAny = Boolean(ocr || name || spec || tanka || qty);
+            if (!hasAny) continue;
+            if (!name) { nameInp?.classList.add('today-input-error'); validationError = `${idx + 1} 行目: 商品名を入力してください`; errorFocusEl = nameInp; break; }
+            const tankaNum = parseFloat(String(tanka).replace(/,/g, '')) || 0;
+            const qtyNum   = parseFloat(String(qty).replace(/,/g, '')) || 0;
+            const nouhin   = qtyNum > 0 ? String(qtyNum) : '';
+            const kin      = (tankaNum > 0 && qtyNum > 0) ? (tankaNum * qtyNum).toLocaleString('ja-JP') : '';
+            collected.push({ category: '', cells: [ocr, name, spec, nouhin, tanka, irisu, qty, kin] });
           } else {
             const unitInp = tr.querySelector('.today-m-unit');
             const dayInps = Array.from(tr.querySelectorAll('.today-m-day'));
