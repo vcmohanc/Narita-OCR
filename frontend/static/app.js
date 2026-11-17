@@ -1,4 +1,4 @@
-﻿/* OCR System — app.js */
+/* OCR System — app.js */
 "use strict";
 
 // When opened as file:// the browser can't resolve relative /api paths.
@@ -246,6 +246,19 @@ const TODAY_ORDER_FORMATS = {
     defaultDate: '2026-10-25',
     titleMatch: 'ワールドデリカ',
   },
+  santoku: {
+    cols: 8,
+    dayStartCol: 3,
+    dayStep: 1,
+    dayCount: 4,
+    storageKey: 'ocr_today_order_sheet_v1_santoku',
+    legacyStorageKey: null,
+    xlsxFile: 'santoku_order.xlsx',
+    downloadName: '発注書_株式会社三徳.xlsx',
+    csvName: '三徳_発注書.csv',
+    defaultDate: '2026-09-28',
+    titleMatch: '三徳',
+  },
 };
 const TODAY_NANOHANA_PRESETS = [
   { orderNo: '648', name: '有機じゃが芋', spec: '600g', price: '230.0', qty: '23', amount: '5,290' },
@@ -284,6 +297,12 @@ const TODAY_WORLDDELICA_PRESETS = [
   { date: '', name: '有機ステッキオ', qty: '', unit: '袋', note: '' },
   { date: '', name: '有機フィノッキオ', qty: '', unit: '袋', note: '' },
   { date: '', name: '群馬県産有機カリーノケール5入', qty: '', unit: '箱', note: '' },
+];
+const TODAY_SANTOKU_PRESETS = [
+  { name: 'ベジコープ 小松菜', origin: '千葉・茨城', spec: '200g', days: Array(4).fill('') },
+  { name: 'ベジコープ ベビーリーフ', origin: '千葉', spec: '40g', days: Array(4).fill('') },
+  { name: 'ベジコープ グリーンリーフ', origin: '千葉・群馬', spec: 'L', days: Array(4).fill('') },
+  { name: 'ベジコープ サニーレタス', origin: '千葉・群馬', spec: 'L', days: Array(4).fill('') },
 ];
 const TODAY_PRESET_ITEMS = ['大根', '赤からし水菜', '小江戸菜', 'スイスチャード', 'ほうれん草', 'キャベツ', 'ホテル風か様用'];
 const TODAY_TSUKIJI_PRESETS = [
@@ -525,6 +544,28 @@ function _createTodayOrderInitialRows(fmt = _todayOrderCurrentFormat) {
     return rows;
   }
 
+  if (fmt === 'santoku') {
+    const ncols = TODAY_ORDER_FORMATS.santoku.cols;
+    const pad = (text) => [text, ...Array(ncols - 1).fill('')];
+    const rows = [
+      { type: 'title',  cells: pad('発注書　株式会社三徳') },
+      { type: 'meta',   cells: pad('宛先：株式会社ベジコープ 御中　／　発注者：㈱三徳 中小原') },
+      { type: 'meta',   cells: pad('対象期間：2026年9月28日〜10月4日') },
+      { type: 'spacer', cells: Array(ncols).fill('') },
+      { type: 'header', cells: ['商品名', '産地', '規格', '09/28', '09/29', '10/01', '10/02', '総計'] },
+      ...TODAY_SANTOKU_PRESETS.map(p => ({
+        type: 'item',
+        cells: [p.name, p.origin, p.spec, ...p.days, '']
+      })),
+      { type: 'spacer', cells: Array(ncols).fill('') },
+      { type: 'note',   cells: pad('※ いつもお世話になっております。9/28〜の発注書です。宜しくお願いします。') },
+    ];
+    for (let i = 0; i < 4; i++) {
+      rows.push({ type: 'data', cells: Array(ncols).fill('') });
+    }
+    return rows;
+  }
+
   if (fmt === 'worlddelica') {
     const ncols = TODAY_ORDER_FORMATS.worlddelica.cols;
     const pad = (text) => [text, ...Array(ncols - 1).fill('')];
@@ -757,9 +798,10 @@ function _renderTodayPresetChips() {
   const isGreenworld = _todayOrderCurrentFormat === 'greenworld';
   const isRosen = _todayOrderCurrentFormat === 'rosen';
   const isWorldDelica = _todayOrderCurrentFormat === 'worlddelica';
+  const isSantoku = _todayOrderCurrentFormat === 'santoku';
   const items = isHaibukiya
     ? TODAY_HAIBUKIYA_PRESETS.map(p => p.name)
-    : (isProps ? TODAY_PROPS_PRESETS.map(p => p.name) : (isNationalAzabu ? TODAY_NATIONAL_AZABU_PRESETS.map(p => p.name) : (isTsukiji ? TODAY_TSUKIJI_PRESETS.map(p => p.name) : (isNanohana ? TODAY_NANOHANA_PRESETS.map(p => p.name) : (isFusui ? TODAY_FUSUI_PRESETS.map(p => p.name) : (isGreenworld ? TODAY_GREENWORLD_PRESETS.map(p => p.name) : (isRosen ? TODAY_ROSEN_PRESETS.map(p => p.name) : (isWorldDelica ? TODAY_WORLDDELICA_PRESETS.map(p => p.name) : TODAY_PRESET_ITEMS))))))));
+    : (isProps ? TODAY_PROPS_PRESETS.map(p => p.name) : (isNationalAzabu ? TODAY_NATIONAL_AZABU_PRESETS.map(p => p.name) : (isTsukiji ? TODAY_TSUKIJI_PRESETS.map(p => p.name) : (isNanohana ? TODAY_NANOHANA_PRESETS.map(p => p.name) : (isFusui ? TODAY_FUSUI_PRESETS.map(p => p.name) : (isGreenworld ? TODAY_GREENWORLD_PRESETS.map(p => p.name) : (isRosen ? TODAY_ROSEN_PRESETS.map(p => p.name) : (isWorldDelica ? TODAY_WORLDDELICA_PRESETS.map(p => p.name) : (isSantoku ? TODAY_SANTOKU_PRESETS.map(p => p.name) : TODAY_PRESET_ITEMS)))))))));
 
   if (quickEl) {
     quickEl.innerHTML =
@@ -855,6 +897,13 @@ function _renderTodayPresetChips() {
             if (!firstAdded) firstAdded = tr;
           }
         });
+      } else if (_todayOrderCurrentFormat === 'santoku') {
+        TODAY_SANTOKU_PRESETS.forEach(p => {
+          if (!existing.has(p.name)) {
+            const tr = _appendTodayModalItemRow({ ...p, days: [...p.days] });
+            if (!firstAdded) firstAdded = tr;
+          }
+        });
       } else {
         TODAY_PRESET_ITEMS.forEach(pName => {
           if (!existing.has(pName)) {
@@ -864,7 +913,7 @@ function _renderTodayPresetChips() {
         });
       }
       _renumberTodayModalRows();
-      (firstAdded?.querySelector('.today-m-unit') || firstAdded?.querySelector('.today-m-day'))?.focus();
+      (firstAdded?.querySelector('.today-m-day') || firstAdded?.querySelector('.today-m-unit'))?.focus();
     });
   }
 }
@@ -878,7 +927,8 @@ async function switchTodayOrderFormat(fmt) {
     : (fmt === 'fusui' ? 'fusui'
     : (fmt === 'greenworld' ? 'greenworld'
     : (fmt === 'rosen' ? 'rosen'
-    : (fmt === 'worlddelica' ? 'worlddelica' : 'chiba'))))))));
+    : (fmt === 'worlddelica' ? 'worlddelica'
+    : (fmt === 'santoku' ? 'santoku' : 'chiba')))))))));
   _todayOrderCurrentFormat = nextFmt;
 
   const sel = document.getElementById('todayOrderFormatSelect');
@@ -911,7 +961,9 @@ async function switchTodayOrderFormat(fmt) {
                           ? '商品コード・商品名・備考で検索…'
                           : (nextFmt === 'worlddelica'
                               ? '納品日・商品名・備考で検索…'
-                              : (nextFmt === 'props_japan' ? '品番・品名・単位で検索…' : '品目・単位・備考で検索…')))))));
+                              : (nextFmt === 'santoku'
+                                  ? '商品名・産地・規格で検索…'
+                                  : (nextFmt === 'props_japan' ? '品番・品名・単位で検索…' : '品目・単位・備考で検索…'))))))));
   }
 
   _renderTodayPresetChips();
@@ -938,7 +990,9 @@ async function switchTodayOrderFormat(fmt) {
                                  ? '発注書フォーマットを「株式会社相鉄ローゼン（13列・7日間）」に切り替えました'
                                  : (nextFmt === 'worlddelica'
                                      ? '発注書フォーマットを「株式会社ワールドデリカ（5列）」に切り替えました'
-                                     : '発注書フォーマットを「千葉自動発注書（8列）」に切り替えました'))))))));
+                                     : (nextFmt === 'santoku'
+                                         ? '発注書フォーマットを「株式会社三徳（8列・4日間）」に切り替えました'
+                                         : '発注書フォーマットを「千葉自動発注書（8列）」に切り替えました')))))))));
   showToast(fmtToast);
 }
 
@@ -967,6 +1021,7 @@ function _getTodayHeaderDateSpan() {
     if (_todayOrderCurrentFormat === 'greenworld') return '10/8〜10/11';
     if (_todayOrderCurrentFormat === 'rosen') return '10/24〜10/30';
     if (_todayOrderCurrentFormat === 'worlddelica') return '10/25〜10/29';
+    if (_todayOrderCurrentFormat === 'santoku') return '9/28〜10/2';
     return '10/26〜10/31';
   }
   if (_todayOrderCurrentFormat === 'haibukiya') {
@@ -1001,13 +1056,18 @@ function _getTodayHeaderDateSpan() {
   if (_todayOrderCurrentFormat === 'worlddelica') {
     return '10/25〜10/29';
   }
+  if (_todayOrderCurrentFormat === 'santoku') {
+    const startRaw = String(hdr.cells[3] || '').split('\n')[0].trim() || '9/28';
+    const endRaw = String(hdr.cells[6] || '').split('\n')[0].trim() || '10/2';
+    return `${startRaw}〜${endRaw}`;
+  }
   const startRaw = String(hdr.cells[startCol] || '').split('\n')[0].trim() || '10/26';
   const endRaw = String(hdr.cells[startCol + 5] || '').split('\n')[0].trim() || '10/31';
   return `${startRaw}〜${endRaw}`;
 }
 
 function _syncTodayOrderMergedNotice() {
-  if (_todayOrderCurrentFormat === 'haibukiya' || _todayOrderCurrentFormat === 'props_japan' || _todayOrderCurrentFormat === 'national_azabu' || _todayOrderCurrentFormat === 'tsukiji' || _todayOrderCurrentFormat === 'nanohana' || _todayOrderCurrentFormat === 'fusui' || _todayOrderCurrentFormat === 'greenworld' || _todayOrderCurrentFormat === 'rosen' || _todayOrderCurrentFormat === 'worlddelica') return;
+  if (_todayOrderCurrentFormat === 'haibukiya' || _todayOrderCurrentFormat === 'props_japan' || _todayOrderCurrentFormat === 'national_azabu' || _todayOrderCurrentFormat === 'tsukiji' || _todayOrderCurrentFormat === 'nanohana' || _todayOrderCurrentFormat === 'fusui' || _todayOrderCurrentFormat === 'greenworld' || _todayOrderCurrentFormat === 'rosen' || _todayOrderCurrentFormat === 'worlddelica' || _todayOrderCurrentFormat === 'santoku') return;
   const hasItems = _todayOrderRows.some(r => r.type === 'item');
   if (hasItems) {
     _todayOrderRows = _todayOrderRows.filter(r => r.type !== 'merged');
@@ -1079,6 +1139,10 @@ function _getTodayRowCellClass(rowObj, ci, val) {
       if (ci === 1) cls += ' today-xls-header-left';
       else if (ci === 2) cls += ' today-xls-header-right';
       else cls += ' today-xls-header-center';
+    } else if (_todayOrderCurrentFormat === 'santoku') {
+      if (ci === 0) cls += ' today-xls-header-left';
+      else if (ci === 2) cls += ' today-xls-header-right';
+      else cls += ' today-xls-header-center';
     } else {
       if (ci === 0) cls += ' today-xls-header-left';
       else if (ci === 1) cls += ' today-xls-header-right';
@@ -1148,6 +1212,12 @@ function _getTodayRowCellClass(rowObj, ci, val) {
     else if (ci === 2) cls += ' today-xls-num';
     else if (ci === 3) cls += ' today-xls-item-unit';
     else if (ci === 4) cls += ' today-xls-note';
+  } else if (_todayOrderCurrentFormat === 'santoku') {
+    if (rowObj.type === 'item' && ci === 0) cls += ' today-xls-item-name';
+    else if (ci === 1) cls += ' today-xls-text';
+    else if (ci === 2) cls += ' today-xls-text';
+    else if (ci >= 3 && ci <= 6) cls += ' today-xls-num today-cell-day';
+    else if (ci === 7) cls += ' today-xls-num';
   } else {
     if (rowObj.type === 'item' && ci === 0) cls += ' today-xls-item-name';
     else if (ci === 1 && (rowObj.type === 'item' || String(rowObj.cells?.[0] || '').trim())) {

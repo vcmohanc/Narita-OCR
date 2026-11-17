@@ -722,6 +722,7 @@ _TODAY_FUSUI_COLS = 6
 _TODAY_NANOHANA_COLS = 6
 _TODAY_GREENWORLD_COLS = 7
 _TODAY_ROSEN_COLS = 13
+_TODAY_WORLDDELICA_COLS = 5
 _TODAY_VALID_UNITS = (
     "cs", "p", "kg", "g", "束", "袋", "箱", "本", "個",
     "玉", "パック", "ケース", "枚", "セット", "ネット", "把", "丁", "尾", "杯",
@@ -746,6 +747,8 @@ def _get_today_format_cfg(fmt: str) -> tuple[str, int, Path, Path]:
         return "greenworld", _TODAY_GREENWORLD_COLS, TODAY_GREENWORLD_JSON, TODAY_GREENWORLD_XLSX
     if key in ("rosen", "相鉄ローゼン", "株式会社相鉄ローゼン"):
         return "rosen", _TODAY_ROSEN_COLS, TODAY_ROSEN_JSON, TODAY_ROSEN_XLSX
+    if key in ("worlddelica", "ワールドデリカ", "株式会社ワールドデリカ"):
+        return "worlddelica", _TODAY_WORLDDELICA_COLS, TODAY_WORLDDELICA_JSON, TODAY_WORLDDELICA_XLSX
     if key == "chiba":
         return "chiba", _TODAY_ORDER_COLS, TODAY_ORDER_JSON, TODAY_ORDER_XLSX
     raise HTTPException(status_code=400, detail=f"Unsupported today-order format '{fmt}'")
@@ -966,6 +969,29 @@ def _default_today_order_rows(fmt: str = "chiba") -> list[dict]:
             rows.append({"type": "data", "cells": [""] * _TODAY_ROSEN_COLS})
         return rows
 
+    if fmt == "worlddelica":
+        rows = [
+            {"type": "title",  "cells": ["発注書　株式会社ワールドデリカ"] + [""] * (_TODAY_WORLDDELICA_COLS - 1)},
+            {"type": "meta",   "cells": ["宛先：株式会社ベジコープ 御中　／　発注日：10月22日　発注書No.18"] + [""] * (_TODAY_WORLDDELICA_COLS - 1)},
+            {"type": "meta",   "cells": ["発注元：㈱ワールドデリカ（㈱東果内）担当 長谷川・堀切　TEL 0479-86-5178　FAX 0479-86-5177"] + [""] * (_TODAY_WORLDDELICA_COLS - 1)},
+            {"type": "meta",   "cells": ["再送：サニーレタス追加"] + [""] * (_TODAY_WORLDDELICA_COLS - 1)},
+            {"type": "spacer", "cells": [""] * _TODAY_WORLDDELICA_COLS},
+            {"type": "header", "cells": ["納品日", "商品名", "数量", "単位", "備考"]},
+            {"type": "item",   "cells": ["", "群馬県産有機サニーレタス15入", "", "箱", ""]},
+            {"type": "item",   "cells": ["", "有機玉ねぎ 20kg", "", "箱", ""]},
+            {"type": "item",   "cells": ["", "有機カタローニャ", "", "袋", ""]},
+            {"type": "item",   "cells": ["", "有機ステッキオ", "", "袋", ""]},
+            {"type": "item",   "cells": ["", "有機フィノッキオ", "", "袋", ""]},
+            {"type": "item",   "cells": ["", "群馬県産有機カリーノケール5入", "", "箱", ""]},
+            {"type": "spacer", "cells": [""] * _TODAY_WORLDDELICA_COLS},
+            {"type": "note",   "cells": ["※ デリカフーズ納品先：〒121-0073 東京都足立区六町4-12-12 デリカフーズ㈱東京事務所 東京FSセンター（03-3858-8293）"] + [""] * (_TODAY_WORLDDELICA_COLS - 1)},
+            {"type": "note",   "cells": ["※ 10/27・10/30・10/31は発注なし。"] + [""] * (_TODAY_WORLDDELICA_COLS - 1)},
+            {"type": "note",   "cells": ["※ ご記入の上、FAX（0479-86-5177）にて返信をお願いします。"] + [""] * (_TODAY_WORLDDELICA_COLS - 1)},
+        ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _TODAY_WORLDDELICA_COLS})
+        return rows
+
     rows = [
         {"type": "title",  "cells": ["千葉自動発注書（発注分のみ）", "", "", "", "", "", "", ""]},
         {"type": "meta",   "cells": ["宛先：千葉成田センター\u3000／\u3000発注先：葛西産直ファーム", "", "", "", "", "", "", ""]},
@@ -1065,6 +1091,10 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
             "F": 10.0, "G": 10.0, "H": 10.0, "I": 10.0, "J": 10.0,
             "K": 10.0, "L": 10.0, "M": 18.0,
         }
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
+    elif fmt == "worlddelica":
+        col_widths = {"A": 10.0, "B": 36.0, "C": 8.0, "D": 8.0, "E": 24.0}
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
     else:
