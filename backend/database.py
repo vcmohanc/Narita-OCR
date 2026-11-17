@@ -89,9 +89,9 @@ CLIENTS_SEED = [
     },
     {
         "code": "nanohana",
-        "name_ja": "なのはな",
+        "name_ja": "なのはな生活協同組合",
         "name_en": "Nanohana",
-        "keywords": "なのはな,菜の花,nanohana",
+        "keywords": "なのはな生活協同組合,なのはな生協,なのはな,菜の花,nanohana",
     },
 ]
 
@@ -1527,6 +1527,14 @@ def _migrate():
                SET header_row = 8,
                    heading_columns = '商品名, 規格母目, C/S入数, 単価, 金額, 備考'
              WHERE code = 'fusui_project' AND (heading_columns IS NULL OR heading_columns = '')
+            """
+        )
+        cur.execute(
+            """
+            UPDATE ocr_clients
+               SET header_row = 5,
+                   heading_columns = '注文No., 商品名, 規格容量, 納入価格（円）, 総数（P）, 金額（円）'
+             WHERE code = 'nanohana' AND (heading_columns IS NULL OR heading_columns = '' OR header_row = 1)
             """
         )
         cur.execute(

@@ -420,11 +420,17 @@ TODAY_TSUKIJI_JSON = RESULT_DIR / "today_order_tsukiji.json"
 TODAY_TSUKIJI_XLSX = FRONTEND_DIR / "static" / "tsukiji_chiba_order.xlsx"
 TODAY_NATIONAL_AZABU_JSON = RESULT_DIR / "today_order_national_azabu.json"
 TODAY_NATIONAL_AZABU_XLSX = FRONTEND_DIR / "static" / "national_azabu_order.xlsx"
+TODAY_FUSUI_JSON = RESULT_DIR / "today_order_fusui.json"
+TODAY_FUSUI_XLSX = FRONTEND_DIR / "static" / "fusui_order.xlsx"
+TODAY_NANOHANA_JSON = RESULT_DIR / "today_order_nanohana.json"
+TODAY_NANOHANA_XLSX = FRONTEND_DIR / "static" / "nanohana_order.xlsx"
 _TODAY_ORDER_COLS = 8
 _TODAY_HAIBUKIYA_COLS = 20
 _TODAY_PROPS_COLS = 10
 _TODAY_TSUKIJI_COLS = 11
 _TODAY_NATIONAL_AZABU_COLS = 13
+_TODAY_FUSUI_COLS = 6
+_TODAY_NANOHANA_COLS = 6
 _TODAY_VALID_UNITS = (
     "cs", "p", "kg", "g", "束", "袋", "箱", "本", "個",
     "玉", "パック", "ケース", "枚", "セット", "ネット", "把", "丁", "尾", "杯",
@@ -441,6 +447,10 @@ def _get_today_format_cfg(fmt: str) -> tuple[str, int, Path, Path]:
         return "tsukiji", _TODAY_TSUKIJI_COLS, TODAY_TSUKIJI_JSON, TODAY_TSUKIJI_XLSX
     if key in ("national_azabu", "ナショナル麻布", "national azabu"):
         return "national_azabu", _TODAY_NATIONAL_AZABU_COLS, TODAY_NATIONAL_AZABU_JSON, TODAY_NATIONAL_AZABU_XLSX
+    if key in ("fusui", "fusui_project", "風水プロジェクト", "ゆうき市場"):
+        return "fusui", _TODAY_FUSUI_COLS, TODAY_FUSUI_JSON, TODAY_FUSUI_XLSX
+    if key in ("nanohana", "nanohana_coop", "なのはな", "なのはな生協", "なのはな生活協同組合"):
+        return "nanohana", _TODAY_NANOHANA_COLS, TODAY_NANOHANA_JSON, TODAY_NANOHANA_XLSX
     if key == "chiba":
         return "chiba", _TODAY_ORDER_COLS, TODAY_ORDER_JSON, TODAY_ORDER_XLSX
     raise HTTPException(status_code=400, detail=f"Unsupported today-order format '{fmt}'")
@@ -574,6 +584,58 @@ def _default_today_order_rows(fmt: str = "chiba") -> list[dict]:
             rows.append({"type": "data", "cells": [""] * _TODAY_PROPS_COLS})
         return rows
 
+    if fmt == "fusui":
+        rows = [
+            {"type": "title",  "cells": ["発注書　株式会社風水プロジェクト（ゆうき市場）"] + [""] * (_TODAY_FUSUI_COLS - 1)},
+            {"type": "meta",   "cells": ["株式会社ベジコープ 御中（12765）　／　発注者：青果発注 宮島　／　No.000000437576"] + [""] * (_TODAY_FUSUI_COLS - 1)},
+            {"type": "meta",   "cells": ["ゆうき市場事業本部 ㈱風水プロジェクト 〒155-0032 東京都世田谷区代沢　TEL 050-5527-2131　FAX 03-5433-4185"] + [""] * (_TODAY_FUSUI_COLS - 1)},
+            {"type": "meta",   "cells": ["発注日：2026年10月22日　／　納品指定日：2026年10月25日（日）　／　納品場所：引取にて"] + [""] * (_TODAY_FUSUI_COLS - 1)},
+            {"type": "spacer", "cells": [""] * _TODAY_FUSUI_COLS},
+            {"type": "header", "cells": ["商品コード", "商品名", "規格", "数量", "単価（円）", "金額（円）"]},
+            {"type": "item",   "cells": ["1029510171", "有機青じそ 10枚P 有機認証（広島県）出来商店", "10枚P", "100", "125", "12,500"]},
+            {"type": "spacer", "cells": [""] * _TODAY_FUSUI_COLS},
+            {"type": "note",   "cells": ["※ 上記住所は納品場所ではありません。受注の返信FAXは上記の番号へお願いします。"] + [""] * (_TODAY_FUSUI_COLS - 1)},
+            {"type": "note",   "cells": ["※ 内容確認後、返信をお願いします。変更がある場合はお電話ください。"] + [""] * (_TODAY_FUSUI_COLS - 1)},
+        ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _TODAY_FUSUI_COLS})
+        return rows
+
+    if fmt == "nanohana":
+        rows = [
+            {"type": "title",  "cells": ["発注書　なのはな生活協同組合"] + [""] * (_TODAY_NANOHANA_COLS - 1)},
+            {"type": "meta",   "cells": ["宛先：株式会社ベジコープ 御中　／　発注番号：0455971　／　担当：渡邊"] + [""] * (_TODAY_NANOHANA_COLS - 1)},
+            {"type": "meta",   "cells": ["発注日：2026年10月23日（金）　／　10月4回　／　納品日：2026年10月29日（木）　／　納品場所：なのはな生活協同組合"] + [""] * (_TODAY_NANOHANA_COLS - 1)},
+            {"type": "meta",   "cells": ["発注元：〒263-0001 千葉市稲毛区長沼原町678-2　TEL 043-216-7087　FAX 043-215-0510"] + [""] * (_TODAY_NANOHANA_COLS - 1)},
+            {"type": "spacer", "cells": [""] * _TODAY_NANOHANA_COLS},
+            {"type": "header", "cells": ["注文No.", "商品名", "規格容量", "納入価格（円）", "総数（P）", "金額（円）"]},
+            {"type": "item",   "cells": ["648", "有機じゃが芋", "600g", "230.0", "23", "5,290"]},
+            {"type": "item",   "cells": ["650", "有機玉ねぎ", "600g", "230.0", "30", "6,900"]},
+            {"type": "item",   "cells": ["658", "有機ルッコラ", "50g", "120.0", "12", "1,440"]},
+            {"type": "item",   "cells": ["665", "有機生しい茸（菌床）", "90g", "178.0", "17", "3,026"]},
+            {"type": "item",   "cells": ["666", "有機きくらげ", "60g", "147.0", "14", "2,058"]},
+            {"type": "item",   "cells": ["667", "有機たもぎたけ", "100g", "210.0", "13", "2,730"]},
+            {"type": "item",   "cells": ["668", "じゃが芋", "500g", "165.0", "12", "1,980"]},
+            {"type": "item",   "cells": ["669", "じゃが芋", "1kg", "280.0", "26", "7,280"]},
+            {"type": "item",   "cells": ["672", "玉ねぎ", "500g", "165.0", "40", "6,600"]},
+            {"type": "item",   "cells": ["673", "玉ねぎ", "1kg", "265.0", "80", "21,200"]},
+            {"type": "item",   "cells": ["675", "ごぼう（カット）", "200g", "160.0", "36", "5,760"]},
+            {"type": "item",   "cells": ["680", "大根（カット）", "1本分", "180.0", "59", "10,620"]},
+            {"type": "item",   "cells": ["681", "大根（ハーフ）", "1/2本", "120.0", "53", "6,360"]},
+            {"type": "item",   "cells": ["687", "白菜", "1個", "290.0", "25", "7,250"]},
+            {"type": "item",   "cells": ["688", "ミニ白菜", "1個", "155.0", "80", "12,400"]},
+            {"type": "item",   "cells": ["689", "キャベツ", "1個", "190.0", "102", "19,380"]},
+            {"type": "item",   "cells": ["705", "葉ねぎ", "100g", "130.0", "47", "6,110"]},
+            {"type": "item",   "cells": ["199401", "長ねぎ（カット）", "300g", "280.0", "25", "7,000"]},
+            {"type": "data",   "cells": ["合計", "", "", "", "694", "133,384"]},
+            {"type": "spacer", "cells": [""] * _TODAY_NANOHANA_COLS},
+            {"type": "note",   "cells": ["※ 午前着指定で発送をお願いします。"] + [""] * (_TODAY_NANOHANA_COLS - 1)},
+            {"type": "note",   "cells": ["※ 金額は納入価格×総数で算出した参考値です（原本には記載なし）。"] + [""] * (_TODAY_NANOHANA_COLS - 1)},
+        ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _TODAY_NANOHANA_COLS})
+        return rows
+
     rows = [
         {"type": "title",  "cells": ["千葉自動発注書（発注分のみ）", "", "", "", "", "", "", ""]},
         {"type": "meta",   "cells": ["宛先：千葉成田センター\u3000／\u3000発注先：葛西産直ファーム", "", "", "", "", "", "", ""]},
@@ -655,6 +717,14 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
         }
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
+    elif fmt == "fusui":
+        col_widths = {"A": 14.0, "B": 42.0, "C": 10.0, "D": 9.0, "E": 11.0, "F": 11.0}
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
+    elif fmt == "nanohana":
+        col_widths = {"A": 12.0, "B": 28.0, "C": 12.0, "D": 15.0, "E": 12.0, "F": 15.0}
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
     else:
         ws.column_dimensions["A"].width = 48.0
         for col_letter in ("B", "C", "D", "E", "F", "G", "H"):
@@ -699,6 +769,10 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                 is_num_col = (c_idx in (4, 5) or (c_idx >= 7 and c_idx <= 12))
             elif fmt == "tsukiji":
                 is_num_col = (5 <= c_idx <= 10)
+            elif fmt == "fusui":
+                is_num_col = (c_idx >= 4)
+            elif fmt == "nanohana":
+                is_num_col = (c_idx >= 4)
             else:
                 is_num_col = (c_idx in (5, 6) or (c_idx >= 8 and c_idx <= 19))
             if rtype in ("item", "data") and is_num_col and str(raw_val).strip():
@@ -724,6 +798,10 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                     horiz = "left" if c_idx in (1, 2, 3, 13) else ("right" if c_idx in (4, 5) else "center")
                 elif fmt == "tsukiji":
                     horiz = "center" if (1 <= c_idx <= 2 or c_idx == 4 or 5 <= c_idx <= 10) else ("left" if c_idx == 3 or c_idx == 11 else "center")
+                elif fmt == "fusui":
+                    horiz = "left" if c_idx == 2 else ("right" if c_idx >= 4 else "center")
+                elif fmt == "nanohana":
+                    horiz = "left" if c_idx == 2 else ("right" if c_idx >= 4 else "center")
                 else:
                     horiz = "left" if c_idx == 1 else ("right" if c_idx == 2 else "center")
                 cell.alignment = Alignment(horizontal=horiz, vertical="center", wrap_text=True)
@@ -783,6 +861,24 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                         cell.alignment = Alignment(horizontal="right", vertical="center")
                     else:
                         cell.alignment = Alignment(horizontal="left", vertical="center")
+                elif fmt == "fusui":
+                    if c_idx in (1, 3):
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                    elif c_idx >= 4:
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    else:
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
+                elif fmt == "nanohana":
+                    first_cell = str(cells[0] if len(cells) > 0 else "").strip()
+                    if first_cell == "合計":
+                        cell.font = font_summary
+                        cell.fill = fill_summary
+                    if c_idx in (1, 3):
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                    elif c_idx == 2:
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
+                    elif c_idx >= 4:
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
                 else:
                     if c_idx == 2 or c_idx >= 3:
                         cell.alignment = Alignment(horizontal="right", vertical="center")

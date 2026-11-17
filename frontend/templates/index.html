@@ -6,7 +6,7 @@
   <title>OCR System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=33" />
+  <link rel="stylesheet" href="/static/style.css?v=34" />
 </head>
 <body>
 
@@ -329,6 +329,8 @@
             <option value="tsukiji">発注書 築地産直ファーム（千葉分）</option>
             <option value="props_japan">注文書 株式会社プロップスジャパン（発注分のみ）</option>
             <option value="national_azabu">発注書 ナショナル麻布株式会社 御中（発注分のみ）</option>
+            <option value="fusui">発注書 株式会社風水プロジェクト（ゆうき市場）</option>
+            <option value="nanohana">発注書 なのはな生活協同組合（ベジコープ）</option>
           </select>
           <span class="order-row-count today-item-count" id="todayOrderItemCount">0 品目</span>
           <div class="order-toolbar-actions">
@@ -388,6 +390,8 @@
             <div class="xls-sheet-tab" data-format="tsukiji">築地産直ファーム</div>
             <div class="xls-sheet-tab" data-format="props_japan">プロップスジャパン 注文書</div>
             <div class="xls-sheet-tab" data-format="national_azabu">ナショナル麻布 発注書</div>
+            <div class="xls-sheet-tab" data-format="fusui">風水プロジェクト 発注書</div>
+            <div class="xls-sheet-tab" data-format="nanohana">なのはな生協 発注書</div>
           </div>
           <div class="xls-sheetbar-status" id="todayOrderStatusBar">15 rows × 8 cols · 発注書</div>
         </div>
@@ -601,6 +605,7 @@
             <option value="custom">— カスタム設定 —</option>
             <option value="national">ナショナル麻布 (8行目 · 品目, 産地, 栽培区分, 規格, 単価/p, 単価/cs, JAN, 備考, 日付別要望)</option>
             <option value="fusui">風水プロジェクト (8行目 · 商品名, 規格母目, C/S入数, 単価, 金額, 備考)</option>
+            <option value="nanohana">なのはな生活協同組合 (5行目 · 注文No., 商品名, 規格容量, 納入価格（円）, 総数（P）, 金額（円）)</option>
             <option value="standard">標準発注書 (1行目 · 商品コード, 商品名, 規格, 数量, 単価, 金額)</option>
             <option value="wholesale">卸売フォーマット (1行目 · 品番, 品名, 規格, 入数, 単価, 金額, 納品日)</option>
             <option value="simple">シンプル発注 (1行目 · 品名, 数量, 単価, 金額)</option>
@@ -802,6 +807,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=49"></script>
+  <script src="/static/app.js?v=50"></script>
 </body>
 </html>

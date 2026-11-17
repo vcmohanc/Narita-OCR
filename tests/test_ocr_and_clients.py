@@ -62,9 +62,20 @@ def test_client_detection_fusui_project():
     assert match["code"] == "fusui_project"
     print(f"test_client_detection_fusui_project: PASSED (score={match['match_score']})")
 
+def test_client_detection_nanohana():
+    db.init_db()
+    doc = {
+        "fused_text": "発注書 なのはな生活協同組合\n宛先：株式会社ベジコープ 御中 / 発注番号：0455971\n注文No.\t商品名\t規格容量\t納入価格（円）\t総数（P）\t金額（円）\n648\t有機じゃが芋\t600g\t230.0\t23\t5290"
+    }
+    match = db.detect_client_for_result(doc, filename="nanohana_order.jpg")
+    assert match is not None
+    assert match["code"] == "nanohana"
+    print(f"test_client_detection_nanohana: PASSED (score={match['match_score']})")
+
 if __name__ == "__main__":
     test_deepseek_cpu_fallback()
     test_client_detection_national()
     test_client_detection_chiba_santoku()
     test_client_detection_fusui_project()
-    print("ALL 4 TESTS PASSED PERFECTLY!")
+    test_client_detection_nanohana()
+    print("ALL 5 TESTS PASSED PERFECTLY!")
