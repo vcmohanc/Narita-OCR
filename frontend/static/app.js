@@ -2960,7 +2960,7 @@ function _renderTodayOrderGrid() {
     };
     cellValEl.oninput = () => {
       if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
-        if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /[0-9０-９]/.test(cellValEl.value)) {
+        if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && !isJoso && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /[0-9０-９]/.test(cellValEl.value)) {
           cellValEl.value = cellValEl.value.replace(/[0-9０-９]/g, '');
           showToast('単位列には数値を入力できません', true);
         }
@@ -2973,7 +2973,7 @@ function _renderTodayOrderGrid() {
       }
     };
     cellValEl.onkeydown = (e) => {
-      if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && !isSantoku && !isJoso && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         showToast('単位列には数値を入力できません', true);
         return;

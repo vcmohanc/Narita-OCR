@@ -14,6 +14,7 @@ import logging
 import asyncio
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date as _date, timedelta as _timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -723,6 +724,8 @@ TODAY_WORLDDELICA_JSON = RESULT_DIR / "today_order_worlddelica.json"
 TODAY_WORLDDELICA_XLSX = FRONTEND_DIR / "static" / "worlddelica_order.xlsx"
 TODAY_SANTOKU_JSON = RESULT_DIR / "today_order_santoku.json"
 TODAY_SANTOKU_XLSX = FRONTEND_DIR / "static" / "santoku_order.xlsx"
+TODAY_JOSO_JSON = RESULT_DIR / "today_order_joso.json"
+TODAY_JOSO_XLSX = FRONTEND_DIR / "static" / "joso_order.xlsx"
 _TODAY_ORDER_COLS = 8
 _TODAY_HAIBUKIYA_COLS = 20
 _TODAY_PROPS_COLS = 10
@@ -733,7 +736,8 @@ _TODAY_NANOHANA_COLS = 6
 _TODAY_GREENWORLD_COLS = 7
 _TODAY_ROSEN_COLS = 13
 _TODAY_WORLDDELICA_COLS = 5
-_TODAY_SANTOKU_COLS = 8
+_TODAY_SANTOKU_COLS = 10
+_TODAY_JOSO_COLS = 8
 _TODAY_VALID_UNITS = (
     "cs", "p", "kg", "g", "束", "袋", "箱", "本", "個",
     "玉", "パック", "ケース", "枚", "セット", "ネット", "把", "丁", "尾", "杯",
@@ -762,6 +766,8 @@ def _get_today_format_cfg(fmt: str) -> tuple[str, int, Path, Path]:
         return "worlddelica", _TODAY_WORLDDELICA_COLS, TODAY_WORLDDELICA_JSON, TODAY_WORLDDELICA_XLSX
     if key in ("santoku", "三徳", "株式会社三徳"):
         return "santoku", _TODAY_SANTOKU_COLS, TODAY_SANTOKU_JSON, TODAY_SANTOKU_XLSX
+    if key in ("josoSeikyo", "常総生協", "joso"):
+        return "josoSeikyo", _TODAY_JOSO_COLS, TODAY_JOSO_JSON, TODAY_JOSO_XLSX
     if key == "chiba":
         return "chiba", _TODAY_ORDER_COLS, TODAY_ORDER_JSON, TODAY_ORDER_XLSX
     raise HTTPException(status_code=400, detail=f"Unsupported today-order format '{fmt}'")
@@ -1006,21 +1012,59 @@ def _default_today_order_rows(fmt: str = "chiba") -> list[dict]:
         return rows
 
     if fmt == "santoku":
+        _start = _date(2026, 9, 28)
+        _day_cols = 6
+        _jp_wdays = ['日', '月', '火', '水', '木', '金', '土']
+        _day_labels = [
+            (_start + _timedelta(days=i)).strftime("%m/%d") + "\n" +
+            _jp_wdays[(_start + _timedelta(days=i)).weekday() + 1 if (_start + _timedelta(days=i)).weekday() < 6 else 0]
+            for i in range(_day_cols)
+        ]
+        _empty_days = [""] * _day_cols
         rows = [
             {"type": "title",  "cells": ["発注書　株式会社三徳"] + [""] * (_TODAY_SANTOKU_COLS - 1)},
             {"type": "meta",   "cells": ["宛先：株式会社ベジコープ 御中　／　発注者：㈱三徳 中小原"] + [""] * (_TODAY_SANTOKU_COLS - 1)},
-            {"type": "meta",   "cells": ["対象期間：2026年9月28日〜10月4日"] + [""] * (_TODAY_SANTOKU_COLS - 1)},
+            {"type": "meta",   "cells": [f"対象期間：{_start.year}年{_start.month}月{_start.day}日〜"] + [""] * (_TODAY_SANTOKU_COLS - 1)},
             {"type": "spacer", "cells": [""] * _TODAY_SANTOKU_COLS},
-            {"type": "header", "cells": ["商品名", "産地", "規格", "09/28", "09/29", "10/01", "10/02", "総計"]},
-            {"type": "item",   "cells": ["ベジコープ 小松菜", "千葉・茨城", "200g", "", "", "", "", ""]},
-            {"type": "item",   "cells": ["ベジコープ ベビーリーフ", "千葉", "40g", "", "", "", "", ""]},
-            {"type": "item",   "cells": ["ベジコープ グリーンリーフ", "千葉・群馬", "L", "", "", "", "", ""]},
-            {"type": "item",   "cells": ["ベジコープ サニーレタス", "千葉・群馬", "L", "", "", "", "", ""]},
+            {"type": "header", "cells": ["商品名", "産地", "規格"] + _day_labels + ["総計"]},
+            {"type": "item",   "cells": ["ベジコープ 小松菜", "千葉・茨城", "200g"] + _empty_days + [""]},
+            {"type": "item",   "cells": ["ベジコープ ベビーリーフ", "千葉", "40g"] + _empty_days + [""]},
+            {"type": "item",   "cells": ["ベジコープ グリーンリーフ", "千葉・群馬", "L"] + _empty_days + [""]},
+            {"type": "item",   "cells": ["ベジコープ サニーレタス", "千葉・群馬", "L"] + _empty_days + [""]},
             {"type": "spacer", "cells": [""] * _TODAY_SANTOKU_COLS},
-            {"type": "note",   "cells": ["※ いつもお世話になっております。9/28〜の発注書です。宜しくお願いします。"] + [""] * (_TODAY_SANTOKU_COLS - 1)},
+            {"type": "note",   "cells": [f"※ いつもお世話になっております。{_start.month}/{_start.day}〜の発注書です。宜しくお願いします。"] + [""] * (_TODAY_SANTOKU_COLS - 1)},
         ]
         for _ in range(4):
             rows.append({"type": "data", "cells": [""] * _TODAY_SANTOKU_COLS})
+        return rows
+
+    if fmt == "josoSeikyo":
+        _nc = _TODAY_JOSO_COLS
+        rows = [
+            {"type": "title",  "cells": ["常総生協　発注明細書"] + [""] * (_nc - 1)},
+            {"type": "meta",   "cells": ["納期：2026年10月29日（木）　10月4回 ／ 発注日：2026年10月23日"] + [""] * (_nc - 1)},
+            {"type": "meta",   "cells": ["発注元：常総生活協同組合　本部物流システムG ／ 納入先：茨城県守谷市本町281"] + [""] * (_nc - 1)},
+            {"type": "spacer", "cells": [""] * _nc},
+            {"type": "header", "cells": ["OCR No.", "商品名", "規格", "納品数", "単価（円）", "入数", "発注数", "金額（円）"]},
+            {"type": "item",   "cells": ["51", "館野さんの梨（新高）", "2〜3玉（約1kg）", "", "470", "1", "", ""]},
+            {"type": "item",   "cells": ["70", "レタス", "1玉", "", "170", "1", "", ""]},
+            {"type": "item",   "cells": ["71", "サニーレタス", "1玉", "", "155", "1", "", ""]},
+            {"type": "item",   "cells": ["74", "小松菜", "1束（200g）", "", "155", "1", "", ""]},
+            {"type": "item",   "cells": ["78", "ベビーリーフ", "40g", "", "145", "1", "", ""]},
+            {"type": "item",   "cells": ["84", "白菜", "1玉", "", "320", "1", "", ""]},
+            {"type": "item",   "cells": ["85", "ミニ白菜", "1玉（600〜800g）", "", "165", "1", "", ""]},
+            {"type": "item",   "cells": ["91", "キャベツ", "1玉", "", "200", "1", "", ""]},
+            {"type": "item",   "cells": ["92", "キャベツ（カット）", "1/2カット（500g）", "", "140", "1", "", ""]},
+            {"type": "item",   "cells": ["93", "大根", "1本（900g前後）", "", "180", "1", "", ""]},
+            {"type": "item",   "cells": ["94", "大根（カット）", "1/2本（500g前後）", "", "125", "1", "", ""]},
+            {"type": "merged", "cells": ["合計", "", "", "", "", "", "", ""]},
+            {"type": "spacer", "cells": [""] * _nc},
+            {"type": "note",   "cells": ["※ 納品はAM必着でお願いいたします。PMになる場合はご連絡ください。"] + [""] * (_nc - 1)},
+            {"type": "note",   "cells": ["※ 納品書には発送日ではなく、上記の納期を納品日として記入してください。"] + [""] * (_nc - 1)},
+            {"type": "note",   "cells": ["※ 金額は単価×発注数で算出した参考値です。"] + [""] * (_nc - 1)},
+        ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _nc})
         return rows
 
     rows = [
@@ -1129,7 +1173,11 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
     elif fmt == "santoku":
-        col_widths = {"A": 36.0, "B": 16.0, "C": 10.0, "D": 10.0, "E": 10.0, "F": 10.0, "G": 10.0, "H": 10.0}
+        col_widths = {"A": 36.0, "B": 16.0, "C": 10.0, "D": 10.0, "E": 10.0, "F": 10.0, "G": 10.0, "H": 10.0, "I": 10.0, "J": 10.0}
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
+    elif fmt == "josoSeikyo":
+        col_widths = {"A": 10.0, "B": 36.0, "C": 18.0, "D": 10.0, "E": 10.0, "F": 10.0, "G": 10.0, "H": 12.0}
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
     else:

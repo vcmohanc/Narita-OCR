@@ -2255,6 +2255,25 @@ td{color:var(--muted)}
 .today-xls-table.format-rosen td.today-td-rs-11 { text-align: center; }
 .today-xls-table.format-rosen td.today-td-rs-12 { text-align: left; }
 
+/* ── Joso Seikyo 8-Column Format (常総生協 発注明細書) ── */
+.today-xls-table.format-joso col.today-col-joso-0 { width: 68px; }
+.today-xls-table.format-joso col.today-col-joso-1 { width: 220px; }
+.today-xls-table.format-joso col.today-col-joso-2 { width: 130px; }
+.today-xls-table.format-joso col.today-col-joso-3 { width: 68px; }
+.today-xls-table.format-joso col.today-col-joso-4 { width: 80px; }
+.today-xls-table.format-joso col.today-col-joso-5 { width: 55px; }
+.today-xls-table.format-joso col.today-col-joso-6 { width: 68px; }
+.today-xls-table.format-joso col.today-col-joso-7 { width: 90px; }
+
+.today-xls-table.format-joso td.today-td-joso-0 { text-align: center; }
+.today-xls-table.format-joso td.today-td-joso-1 { text-align: left; }
+.today-xls-table.format-joso td.today-td-joso-2 { text-align: left; }
+.today-xls-table.format-joso td.today-td-joso-3,
+.today-xls-table.format-joso td.today-td-joso-4,
+.today-xls-table.format-joso td.today-td-joso-5,
+.today-xls-table.format-joso td.today-td-joso-6,
+.today-xls-table.format-joso td.today-td-joso-7 { text-align: right; }
+
 /* ── Haibukiya 20-Column Freeze Panes (Freeze Col 0~6: 品目〜JANコード) ── */
 .today-xls-table.format-haibukiya {
   min-width: 1760px;
