@@ -221,6 +221,19 @@ const TODAY_ORDER_FORMATS = {
     defaultDate: '2026-10-08',
     titleMatch: 'グリーンワールド',
   },
+  rosen: {
+    cols: 13,
+    dayStartCol: 5,
+    dayStep: 1,
+    dayCount: 7,
+    storageKey: 'ocr_today_order_sheet_v1_rosen',
+    legacyStorageKey: null,
+    xlsxFile: 'rosen_order.xlsx',
+    downloadName: '週間発注リスト_株式会社相鉄ローゼン.xlsx',
+    csvName: '相鉄ローゼン_週間発注リスト.csv',
+    defaultDate: '2026-10-24',
+    titleMatch: '相鉄ローゼン',
+  },
 };
 const TODAY_NANOHANA_PRESETS = [
   { orderNo: '648', name: '有機じゃが芋', spec: '600g', price: '230.0', qty: '23', amount: '5,290' },
@@ -247,6 +260,10 @@ const TODAY_FUSUI_PRESETS = [
 ];
 const TODAY_GREENWORLD_PRESETS = [
   { no: '1', name: '有機カリーノケール（長野県産）', spec: '1ケース', irisu: '', cases: '2', price: '', total: '' },
+];
+const TODAY_ROSEN_PRESETS = [
+  { code: '', name: '特別栽培ベビーリーフ40gパック', irisu: '', cost: '', total: '', days: ['', '', '', '', '', '', ''], note: '' },
+  { code: '', name: '特別栽培小松菜250g袋', irisu: '', cost: '', total: '', days: ['', '', '', '', '', '', ''], note: '' },
 ];
 const TODAY_PRESET_ITEMS = ['大根', '赤からし水菜', '小江戸菜', 'スイスチャード', 'ほうれん草', 'キャベツ', 'ホテル風か様用'];
 const TODAY_TSUKIJI_PRESETS = [
@@ -465,6 +482,29 @@ function _createTodayOrderInitialRows(fmt = _todayOrderCurrentFormat) {
     return rows;
   }
 
+  if (fmt === 'rosen') {
+    const ncols = TODAY_ORDER_FORMATS.rosen.cols;
+    const pad = (text) => [text, ...Array(ncols - 1).fill('')];
+    const rows = [
+      { type: 'title',  cells: pad('週間発注リスト 株式会社相鉄ローゼン') },
+      { type: 'meta',   cells: pad('宛先：株式会社ベジコープ 御中') },
+      { type: 'meta',   cells: pad('発注期間：2026年10月24日（土）〜10月30日（金）') },
+      { type: 'spacer', cells: Array(ncols).fill('') },
+      { type: 'header', cells: ['商品コード', '商品名', '入数', '原価', '総数', '10/24\n土', '10/25\n日', '10/26\n月', '10/27\n火', '10/28\n水', '10/29\n木', '10/30\n金', '備考'] },
+      ...TODAY_ROSEN_PRESETS.map(p => ({
+        type: 'item',
+        cells: [p.code, p.name, p.irisu, p.cost, p.total, ...p.days, p.note]
+      })),
+      { type: 'spacer', cells: Array(ncols).fill('') },
+      { type: 'note',   cells: pad('※ 発注数の入っている品目のみ表示（発注なし・休止の品目は省略）。') },
+      { type: 'note',   cells: pad('※ 原本の通りに数量を入力してください。') },
+    ];
+    for (let i = 0; i < 4; i++) {
+      rows.push({ type: 'data', cells: Array(ncols).fill('') });
+    }
+    return rows;
+  }
+
   if (fmt === 'props_japan') {
     const ncols = TODAY_ORDER_FORMATS.props_japan.cols;
     const pad = (text) => [text, ...Array(ncols - 1).fill('')];
@@ -670,9 +710,10 @@ function _renderTodayPresetChips() {
   const isNanohana = _todayOrderCurrentFormat === 'nanohana';
   const isFusui = _todayOrderCurrentFormat === 'fusui';
   const isGreenworld = _todayOrderCurrentFormat === 'greenworld';
+  const isRosen = _todayOrderCurrentFormat === 'rosen';
   const items = isHaibukiya
     ? TODAY_HAIBUKIYA_PRESETS.map(p => p.name)
-    : (isProps ? TODAY_PROPS_PRESETS.map(p => p.name) : (isNationalAzabu ? TODAY_NATIONAL_AZABU_PRESETS.map(p => p.name) : (isTsukiji ? TODAY_TSUKIJI_PRESETS.map(p => p.name) : (isNanohana ? TODAY_NANOHANA_PRESETS.map(p => p.name) : (isFusui ? TODAY_FUSUI_PRESETS.map(p => p.name) : (isGreenworld ? TODAY_GREENWORLD_PRESETS.map(p => p.name) : TODAY_PRESET_ITEMS))))));
+    : (isProps ? TODAY_PROPS_PRESETS.map(p => p.name) : (isNationalAzabu ? TODAY_NATIONAL_AZABU_PRESETS.map(p => p.name) : (isTsukiji ? TODAY_TSUKIJI_PRESETS.map(p => p.name) : (isNanohana ? TODAY_NANOHANA_PRESETS.map(p => p.name) : (isFusui ? TODAY_FUSUI_PRESETS.map(p => p.name) : (isGreenworld ? TODAY_GREENWORLD_PRESETS.map(p => p.name) : (isRosen ? TODAY_ROSEN_PRESETS.map(p => p.name) : TODAY_PRESET_ITEMS)))))));
 
   if (quickEl) {
     quickEl.innerHTML =
@@ -754,6 +795,13 @@ function _renderTodayPresetChips() {
             if (!firstAdded) firstAdded = tr;
           }
         });
+      } else if (_todayOrderCurrentFormat === 'rosen') {
+        TODAY_ROSEN_PRESETS.forEach(p => {
+          if (!existing.has(p.name)) {
+            const tr = _appendTodayModalItemRow({ ...p, days: [...p.days] });
+            if (!firstAdded) firstAdded = tr;
+          }
+        });
       } else {
         TODAY_PRESET_ITEMS.forEach(pName => {
           if (!existing.has(pName)) {
@@ -775,7 +823,8 @@ async function switchTodayOrderFormat(fmt) {
     : (fmt === 'tsukiji' ? 'tsukiji'
     : (fmt === 'nanohana' ? 'nanohana'
     : (fmt === 'fusui' ? 'fusui'
-    : (fmt === 'greenworld' ? 'greenworld' : 'chiba'))))));
+    : (fmt === 'greenworld' ? 'greenworld'
+    : (fmt === 'rosen' ? 'rosen' : 'chiba')))))));
   _todayOrderCurrentFormat = nextFmt;
 
   const sel = document.getElementById('todayOrderFormatSelect');
@@ -804,7 +853,9 @@ async function switchTodayOrderFormat(fmt) {
                   ? '商品コード・商品名・規格で検索…'
                   : (nextFmt === 'greenworld'
                       ? 'No.・商品名・規格で検索…'
-                      : (nextFmt === 'props_japan' ? '品番・品名・単位で検索…' : '品目・単位・備考で検索…')))));
+                      : (nextFmt === 'rosen'
+                          ? '商品コード・商品名・備考で検索…'
+                          : (nextFmt === 'props_japan' ? '品番・品名・単位で検索…' : '品目・単位・備考で検索…'))))));
   }
 
   _renderTodayPresetChips();
@@ -827,7 +878,9 @@ async function switchTodayOrderFormat(fmt) {
                         ? '発注書フォーマットを「株式会社風水プロジェクト（6列）」に切り替えました'
                         : (nextFmt === 'greenworld'
                             ? '発注書フォーマットを「グリーンワールド株式会社（7列）」に切り替えました'
-                            : '発注書フォーマットを「千葉自動発注書（8列）」に切り替えました'))))));
+                             : (nextFmt === 'rosen'
+                                 ? '発注書フォーマットを「株式会社相鉄ローゼン（13列・7日間）」に切り替えました'
+                                 : '発注書フォーマットを「千葉自動発注書（8列）」に切り替えました')))))));
   showToast(fmtToast);
 }
 
@@ -854,6 +907,7 @@ function _getTodayHeaderDateSpan() {
     if (_todayOrderCurrentFormat === 'nanohana') return '10/23〜10/29';
     if (_todayOrderCurrentFormat === 'fusui') return '10/22〜10/25';
     if (_todayOrderCurrentFormat === 'greenworld') return '10/8〜10/11';
+    if (_todayOrderCurrentFormat === 'rosen') return '10/24〜10/30';
     return '10/26〜10/31';
   }
   if (_todayOrderCurrentFormat === 'haibukiya') {
@@ -880,13 +934,18 @@ function _getTodayHeaderDateSpan() {
   if (_todayOrderCurrentFormat === 'greenworld') {
     return '10/8〜10/11';
   }
+  if (_todayOrderCurrentFormat === 'rosen') {
+    const startRaw = String(hdr.cells[5] || '').split('\n')[0].trim() || '10/24';
+    const endRaw = String(hdr.cells[11] || '').split('\n')[0].trim() || '10/30';
+    return `${startRaw}〜${endRaw}`;
+  }
   const startRaw = String(hdr.cells[startCol] || '').split('\n')[0].trim() || '10/26';
   const endRaw = String(hdr.cells[startCol + 5] || '').split('\n')[0].trim() || '10/31';
   return `${startRaw}〜${endRaw}`;
 }
 
 function _syncTodayOrderMergedNotice() {
-  if (_todayOrderCurrentFormat === 'haibukiya' || _todayOrderCurrentFormat === 'props_japan' || _todayOrderCurrentFormat === 'national_azabu' || _todayOrderCurrentFormat === 'tsukiji' || _todayOrderCurrentFormat === 'nanohana' || _todayOrderCurrentFormat === 'fusui' || _todayOrderCurrentFormat === 'greenworld') return;
+  if (_todayOrderCurrentFormat === 'haibukiya' || _todayOrderCurrentFormat === 'props_japan' || _todayOrderCurrentFormat === 'national_azabu' || _todayOrderCurrentFormat === 'tsukiji' || _todayOrderCurrentFormat === 'nanohana' || _todayOrderCurrentFormat === 'fusui' || _todayOrderCurrentFormat === 'greenworld' || _todayOrderCurrentFormat === 'rosen') return;
   const hasItems = _todayOrderRows.some(r => r.type === 'item');
   if (hasItems) {
     _todayOrderRows = _todayOrderRows.filter(r => r.type !== 'merged');
@@ -918,6 +977,7 @@ function _getTodayRowCellClass(rowObj, ci, val) {
   const isNanohana = _todayOrderCurrentFormat === 'nanohana';
   const isFusui = _todayOrderCurrentFormat === 'fusui';
   const isGreenworld = _todayOrderCurrentFormat === 'greenworld';
+  const isRosen = _todayOrderCurrentFormat === 'rosen';
   let cls = 'xls-cell';
   if (rowObj.type === 'title') cls += ' today-xls-title';
   else if (rowObj.type === 'meta') cls += ' today-xls-meta';
@@ -1010,6 +1070,12 @@ function _getTodayRowCellClass(rowObj, ci, val) {
     else if (rowObj.type === 'item' && ci === 1) cls += ' today-xls-item-name';
     else if (ci === 2 || ci === 3) cls += ' today-xls-text';
     else if (ci >= 4) cls += ' today-xls-num';
+  } else if (isRosen) {
+    if (ci === 0) cls += ' today-xls-item-code';
+    else if (rowObj.type === 'item' && ci === 1) cls += ' today-xls-item-name';
+    else if (ci === 2 || ci === 3) cls += ' today-xls-text';
+    else if (ci >= 4 && ci <= 11) cls += ' today-xls-num today-cell-day';
+    else if (ci === 12) cls += ' today-xls-note';
   } else {
     if (rowObj.type === 'item' && ci === 0) cls += ' today-xls-item-name';
     else if (ci === 1 && (rowObj.type === 'item' || String(rowObj.cells?.[0] || '').trim())) {
@@ -1044,7 +1110,7 @@ function _formatTodayPeriodString(isoDateStr) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDateStr || '')) return '';
   const [y, m, d] = isoDateStr.split('-').map(Number);
   const startDt = new Date(y, m - 1, d);
-  const endDt = new Date(y, m - 1, d + 5);
+  const endDt = new Date(y, m - 1, d + (_todayFmtCfg().dayCount ?? 6) - 1);
   const wdays = ['日', '月', '火', '水', '木', '金', '土'];
   const span = `${startDt.getFullYear()}年${startDt.getMonth() + 1}月${startDt.getDate()}日（${wdays[startDt.getDay()]}）〜${endDt.getMonth() + 1}月${endDt.getDate()}日（${wdays[endDt.getDay()]}）`;
   if (_todayOrderCurrentFormat === 'props_japan' || _todayOrderCurrentFormat === 'tsukiji') {
@@ -1086,7 +1152,7 @@ function _applyBaseDateToTodaySheet(isoDateStr) {
         hdr.cells[dayStart + offset * 2 + 1] = '変更';
       }
     } else if (startCol != null) {
-      for (let offset = 0; offset < 6; offset++) {
+      for (let offset = 0; offset < (_todayFmtCfg().dayCount ?? 6); offset++) {
         const dt = new Date(y, m - 1, d + offset);
         hdr.cells[startCol + offset] = `${dt.getMonth() + 1}/${dt.getDate()}\n${wdays[dt.getDay()]}`;
       }
@@ -1147,7 +1213,7 @@ function _renderTodayModalTableHead(isoDateStr) {
   const dayLabels = [];
   if (/^\d{4}-\d{2}-\d{2}$/.test(isoDateStr || '')) {
     const [y, m, d] = isoDateStr.split('-').map(Number);
-    for (let offset = 0; offset < 6; offset++) {
+    for (let offset = 0; offset < (_todayFmtCfg().dayCount ?? 6); offset++) {
       const dt = new Date(y, m - 1, d + offset);
       dayLabels.push(`${dt.getMonth() + 1}/${dt.getDate()} (${wdays[dt.getDay()]})`);
     }
@@ -1155,7 +1221,7 @@ function _renderTodayModalTableHead(isoDateStr) {
     const hdr = _todayOrderRows.find(r => r.type === 'header');
     const startCol = _todayDayStartCol();
     const step = _todayFmtCfg().dayStep || 1;
-    for (let offset = 0; offset < 6; offset++) {
+    for (let offset = 0; offset < (_todayFmtCfg().dayCount ?? 6); offset++) {
       const rawHdr = String(hdr?.cells?.[startCol + offset * step] || '').trim();
       dayLabels.push(rawHdr ? rawHdr.replace(/\n+/g, ' (') + (rawHdr.includes('\n') ? ')' : '') : `日 ${offset + 1}`);
     }
@@ -1233,6 +1299,19 @@ function _renderTodayModalTableHead(isoDateStr) {
         <th style="width:90px">合計</th>
         <th style="width:42px"></th>
       </tr>`;
+  } else if (_todayOrderCurrentFormat === 'rosen') {
+    thead.innerHTML =
+      `<tr>
+        <th style="width:32px">#</th>
+        <th style="width:90px">商品コード</th>
+        <th style="min-width:200px">商品名 <span class="required">*</span></th>
+        <th style="width:60px">入数</th>
+        <th style="width:72px">原価</th>
+        <th style="width:72px">総数</th>
+        ${dayLabels.map((lbl, idx) => `<th id="todayModalDayHdr${idx}">${esc(lbl)}</th>`).join('')}
+        <th style="min-width:120px">備考</th>
+        <th style="width:42px"></th>
+      </tr>`;
   } else {
     thead.innerHTML =
       `<tr>
@@ -1251,7 +1330,7 @@ function _updateTodayModalDateHeaders(isoDateStr) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(isoDateStr || '')) {
     const [y, m, d] = isoDateStr.split('-').map(Number);
     if (previewEl) previewEl.textContent = _formatTodayPeriodString(isoDateStr);
-    for (let offset = 0; offset < 6; offset++) {
+    for (let offset = 0; offset < (_todayFmtCfg().dayCount ?? 6); offset++) {
       const dt = new Date(y, m - 1, d + offset);
       const th = document.getElementById(`todayModalDayHdr${offset}`);
       if (th) th.textContent = `${dt.getMonth() + 1}/${dt.getDate()} (${wdays[dt.getDay()]})`;
@@ -1262,7 +1341,7 @@ function _updateTodayModalDateHeaders(isoDateStr) {
     const startCol = _todayDayStartCol();
     const step = _todayFmtCfg().dayStep || 1;
     if (previewEl) previewEl.textContent = metaRows[1]?.cells?.[0] || '';
-    for (let offset = 0; offset < 6; offset++) {
+    for (let offset = 0; offset < (_todayFmtCfg().dayCount ?? 6); offset++) {
       const th = document.getElementById(`todayModalDayHdr${offset}`);
       const rawHdr = String(hdr?.cells?.[startCol + offset * step] || '').trim();
       if (th) th.textContent = rawHdr ? rawHdr.replace(/\n+/g, ' (') + (rawHdr.includes('\n') ? ')' : '') : `日 ${offset + 1}`;
@@ -1288,11 +1367,12 @@ function _appendTodayModalItemRow(itemData = null) {
   const isTsukiji = _todayOrderCurrentFormat === 'tsukiji';
   const isNanohana = _todayOrderCurrentFormat === 'nanohana';
   const isFusui = _todayOrderCurrentFormat === 'fusui';
+  const isRosen = _todayOrderCurrentFormat === 'rosen';
   const data = itemData || {
     category: '', code: '', name: '', origin: '', cultivation: '特別栽培', spec: '', priceP: '', priceCs: '', jan: '',
     division: '',
     unit: isProps ? 'パック' : '', lot: isProps ? '10' : '',
-    days: Array(isHaibukiya ? 12 : 6).fill(''), note: ''
+    days: Array(isHaibukiya ? 12 : (isRosen ? 7 : 6)).fill(''), note: ''
   };
   const tr = document.createElement('tr');
 
@@ -1428,6 +1508,24 @@ function _appendTodayModalItemRow(itemData = null) {
     tr.appendChild(casesTd);
     tr.appendChild(priceTd);
     tr.appendChild(totalTd);
+  } else if (isRosen) {
+    const { td: codeTd }  = makeInput('today-m-code', '', data.code || '');
+    const { td: nameTd }  = makeInput('today-m-name', '商品名', data.name || '');
+    const { td: irisuTd } = makeInput('today-m-irisu today-m-num', '', data.irisu || '');
+    const { td: costTd }  = makeInput('today-m-cost today-m-num', '', data.cost || '');
+    const { td: totalTd } = makeInput('today-m-total today-m-num', '', data.total || '');
+    tr.appendChild(codeTd);
+    tr.appendChild(nameTd);
+    tr.appendChild(irisuTd);
+    tr.appendChild(costTd);
+    tr.appendChild(totalTd);
+    const daysArr = Array.isArray(data.days) ? data.days : [];
+    for (let d = 0; d < 7; d++) {
+      const { td: dayTd } = makeInput('today-m-day', '', daysArr[d] != null ? String(daysArr[d]) : '');
+      tr.appendChild(dayTd);
+    }
+    const { td: noteTd } = makeInput('today-m-note', '備考', data.note || '');
+    tr.appendChild(noteTd);
   } else {
     if (isProps) {
       const { td: codeTd } = makeInput('today-m-code', '例: Y682', data.code || '');
@@ -1569,8 +1667,9 @@ function _fillTodayModalPreset(presetName) {
                         ? (TODAY_FUSUI_PRESETS.find(p => p.name === presetName) || { code: '', name: presetName, spec: '', qty: '', price: '', amount: '' })
                         : (isGreenworld
                             ? (TODAY_GREENWORLD_PRESETS.find(p => p.name === presetName) || { no: '', name: presetName, spec: '', irisu: '', cases: '', price: '', total: '' })
-                            : { name: presetName, unit: '', days: Array(6).fill('') }))))));
-
+                             : (_todayOrderCurrentFormat === 'rosen'
+                                 ? (TODAY_ROSEN_PRESETS.find(p => p.name === presetName) || { code: '', name: presetName, irisu: '', cost: '', total: '', days: Array(7).fill(''), note: '' })
+                                 : { name: presetName, unit: '', days: Array(6).fill('') })))))));
   const emptyRow = Array.from(tbody.children).find(tr => {
     const inp = tr.querySelector('.today-m-name');
     return inp && !inp.value.trim();
@@ -1643,6 +1742,15 @@ function _fillTodayModalPreset(presetName) {
       if (emptyRow.querySelector('.today-m-price')) emptyRow.querySelector('.today-m-price').value = presetObj.price || '';
       if (emptyRow.querySelector('.today-m-total')) emptyRow.querySelector('.today-m-total').value = presetObj.total || '';
       (emptyRow.querySelector('.today-m-cases') || emptyRow.querySelector('.today-m-name'))?.focus();
+    } else if (_todayOrderCurrentFormat === 'rosen') {
+      if (emptyRow.querySelector('.today-m-code')) emptyRow.querySelector('.today-m-code').value = presetObj.code || '';
+      emptyRow.querySelector('.today-m-name').value = presetObj.name || '';
+      if (emptyRow.querySelector('.today-m-irisu')) emptyRow.querySelector('.today-m-irisu').value = presetObj.irisu || '';
+      if (emptyRow.querySelector('.today-m-cost')) emptyRow.querySelector('.today-m-cost').value = presetObj.cost || '';
+      if (emptyRow.querySelector('.today-m-total')) emptyRow.querySelector('.today-m-total').value = presetObj.total || '';
+      const dayInps = Array.from(emptyRow.querySelectorAll('.today-m-day'));
+      dayInps.forEach((inp, idx) => { inp.value = (presetObj.days && presetObj.days[idx]) || ''; });
+      (dayInps[0] || emptyRow.querySelector('.today-m-name'))?.focus();
     } else {
       emptyRow.querySelector('.today-m-name').value = presetName;
       emptyRow.querySelector('.today-m-unit')?.focus();
@@ -1664,6 +1772,7 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
   const isNanohana = _todayOrderCurrentFormat === 'nanohana';
   const isFusui = _todayOrderCurrentFormat === 'fusui';
   const isGreenworld = _todayOrderCurrentFormat === 'greenworld';
+  const isRosen = _todayOrderCurrentFormat === 'rosen';
 
   const modalBox = backdrop.querySelector('.modal-box');
   if (modalBox) {
@@ -1687,7 +1796,9 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
                           ? '※ 商品コード・商品名・規格・数量・単価・金額を入力してください。'
                           : (isGreenworld
                               ? '※ No.・商品名・規格・入数・ケース数・価格・合計を入力してください。'
-                              : '※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。'))))));
+                              : (isRosen
+                                  ? '※ 商品コード・商品名・入数・原価・総数・7日分の発注数・備考を入力してください。'
+                                  : '※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。')))))));
   }
 
   const baseIso = _extractTodayBaseIsoDate();
@@ -1777,11 +1888,21 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
                                   price: row.cells[5] || '',
                                   total: row.cells[6] || '',
                                 })
-                              : _appendTodayModalItemRow({
-                                  name: row.cells[0] || '',
-                                  unit: row.cells[1] || '',
-                                  days: row.cells.slice(2, 8),
-                                })))))));
+                              : (isRosen
+                                  ? _appendTodayModalItemRow({
+                                      code: row.cells[0] || '',
+                                      name: row.cells[1] || '',
+                                      irisu: row.cells[2] || '',
+                                      cost: row.cells[3] || '',
+                                      total: row.cells[4] || '',
+                                      days: row.cells.slice(5, 12),
+                                      note: row.cells[12] || '',
+                                    })
+                                  : _appendTodayModalItemRow({
+                                      name: row.cells[0] || '',
+                                      unit: row.cells[1] || '',
+                                      days: row.cells.slice(2, 8),
+                                    }))))))));
     if (delBtn) delBtn.classList.remove('hidden');
     focusEl = tr?.querySelector('.today-m-name');
   } else if (options.fillAllPresets) {
@@ -1805,6 +1926,11 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
       TODAY_PROPS_PRESETS.forEach((p, idx) => {
         const tr = _appendTodayModalItemRow({ ...p });
         if (idx === 0) focusEl = tr?.querySelector('.today-m-day');
+      });
+    } else if (isRosen) {
+      TODAY_ROSEN_PRESETS.forEach((p, idx) => {
+        const tr = _appendTodayModalItemRow({ ...p, days: [...(p.days || Array(7).fill(''))] });
+        if (idx === 0) focusEl = tr?.querySelector('.today-m-name');
       });
     } else {
       TODAY_PRESET_ITEMS.forEach((pName, idx) => {
@@ -1837,6 +1963,11 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
         const tr1 = _appendTodayModalItemRow({ ...pObj, days: [...(pObj.days || Array(6).fill(''))] });
         _appendTodayModalItemRow();
         focusEl = tr1?.querySelector('.today-m-day');
+      } else if (isRosen) {
+        const pObj = TODAY_ROSEN_PRESETS.find(p => p.name === presetName) || { code: '', name: presetName, irisu: '', cost: '', total: '', days: Array(7).fill(''), note: '' };
+        const tr1 = _appendTodayModalItemRow({ ...pObj, days: [...(pObj.days || Array(7).fill(''))] });
+        _appendTodayModalItemRow({ code: '', name: '', irisu: '', cost: '', total: '', days: Array(7).fill(''), note: '' });
+        focusEl = tr1?.querySelector('.today-m-name');
       } else {
         const tr1 = _appendTodayModalItemRow({ name: presetName, unit: '', days: Array(6).fill('') });
         _appendTodayModalItemRow();
@@ -1847,7 +1978,8 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
       const tsukijiBlank = { division: '', origin: '千葉', name: '', unit: '', days: Array(6).fill(''), note: '' };
       const nanohanaBlank = { orderNo: '', name: '', spec: '', price: '', qty: '', amount: '' };
       const fusuiBlank = { code: '', name: '', spec: '', qty: '', price: '', amount: '' };
-      const blankObj = isNationalAzabu ? naBlank : (isTsukiji ? tsukijiBlank : (isNanohana ? nanohanaBlank : (isFusui ? fusuiBlank : { category: defCat, name: '', cultivation: '特別栽培', unit: isProps ? 'パック' : '', lot: isProps ? '10' : '', days: Array(isHaibukiya ? 12 : 6).fill('') })));
+      const blankObj = isNationalAzabu ? naBlank : (isTsukiji ? tsukijiBlank : (isNanohana ? nanohanaBlank : (isFusui ? fusuiBlank : (isRosen ? rosenBlank : { category: defCat, name: '', cultivation: '特別栽培', unit: isProps ? 'パック' : '', lot: isProps ? '10' : '', days: Array(isHaibukiya ? 12 : 6).fill('') }))));
+      const rosenBlank = { code: '', name: '', irisu: '', cost: '', total: '', days: Array(7).fill(''), note: '' };
       const tr1 = _appendTodayModalItemRow(blankObj);
       _appendTodayModalItemRow({ ...blankObj });
       _appendTodayModalItemRow({ ...blankObj });
@@ -1937,6 +2069,7 @@ function _renderTodayOrderGrid() {
   const isNanohana = _todayOrderCurrentFormat === 'nanohana';
   const isFusui = _todayOrderCurrentFormat === 'fusui';
   const isGreenworld = _todayOrderCurrentFormat === 'greenworld';
+  const isRosen = _todayOrderCurrentFormat === 'rosen';
   const ncols = _todayColCount();
 
   _updateTodayOrderHeaderBadges();
@@ -1953,7 +2086,7 @@ function _renderTodayOrderGrid() {
   let selectedRowIdx = -1;
 
   const table = document.createElement('table');
-  table.className = 'xls-table today-xls-table' + (isHaibukiya ? ' format-haibukiya' : (isNationalAzabu ? ' format-national-azabu' : (isTsukiji ? ' format-tsukiji' : (isProps ? ' format-props-japan' : (isNanohana ? ' format-nanohana' : (isFusui ? ' format-fusui' : (isGreenworld ? ' format-greenworld' : '')))))));
+  table.className = 'xls-table today-xls-table' + (isHaibukiya ? ' format-haibukiya' : (isNationalAzabu ? ' format-national-azabu' : (isTsukiji ? ' format-tsukiji' : (isProps ? ' format-props-japan' : (isNanohana ? ' format-nanohana' : (isFusui ? ' format-fusui' : (isGreenworld ? ' format-greenworld' : (isRosen ? ' format-rosen' : ''))))))));
 
   const colgroup = document.createElement('colgroup');
   const rnCol = document.createElement('col');
@@ -1981,6 +2114,8 @@ function _renderTodayOrderGrid() {
       colEl.className = `today-col-fusui-${ci}`;
     } else if (isGreenworld) {
       colEl.className = `today-col-gw-${ci}`;
+    } else if (isRosen) {
+      colEl.className = `today-col-rs-${ci}`;
     } else {
       colEl.className = ci === 0 ? 'today-col-a' : (ci === 1 ? 'today-col-1' : 'today-col-other');
     }
@@ -2016,6 +2151,8 @@ function _renderTodayOrderGrid() {
       th.className = `xls-th-col today-th-fusui-${ci}`;
     } else if (isGreenworld) {
       th.className = `xls-th-col today-th-gw-${ci}`;
+    } else if (isRosen) {
+      th.className = `xls-th-col today-th-rs-${ci}`;
     } else {
       th.className = 'xls-th-col ' + (ci === 0 ? 'today-th-col-a' : (ci === 1 ? 'today-th-col-1' : 'today-th-col-other'));
     }
@@ -2073,8 +2210,8 @@ function _renderTodayOrderGrid() {
     const prevVal = rowObj.cells[ci] != null ? String(rowObj.cells[ci]) : '';
     let finalVal = newVal;
     const unitColIdx = isProps ? 2 : (isTsukiji ? 3 : 1);
-    const nameColIdx = isProps ? 1 : (isTsukiji ? 2 : 0);
-    const isUnitCell = !isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && ci === unitColIdx && (rowObj.type === 'item' || String(rowObj.cells[nameColIdx] || '').trim());
+    const nameColIdx = (isProps || isRosen) ? 1 : (isTsukiji ? 2 : 0);
+    const isUnitCell = !isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && ci === unitColIdx && (rowObj.type === 'item' || String(rowObj.cells[nameColIdx] || '').trim());
     if (isUnitCell) {
       const check = _validateTodayUnit(newVal);
       if (check.valid) {
@@ -2107,12 +2244,14 @@ function _renderTodayOrderGrid() {
                             ? ` today-td-fusui-${ci}`
                             : (isGreenworld
                                 ? ` today-td-gw-${ci}`
-                                : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`))))))))
+                                : (isRosen
+                                    ? ` today-td-rs-${ci}`
+                                    : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`)))))))))
       td.className = _getTodayRowCellClass(rowObj, ci, finalVal) + colClass + (selectedRowIdx === ri && selectedColIdx === ci ? ' xls-sel' : '');
       td.textContent = finalVal;
       td.title = finalVal;
     }
-    if (!isHaibukiya && !isNationalAzabu && !isTsukiji && !isNanohana && !isFusui && !isGreenworld && ci === nameColIdx) {
+    if (!isHaibukiya && !isNationalAzabu && !isTsukiji && !isNanohana && !isFusui && !isGreenworld && !isRosen && ci === nameColIdx) {
       const unitTd = cellMatrix[ri]?.[unitColIdx];
       if (unitTd) {
         const unitVal = rowObj.cells[unitColIdx] != null ? String(rowObj.cells[unitColIdx]) : '';
@@ -2132,7 +2271,7 @@ function _renderTodayOrderGrid() {
 
   function startInlineEdit(ri, ci, initialChar = null) {
     if (_isTodayRowSpanned(rows[ri])) ci = 0;
-    const isUnitCol = !isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && ci === 1 && rows[ri]?.type !== 'header';
+    const isUnitCol = !isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && ci === 1 && rows[ri]?.type !== 'header';
     if (isUnitCol && initialChar !== null && /^[0-9０-９]$/.test(initialChar)) {
       showToast('単位列には数値を入力できません', true);
       return;
@@ -2217,7 +2356,7 @@ function _renderTodayOrderGrid() {
     const dStart = cfg.dayStartCol;
     const dStep  = cfg.dayStep || 1;
     if (dStart == null) return;
-    for (let d = 0; d < 6; d++) {
+    for (let d = 0; d < (cfg.dayCount ?? 6); d++) {
       const ci = dStart + d * dStep;
       if (ci >= ncols) break;
       if (changedCi !== undefined && ci !== changedCi) continue;
@@ -2302,14 +2441,16 @@ function _renderTodayOrderGrid() {
                               ? ` today-td-fusui-${ci}`
                               : (isGreenworld
                                   ? ` today-td-gw-${ci}`
-                                  : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`))))))))
+                                  : (isRosen
+                                      ? ` today-td-rs-${ci}`
+                                      : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`)))))))))
         td.className = _getTodayRowCellClass(rowObj, ci, val) + colClass;
         td.title = val;
         td.textContent = val;
         td.addEventListener('click', () => selectCell(ri, ci, true));
         td.addEventListener('dblclick', (e) => {
           e.stopPropagation();
-          if (rowObj.type === 'header' && dayStartCol != null && ci >= dayStartCol && ci < dayStartCol + 6) {
+          if (rowObj.type === 'header' && dayStartCol != null && ci >= dayStartCol && ci < dayStartCol + (_todayFmtCfg().dayCount ?? 6)) {
             openTodayOrderMetaModal('date');
             return;
           }
@@ -2403,7 +2544,7 @@ function _renderTodayOrderGrid() {
     };
     cellValEl.oninput = () => {
       if (selectedRowIdx >= 0 && selectedColIdx >= 0) {
-        if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /[0-9０-９]/.test(cellValEl.value)) {
+        if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /[0-9０-９]/.test(cellValEl.value)) {
           cellValEl.value = cellValEl.value.replace(/[0-9０-９]/g, '');
           showToast('単位列には数値を入力できません', true);
         }
@@ -2416,7 +2557,7 @@ function _renderTodayOrderGrid() {
       }
     };
     cellValEl.onkeydown = (e) => {
-      if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && selectedColIdx === 1 && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         showToast('単位列には数値を入力できません', true);
         return;
@@ -2459,7 +2600,7 @@ function _renderTodayOrderGrid() {
     } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       const unitColIdx = isProps ? 2 : 1;
-      if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && selectedColIdx === unitColIdx && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key)) {
+      if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && selectedColIdx === unitColIdx && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key)) {
         showToast('単位列には数値を入力できません', true);
         return;
       }
@@ -2473,7 +2614,7 @@ function _renderTodayOrderGrid() {
     const itemCount = _countTodayOrderItems();
     const isNanohana = _todayOrderCurrentFormat === 'nanohana';
     const isFusui = _todayOrderCurrentFormat === 'fusui';
-    const fmtLabel = isHaibukiya ? '灰吹屋 発注書' : (isNationalAzabu ? 'ナショナル麻布 発注書' : (isTsukiji ? '築地産直ファーム 発注書' : (isProps ? 'プロップスジャパン 注文書' : (isFusui ? '風水プロジェクト 発注書' : (isNanohana ? 'なのはな生協 発注書' : '千葉自動発注書')))));
+    const fmtLabel = isHaibukiya ? '灰吹屋 発注書' : (isNationalAzabu ? 'ナショナル麻布 発注書' : (isTsukiji ? '築地産直ファーム 発注書' : (isProps ? 'プロップスジャパン 注文書' : (isFusui ? '風水プロジェクト 発注書' : (isNanohana ? 'なのはな生協 発注書' : (isGreenworld ? 'グリーンワールド 発注書' : (isRosen ? '相鉄ローゼン 発注リスト' : '千葉自動発注書')))))));
     statusEl.textContent = `${rows.length} rows × ${ncols} cols · ${itemCount} 品目 · ${fmtLabel}`;
   }
 }
@@ -2854,6 +2995,21 @@ async function initTodayOrderView() {
             }
 
             collected.push({ category: '', cells: [no, name, spec, irisu, cases, price, total] });
+          } else if (_todayOrderCurrentFormat === 'rosen') {
+            const code = (tr.querySelector('.today-m-code')?.value || '').trim();
+            const irisu = (tr.querySelector('.today-m-irisu')?.value || '').trim();
+            const costVal = (tr.querySelector('.today-m-cost')?.value || '').trim();
+            const total = (tr.querySelector('.today-m-total')?.value || '').trim();
+            const noteVal = (tr.querySelector('.today-m-note')?.value || '').trim();
+            const dayInps = Array.from(tr.querySelectorAll('.today-m-day'));
+            const daysRaw = dayInps.map(inp => (inp.value || '').trim());
+            const hasAny = Boolean(code || name || irisu || costVal || total || noteVal || daysRaw.some(Boolean));
+            if (!name) { nameInp?.classList.add('today-input-error'); validationError = `${idx + 1} 行目： 商品名を入力してください`; errorFocusEl = nameInp; break; }
+            if (!name) { nameInp?.classList.add('today-input-error'); validationError = "${idx + 1} 行目： 商品名を入力してください"; errorFocusEl = nameInp; break; }
+            const normalizedDays = [];
+            for (let d = 0; d < 7; d++) { const rawD = (daysRaw[d] || '').normalize('NFKC').trim(); normalizedDays.push(rawD); }
+            if (validationError) break;
+            collected.push({ category: '', cells: [code, name, irisu, costVal, total, ...normalizedDays, noteVal] });
           } else {
             const unitInp = tr.querySelector('.today-m-unit');
             const dayInps = Array.from(tr.querySelectorAll('.today-m-day'));
@@ -3004,7 +3160,7 @@ async function initTodayOrderView() {
         if (hdr) {
           const [y, m, d] = baseVal.split('-').map(Number);
           const wdays = ['日', '月', '火', '水', '木', '金', '土'];
-          for (let offset = 0; offset < 6; offset++) {
+          for (let offset = 0; offset < (_todayFmtCfg().dayCount ?? 6); offset++) {
             const dt = new Date(y, m - 1, d + offset);
             hdr.cells[startCol + offset] = `${dt.getMonth() + 1}/${dt.getDate()}\n${wdays[dt.getDay()]}`;
           }
@@ -7533,7 +7689,14 @@ function showToast(msg, isErr = false, duration = 3500) {
 }
 
 function esc(s) {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/`/g, "&#96;");
 }
 
 
@@ -7746,3 +7909,161 @@ async function dbFetch(path, opts) {
     setTimeout(() => { loadClients(); loadHistory(); }, 250);
   };
 })();
+
+/* ═══════════════════════════════════════════════════════════
+   Authentication Guard, User Badge, Change Password & Logout
+═══════════════════════════════════════════════════════════ */
+(function initAuthModule() {
+  // Redirect to /login on any 401 response from API endpoints
+  const nativeFetch = window.fetch.bind(window);
+  let _redirectingToLogin = false;
+  window.fetch = async function(input, init) {
+    const url = typeof input === "string" ? input : (input && input.url) || "";
+    const res = await nativeFetch(input, init);
+    if (res.status === 401 && !url.includes("/api/auth/login") && !_redirectingToLogin) {
+      _redirectingToLogin = true;
+      window.location.replace("/login");
+    }
+    return res;
+  };
+
+  async function loadCurrentUser() {
+    try {
+      const res = await nativeFetch("/api/auth/me", { credentials: "same-origin" });
+      if (res.status === 401) {
+        window.location.replace("/login");
+        return;
+      }
+      if (!res.ok) return;
+      const data = await res.json();
+      const user = data && data.user;
+      if (!user) return;
+      const nameEl = document.getElementById("sidebarUserName");
+      const roleEl = document.getElementById("sidebarUserRole");
+      const avatarEl = document.getElementById("sidebarUserAvatar");
+      const display = user.display_name || user.username || "User";
+      if (nameEl) nameEl.textContent = display;
+      if (roleEl) roleEl.textContent = user.role || "user";
+      if (avatarEl) avatarEl.textContent = display.trim().charAt(0).toUpperCase() || "U";
+    } catch (_) {
+      // Ignore transient network errors on initial user badge load
+    }
+  }
+
+  function setupAuthControls() {
+    const logoutBtn = document.getElementById("logoutBtn");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", async () => {
+        logoutBtn.disabled = true;
+        try {
+          await nativeFetch("/api/auth/logout", {
+            method: "POST",
+            credentials: "same-origin",
+          });
+        } catch (_) {
+          // Proceed to login even if logout request fails
+        }
+        window.location.replace("/login");
+      });
+    }
+
+    const backdrop = document.getElementById("changePwModalBackdrop");
+    const openBtn = document.getElementById("openChangePwBtn");
+    const cancelBtn = document.getElementById("cpCancelBtn");
+    const saveBtn = document.getElementById("cpSaveBtn");
+    const curInput = document.getElementById("cpCurrentPw");
+    const newInput = document.getElementById("cpNewPw");
+    const confirmInput = document.getElementById("cpConfirmPw");
+    const errBox = document.getElementById("cpError");
+
+    function showErr(msg) {
+      if (!errBox) return;
+      if (!msg) {
+        errBox.style.display = "none";
+        errBox.textContent = "";
+      } else {
+        errBox.textContent = msg;
+        errBox.style.display = "block";
+      }
+    }
+
+    function openModal() {
+      if (!backdrop) return;
+      if (curInput) curInput.value = "";
+      if (newInput) newInput.value = "";
+      if (confirmInput) confirmInput.value = "";
+      showErr("");
+      backdrop.classList.add("open");
+      if (curInput) curInput.focus();
+    }
+
+    function closeModal() {
+      if (!backdrop) return;
+      backdrop.classList.remove("open");
+      showErr("");
+    }
+
+    if (openBtn) openBtn.addEventListener("click", openModal);
+    if (cancelBtn) cancelBtn.addEventListener("click", closeModal);
+    if (backdrop) {
+      backdrop.addEventListener("click", (e) => {
+        if (e.target === backdrop) closeModal();
+      });
+    }
+
+    if (saveBtn) {
+      saveBtn.addEventListener("click", async () => {
+        const curPw = curInput ? curInput.value : "";
+        const newPw = newInput ? newInput.value : "";
+        const confirmPw = confirmInput ? confirmInput.value : "";
+
+        if (!curPw || !newPw || !confirmPw) {
+          showErr("All password fields are required.");
+          return;
+        }
+        if (newPw.length < 8) {
+          showErr("New password must be at least 8 characters.");
+          return;
+        }
+        if (newPw !== confirmPw) {
+          showErr("New passwords do not match.");
+          return;
+        }
+
+        saveBtn.disabled = true;
+        showErr("");
+        try {
+          const res = await nativeFetch("/api/auth/change-password", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ current_password: curPw, new_password: newPw }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showErr(body.detail || "Failed to update password.");
+            saveBtn.disabled = false;
+            return;
+          }
+          closeModal();
+          window.location.replace("/login");
+        } catch (_) {
+          showErr("Network error while updating password.");
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      loadCurrentUser();
+      setupAuthControls();
+    });
+  } else {
+    loadCurrentUser();
+    setupAuthControls();
+  }
+})();
+

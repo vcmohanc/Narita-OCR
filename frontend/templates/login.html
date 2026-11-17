@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ログイン — OCR System</title>
+  <link rel="stylesheet" href="/static/login.css?v=1" />
+</head>
+<body>
+  <main class="login-shell">
+    <section class="login-card" aria-labelledby="loginTitle">
+      <div class="login-brand">
+        <div class="login-logo">OCR</div>
+        <div class="login-brand-text">
+          <h1 id="loginTitle">OCR System</h1>
+          <p>Document Intelligence · 受発注管理システム</p>
+        </div>
+      </div>
+
+      <form id="loginForm" class="login-form" novalidate>
+        <div class="login-alert hidden" id="loginAlert" role="alert"></div>
+
+        <div class="login-field">
+          <label for="loginUsername">ユーザー名 / Username</label>
+          <input
+            id="loginUsername"
+            name="username"
+            type="text"
+            autocomplete="username"
+            placeholder="admin"
+            required
+            autofocus
+          />
+        </div>
+
+        <div class="login-field">
+          <label for="loginPassword">パスワード / Password</label>
+          <div class="login-pw-wrap">
+            <input
+              id="loginPassword"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="••••••••"
+              required
+            />
+            <button type="button" class="login-pw-toggle" id="loginPwToggle" aria-label="パスワード表示切替" title="表示/非表示">👁</button>
+          </div>
+        </div>
+
+        <button type="submit" class="login-submit" id="loginSubmitBtn">
+          <span id="loginBtnText">ログイン / Sign In</span>
+        </button>
+      </form>
+
+      <div class="login-footer">
+        <span>🔒 セッション認証保護 · 許可されたユーザーのみアクセス可能</span>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/login.js?v=1"></script>
+</body>
+</html>

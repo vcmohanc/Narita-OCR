@@ -27,6 +27,12 @@ services:
       MYSQL_USER:     ocruser
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ocrpassword}
       MYSQL_DATABASE: ocrdatabasedb
+      # Security & API Authentication
+      OCR_API_KEY:     ${OCR_API_KEY:-}
+      REQUIRE_AUTH:    ${REQUIRE_AUTH:-false}
+      CORS_ORIGINS:    ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      ENVIRONMENT:     ${ENVIRONMENT:-production}
     volumes:
       # Persist uploaded files and OCR results across container restarts
       - uploads_data:/app/uploads

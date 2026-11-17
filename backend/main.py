@@ -25,13 +25,13 @@ except ImportError:
     pass
 
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks, Query, Depends
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks, Query, Depends, Path as FPath
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 import aiofiles
+import zipfile
 
 from backend import database as db
 
@@ -52,7 +52,14 @@ ALLOWED_EXTENSIONS = {
 }
 MAX_FILE_SIZE_MB = 50
 MAX_QUEUED_JOBS = int(os.getenv("MAX_QUEUED_JOBS", "20"))
-OCR_API_KEY = os.getenv("OCR_API_KEY", "").strip()
+REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "false").strip().lower() in ("true", "1", "yes")
+ENVIRONMENT  = os.getenv("ENVIRONMENT", "development").strip().lower()
+OCR_API_KEY  = os.getenv("OCR_API_KEY", "").strip()
+
+_raw_proxies = os.getenv("TRUSTED_PROXIES", "").strip()
+TRUSTED_PROXIES = {p.strip() for p in _raw_proxies.split(",") if p.strip()}
+
+JOB_ID_REGEX = r"^[a-zA-Z0-9_\-]+$"
 
 _default_origins = "http://localhost:8080,http://127.0.0.1:8080"
 _raw_origins = os.getenv("CORS_ORIGINS", _default_origins).strip()
@@ -80,7 +87,11 @@ async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-XSS-Protection", "1; mode=block")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; "
@@ -98,32 +109,99 @@ async def add_security_headers(request: Request, call_next):
 # Security helpers: Auth, Rate Limiting, Magic-Byte Validation, Audit Log
 # ---------------------------------------------------------------------------
 _rate_buckets: dict[str, deque] = defaultdict(deque)
+_last_rate_cleanup: float = 0.0
+
+
+def _cleanup_rate_buckets(now: float) -> None:
+    """Evict expired rate-limit bucket entries to prevent memory growth over time."""
+    global _last_rate_cleanup
+    if now - _last_rate_cleanup < 60.0 and len(_rate_buckets) < 1000:
+        return
+    _last_rate_cleanup = now
+    stale_keys = [k for k, dq in _rate_buckets.items() if not dq or now - dq[-1] > 300]
+    for k in stale_keys:
+        _rate_buckets.pop(k, None)
+    if len(_rate_buckets) > 5000:
+        excess = len(_rate_buckets) - 5000
+        for k in list(_rate_buckets.keys())[:excess]:
+            _rate_buckets.pop(k, None)
 
 
 def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    """Resolve client IP, honoring X-Forwarded-For only when behind a trusted proxy."""
+    remote_host = request.client.host if request.client else "unknown"
+    if remote_host in TRUSTED_PROXIES or "all" in TRUSTED_PROXIES:
+        xff = request.headers.get("X-Forwarded-For")
+        if xff:
+            return xff.split(",")[0].strip()
+        x_real_ip = request.headers.get("X-Real-IP")
+        if x_real_ip:
+            return x_real_ip.strip()
+    return remote_host
 
 
 def _audit(request: Request, action: str, detail: str = "") -> None:
     logger.info("AUDIT ip=%s action=%s %s", _client_ip(request), action, detail)
 
 
-def _require_api_key(request: Request) -> None:
-    """Enforce X-API-Key / Bearer auth when OCR_API_KEY is configured."""
-    if not OCR_API_KEY:
-        return
-    key = request.headers.get("X-API-Key", "")
-    if not key:
-        auth = request.headers.get("Authorization", "")
-        if auth.lower().startswith("bearer "):
-            key = auth[7:].strip()
-    if not key or not hmac.compare_digest(key, OCR_API_KEY):
-        logger.warning("AUDIT ip=%s action=auth_failed path=%s", _client_ip(request), request.url.path)
-        raise HTTPException(status_code=401, detail="Unauthorized")
+SESSION_COOKIE_NAME = "ocr_session"
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "43200"))
+
+
+def _is_https_request(request: Request) -> bool:
+    """Detect whether the client connected via HTTPS (directly or behind Caddy/Nginx)."""
+    if request.url.scheme == "https":
+        return True
+    xfp = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip().lower()
+    return xfp == "https"
+
+
+def _get_authenticated_user(request: Request) -> Optional[dict]:
+    """
+    Resolve the authenticated user from:
+      1. Server-side HttpOnly session cookie (`ocr_session`) verified against `ocr_sessions`, OR
+      2. Configured `OCR_API_KEY` via `X-API-Key` / `Authorization: Bearer` header.
+    Returns None if unauthenticated. Never fails open.
+    """
+    raw_token = request.cookies.get(SESSION_COOKIE_NAME, "").strip()
+    if raw_token:
+        user = db.get_session_user(raw_token)
+        if user:
+            return user
+
+    if OCR_API_KEY:
+        key = request.headers.get("X-API-Key", "")
+        if not key:
+            auth = request.headers.get("Authorization", "")
+            if auth.lower().startswith("bearer "):
+                key = auth[7:].strip()
+        if key and hmac.compare_digest(key, OCR_API_KEY):
+            return {"id": 0, "username": "api-key", "display_name": "API Key", "role": "admin"}
+
+    return None
+
+
+def _require_api_key(request: Request) -> dict:
+    """Strictly require an authenticated session (or configured API key) on all protected routes."""
+    user = _get_authenticated_user(request)
+    if not user:
+        logger.warning("AUDIT ip=%s action=auth_required path=%s", _client_ip(request), request.url.path)
+        raise HTTPException(status_code=401, detail="Authentication required")
+    request.state.user = user
+    return user
+
+
+def _require_admin(request: Request) -> dict:
+    """Strictly require an authenticated admin user."""
+    user = _require_api_key(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    return user
 
 
 def _check_rate_limit(request: Request, bucket: str, max_requests: int, window_s: int = 60) -> None:
     now = time.monotonic()
+    _cleanup_rate_buckets(now)
     key = f"{bucket}:{_client_ip(request)}"
     dq = _rate_buckets[key]
     while dq and now - dq[0] > window_s:
@@ -150,15 +228,23 @@ def _verify_magic_bytes(path: Path, ext: str) -> bool:
     if ext == ".webp":
         return len(hdr) >= 12 and hdr[:4] == b"RIFF" and hdr[8:12] == b"WEBP"
     if ext in (".xlsx", ".xlsm"):
-        return hdr.startswith((b"PK\x03\x04", b"PK\x05\x06"))
+        if not hdr.startswith((b"PK\x03\x04", b"PK\x05\x06")):
+            return False
+        try:
+            with zipfile.ZipFile(path, "r") as zf:
+                names = zf.namelist()
+                return "[Content_Types].xml" in names or any(n.startswith("xl/") for n in names)
+        except Exception:
+            return False
     if ext == ".xls":
         return hdr.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
     return False
 
-# Static + templates
+# Static + templates (static assets are served through an auth-gated route below)
 FRONTEND_DIR = BASE_DIR / "frontend"
-app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR / "static")), name="static")
-templates = Jinja2Templates(directory=str(FRONTEND_DIR / "templates"))
+STATIC_DIR   = (FRONTEND_DIR / "static").resolve()
+templates    = Jinja2Templates(directory=str(FRONTEND_DIR / "templates"))
+_PUBLIC_STATIC_FILES = {"login.css", "login.js"}
 
 # In-memory job registry {job_id: status_dict}  (always populated, DB is secondary store)
 jobs: dict[str, dict] = {}
@@ -188,21 +274,180 @@ async def on_startup():
     loop = asyncio.get_event_loop()
     connected = await loop.run_in_executor(None, db.init_db)
     if connected:
-        logger.info("MySQL persistence enabled (ocrdatabasedb)")
+        logger.info("MySQL persistence enabled (ocrdatabasedb) — session authentication active")
         stale = await loop.run_in_executor(None, db.cleanup_stale_jobs, 5)
         if stale:
             logger.info("Marked %d orphaned job(s) as error", stale)
     else:
-        logger.warning("MySQL unavailable — in-memory mode only")
+        logger.warning("MySQL unavailable — authentication and persistence require DB connection")
 
 
 # ---------------------------------------------------------------------------
-# Routes
+# Auth & UI Entry Routes
 # ---------------------------------------------------------------------------
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=256)
+    new_password:     str = Field(..., min_length=8, max_length=256)
+
+
+class CreateUserRequest(BaseModel):
+    username:     str = Field(..., min_length=3, max_length=64)
+    password:     str = Field(..., min_length=8, max_length=256)
+    display_name: str = Field(default="", max_length=128)
+    role:         str = Field(default="user", max_length=16)
+
+
+@app.get("/login")
+async def login_page(request: Request):
+    if _get_authenticated_user(request):
+        return RedirectResponse(url="/", status_code=302, headers={"Cache-Control": "no-store"})
+    return FileResponse(str(FRONTEND_DIR / "templates" / "login.html"), headers={"Cache-Control": "no-store"})
+
 
 @app.get("/")
-async def index():
-    return FileResponse(str(FRONTEND_DIR / "templates" / "index.html"))
+async def index(request: Request):
+    if not _get_authenticated_user(request):
+        return RedirectResponse(url="/login", status_code=302, headers={"Cache-Control": "no-store"})
+    return FileResponse(str(FRONTEND_DIR / "templates" / "index.html"), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/static/{file_path:path}")
+async def serve_static(request: Request, file_path: str):
+    """Serve static assets; only login.css and login.js are accessible before login."""
+    clean_rel = file_path.lstrip("/")
+    if clean_rel not in _PUBLIC_STATIC_FILES:
+        _require_api_key(request)
+    target = (STATIC_DIR / clean_rel).resolve()
+    if not target.is_relative_to(STATIC_DIR) or not target.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(str(target))
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request, payload: LoginRequest):
+    """Authenticate user credentials, enforce lockout/rate-limit, and set HttpOnly session cookie."""
+    _check_rate_limit(request, "login", max_requests=8, window_s=60)
+
+    user, status = db.authenticate_user(payload.username, payload.password)
+    if status == "unavailable":
+        raise HTTPException(status_code=503, detail="Database unavailable — cannot verify credentials")
+    if status == "locked":
+        _audit(request, "login_locked", f"username={payload.username}")
+        raise HTTPException(status_code=429, detail="ログイン試行回数が上限を超えました。15分後に再試行してください。")
+    if status == "inactive":
+        _audit(request, "login_inactive", f"username={payload.username}")
+        raise HTTPException(status_code=403, detail="このアカウントは無効化されています。")
+    if status != "ok" or not user:
+        _audit(request, "login_failed", f"username={payload.username}")
+        raise HTTPException(status_code=401, detail="ユーザー名またはパスワードが正しくありません。")
+
+    # Session fixation defense: revoke any prior token before issuing a new one
+    old_token = request.cookies.get(SESSION_COOKIE_NAME, "").strip()
+    if old_token:
+        db.delete_session(old_token)
+
+    raw_token = db.create_session(
+        user_id=user["id"],
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", ""),
+        ttl_seconds=SESSION_TTL_SECONDS,
+    )
+    _audit(request, "login_success", f"username={user['username']} role={user['role']}")
+
+    resp = JSONResponse({"status": "ok", "user": user})
+    resp.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=raw_token,
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=_is_https_request(request),
+        path="/",
+    )
+    return resp
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    """Revoke active server-side session and clear cookie."""
+    raw_token = request.cookies.get(SESSION_COOKIE_NAME, "").strip()
+    if raw_token:
+        db.delete_session(raw_token)
+    _audit(request, "logout")
+    resp = JSONResponse({"status": "ok"})
+    resp.delete_cookie(key=SESSION_COOKIE_NAME, path="/", samesite="lax")
+    return resp
+
+
+@app.get("/api/auth/me")
+async def auth_me(user: dict = Depends(_require_api_key)):
+    return {"user": user}
+
+
+@app.post("/api/auth/change-password")
+async def auth_change_password(
+    request: Request,
+    payload: ChangePasswordRequest,
+    user: dict = Depends(_require_api_key),
+):
+    if not user.get("id"):
+        raise HTTPException(status_code=400, detail="API-key users cannot change password here")
+    cur_token = request.cookies.get(SESSION_COOKIE_NAME, "").strip()
+    ok, msg = db.change_user_password(
+        user_id=user["id"],
+        current_password=payload.current_password,
+        new_password=payload.new_password,
+        current_token=cur_token,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    _audit(request, "password_changed", f"username={user['username']}")
+    return {"status": "ok", "message": msg}
+
+
+@app.get("/api/auth/users")
+async def auth_list_users(admin: dict = Depends(_require_admin)):
+    users = db.list_users()
+    for u in users:
+        for k in ("last_login_at", "created_at"):
+            if u.get(k) is not None:
+                u[k] = str(u[k])
+    return users
+
+
+@app.post("/api/auth/users", status_code=201)
+async def auth_create_user(request: Request, payload: CreateUserRequest, admin: dict = Depends(_require_admin)):
+    try:
+        created = db.create_user(
+            username=payload.username,
+            password=payload.password,
+            display_name=payload.display_name,
+            role=payload.role,
+        )
+        _audit(request, "user_created", f"by={admin['username']} target={created['username']}")
+        return created
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as exc:
+        if "Duplicate entry" in str(exc):
+            raise HTTPException(status_code=409, detail="このユーザー名は既に登録されています")
+        raise HTTPException(status_code=500, detail="ユーザー作成に失敗しました")
+
+
+@app.delete("/api/auth/users/{user_id}")
+async def auth_delete_user(request: Request, user_id: int, admin: dict = Depends(_require_admin)):
+    if user_id == admin.get("id"):
+        raise HTTPException(status_code=400, detail="自分自身のアカウントは削除できません")
+    if not db.delete_user(user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    _audit(request, "user_deleted", f"by={admin['username']} target_id={user_id}")
+    return {"deleted": True, "id": user_id}
 
 
 @app.post("/api/ocr/upload", dependencies=[Depends(_require_api_key)])
@@ -292,7 +537,7 @@ async def upload_and_ocr(
 
 
 @app.get("/api/ocr/status/{job_id}", dependencies=[Depends(_require_api_key)])
-async def job_status(job_id: str):
+async def job_status(job_id: str = FPath(..., pattern=JOB_ID_REGEX, max_length=64)):
     """Poll OCR job status — checks memory first, then DB."""
     if job_id in jobs:
         return jobs[job_id]
@@ -322,7 +567,7 @@ async def job_status(job_id: str):
 
 
 @app.get("/api/ocr/result/{job_id}", dependencies=[Depends(_require_api_key)])
-async def job_result(job_id: str):
+async def job_result(job_id: str = FPath(..., pattern=JOB_ID_REGEX, max_length=64)):
     """Retrieve the full OCR result — checks memory first, then DB."""
     # In-memory (normal path)
     if job_id in jobs:
@@ -347,7 +592,11 @@ class UpdateResultRequest(BaseModel):
 
 
 @app.put("/api/ocr/result/{job_id}", dependencies=[Depends(_require_api_key)])
-async def update_job_result(request: Request, job_id: str, payload: UpdateResultRequest):
+async def update_job_result(
+    request: Request,
+    payload: UpdateResultRequest,
+    job_id: str = FPath(..., pattern=JOB_ID_REGEX, max_length=64),
+):
     """Persist manually edited OCR spreadsheet/result data."""
     _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
     in_memory = job_id in jobs
@@ -426,6 +675,8 @@ TODAY_NANOHANA_JSON = RESULT_DIR / "today_order_nanohana.json"
 TODAY_NANOHANA_XLSX = FRONTEND_DIR / "static" / "nanohana_order.xlsx"
 TODAY_GREENWORLD_JSON = RESULT_DIR / "today_order_greenworld.json"
 TODAY_GREENWORLD_XLSX = FRONTEND_DIR / "static" / "greenworld_order.xlsx"
+TODAY_ROSEN_JSON = RESULT_DIR / "today_order_rosen.json"
+TODAY_ROSEN_XLSX = FRONTEND_DIR / "static" / "rosen_order.xlsx"
 _TODAY_ORDER_COLS = 8
 _TODAY_HAIBUKIYA_COLS = 20
 _TODAY_PROPS_COLS = 10
@@ -434,6 +685,7 @@ _TODAY_NATIONAL_AZABU_COLS = 13
 _TODAY_FUSUI_COLS = 6
 _TODAY_NANOHANA_COLS = 6
 _TODAY_GREENWORLD_COLS = 7
+_TODAY_ROSEN_COLS = 13
 _TODAY_VALID_UNITS = (
     "cs", "p", "kg", "g", "束", "袋", "箱", "本", "個",
     "玉", "パック", "ケース", "枚", "セット", "ネット", "把", "丁", "尾", "杯",
@@ -456,6 +708,8 @@ def _get_today_format_cfg(fmt: str) -> tuple[str, int, Path, Path]:
         return "nanohana", _TODAY_NANOHANA_COLS, TODAY_NANOHANA_JSON, TODAY_NANOHANA_XLSX
     if key in ("greenworld", "グリーンワールド", "グリーンワールド株式会社"):
         return "greenworld", _TODAY_GREENWORLD_COLS, TODAY_GREENWORLD_JSON, TODAY_GREENWORLD_XLSX
+    if key in ("rosen", "相鉄ローゼン", "株式会社相鉄ローゼン"):
+        return "rosen", _TODAY_ROSEN_COLS, TODAY_ROSEN_JSON, TODAY_ROSEN_XLSX
     if key == "chiba":
         return "chiba", _TODAY_ORDER_COLS, TODAY_ORDER_JSON, TODAY_ORDER_XLSX
     raise HTTPException(status_code=400, detail=f"Unsupported today-order format '{fmt}'")
@@ -659,6 +913,23 @@ def _default_today_order_rows(fmt: str = "chiba") -> list[dict]:
             rows.append({"type": "data", "cells": [""] * _TODAY_GREENWORLD_COLS})
         return rows
 
+    if fmt == "rosen":
+        rows = [
+            {"type": "title",  "cells": ["週間発注リスト 株式会社相鉄ローゼン"] + [""] * (_TODAY_ROSEN_COLS - 1)},
+            {"type": "meta",   "cells": ["宛先：株式会社ベジコープ 御中"] + [""] * (_TODAY_ROSEN_COLS - 1)},
+            {"type": "meta",   "cells": ["発注期間：2026年10月24日（土）〜10月30日（金）"] + [""] * (_TODAY_ROSEN_COLS - 1)},
+            {"type": "spacer", "cells": [""] * _TODAY_ROSEN_COLS},
+            {"type": "header", "cells": ["商品コード", "商品名", "入数", "原価", "総数", "10/24\n土", "10/25\n日", "10/26\n月", "10/27\n火", "10/28\n水", "10/29\n木", "10/30\n金", "備考"]},
+            {"type": "item",   "cells": ["", "特別栽培ベビーリーフ40gパック", "", "", "", "", "", "", "", "", "", "", ""]},
+            {"type": "item",   "cells": ["", "特別栽培小松菜250g袋", "", "", "", "", "", "", "", "", "", "", ""]},
+            {"type": "spacer", "cells": [""] * _TODAY_ROSEN_COLS},
+            {"type": "note",   "cells": ["※ 発注数の入っている品目のみ表示（発注なし・休止の品目は省略）。"] + [""] * (_TODAY_ROSEN_COLS - 1)},
+            {"type": "note",   "cells": ["※ 原本の通りに数量を入力してください。"] + [""] * (_TODAY_ROSEN_COLS - 1)},
+        ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _TODAY_ROSEN_COLS})
+        return rows
+
     rows = [
         {"type": "title",  "cells": ["千葉自動発注書（発注分のみ）", "", "", "", "", "", "", ""]},
         {"type": "meta",   "cells": ["宛先：千葉成田センター\u3000／\u3000発注先：葛西産直ファーム", "", "", "", "", "", "", ""]},
@@ -752,6 +1023,14 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
         col_widths = {"A": 7.0, "B": 36.0, "C": 12.0, "D": 9.0, "E": 10.0, "F": 12.0, "G": 12.0}
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
+    elif fmt == "rosen":
+        col_widths = {
+            "A": 8.0, "B": 36.0, "C": 8.0, "D": 10.0, "E": 10.0,
+            "F": 10.0, "G": 10.0, "H": 10.0, "I": 10.0, "J": 10.0,
+            "K": 10.0, "L": 10.0, "M": 18.0,
+        }
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
     else:
         ws.column_dimensions["A"].width = 48.0
         for col_letter in ("B", "C", "D", "E", "F", "G", "H"):
@@ -802,6 +1081,8 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                 is_num_col = (c_idx >= 4)
             elif fmt == "greenworld":
                 is_num_col = (c_idx >= 4)
+            elif fmt == "rosen":
+                is_num_col = (c_idx in (4, 5) or (c_idx >= 6 and c_idx <= 12))
             else:
                 is_num_col = (c_idx in (5, 6) or (c_idx >= 8 and c_idx <= 19))
             if rtype in ("item", "data") and is_num_col and str(raw_val).strip():
@@ -833,6 +1114,8 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                     horiz = "left" if c_idx == 2 else ("right" if c_idx >= 4 else "center")
                 elif fmt == "greenworld":
                     horiz = "left" if c_idx == 2 else ("right" if c_idx >= 4 else "center")
+                elif fmt == "rosen":
+                    horiz = "left" if c_idx in (2, 13) else ("right" if c_idx in (4, 5) else "center")
                 else:
                     horiz = "left" if c_idx == 1 else ("right" if c_idx == 2 else "center")
                 cell.alignment = Alignment(horizontal=horiz, vertical="center", wrap_text=True)
@@ -921,6 +1204,17 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                         cell.alignment = Alignment(horizontal="left", vertical="center")
                     elif c_idx >= 5:
                         cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif fmt == "rosen":
+                    if c_idx == 1:
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                    elif c_idx == 2:
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
+                    elif c_idx in (4, 5) or (c_idx >= 6 and c_idx <= 12):
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    elif c_idx == 13:
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
+                    else:
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
                 else:
                     if c_idx == 2 or c_idx >= 3:
                         cell.alignment = Alignment(horizontal="right", vertical="center")
@@ -1018,7 +1312,11 @@ async def reset_today_order(request: Request, format: str = Query(default="chiba
 
 
 @app.post("/api/ocr/save/{job_id}", dependencies=[Depends(_require_api_key)])
-async def save_ocr_job(request: Request, job_id: str, payload: Optional[SaveJobRequest] = None):
+async def save_ocr_job(
+    request: Request,
+    job_id: str = FPath(..., pattern=JOB_ID_REGEX, max_length=64),
+    payload: Optional[SaveJobRequest] = None,
+):
     """Persist an extracted OCR result to MySQL when Save is clicked, using explicit or auto-detected client."""
     _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
     if not db.is_connected():
@@ -1072,7 +1370,10 @@ async def save_ocr_job(request: Request, job_id: str, payload: Optional[SaveJobR
 
 
 @app.get("/api/health")
-async def health():
+async def health(request: Request):
+    # Minimal health response for unauthenticated container probes; full details only when logged in
+    if not _get_authenticated_user(request):
+        return {"status": "ok"}
     from backend.ocr_engine import _check_gpu
     return {
         "status":        "ok",
@@ -1256,7 +1557,7 @@ async def create_product(request: Request, payload: ProductPayload):
         if "Duplicate entry" in str(exc) or "1062" in str(exc):
             raise HTTPException(status_code=409, detail=f"Product code '{code}' already exists")
         logger.exception("Failed to create product: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Internal database error")
     _audit(request, "product_create", f"id={prod.get('id')} code={code}")
     return _serialize_dates(prod)
 
@@ -1284,7 +1585,8 @@ async def update_product(request: Request, product_id: int, payload: ProductPayl
     except Exception as exc:
         if "Duplicate entry" in str(exc) or "1062" in str(exc):
             raise HTTPException(status_code=409, detail=f"Product code '{code}' already exists")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception("Failed to update product %s: %s", product_id, exc)
+        raise HTTPException(status_code=500, detail="Internal database error")
     if not updated:
         raise HTTPException(status_code=404, detail="Product not found")
     _audit(request, "product_update", f"id={product_id} code={code}")
@@ -1306,11 +1608,13 @@ async def delete_product(request: Request, product_id: int):
 
 @app.get("/api/db/jobs", dependencies=[Depends(_require_api_key)])
 async def list_jobs(
+    request:   Request,
     limit:     int = Query(default=50, ge=1, le=1000),
     offset:    int = Query(default=0,  ge=0),
     client_id: Optional[int] = Query(default=None, ge=1),
 ):
     """Return recent OCR jobs stored in MySQL (optionally filtered by client_id)."""
+    _check_rate_limit(request, "db_read", max_requests=120, window_s=60)
     if not db.is_connected():
         raise HTTPException(status_code=503, detail="Database not connected")
     rows = db.list_jobs(limit=limit, offset=offset, client_id=client_id)
@@ -1318,7 +1622,7 @@ async def list_jobs(
 
 
 @app.get("/api/db/jobs/{job_id}", dependencies=[Depends(_require_api_key)])
-async def db_job_detail(job_id: str):
+async def db_job_detail(job_id: str = FPath(..., pattern=JOB_ID_REGEX, max_length=64)):
     """Return full DB record for a job including engine sub-results and tables."""
     if not db.is_connected():
         raise HTTPException(status_code=503, detail="Database not connected")
@@ -1331,7 +1635,7 @@ async def db_job_detail(job_id: str):
     return row
 
 
-@app.delete("/api/db/jobs")
+@app.delete("/api/db/jobs", dependencies=[Depends(_require_api_key)])
 async def delete_jobs_bulk(job_ids: list[str] = None, body: dict = None):
     """Bulk delete jobs by a list of job_ids passed as JSON body."""
     from fastapi import Body
@@ -1353,7 +1657,10 @@ async def bulk_delete_jobs(request: Request, payload: BulkDeleteRequest):
 
 
 @app.delete("/api/db/jobs/{job_id}", dependencies=[Depends(_require_api_key)])
-async def delete_job(request: Request, job_id: str):
+async def delete_job(
+    request: Request,
+    job_id: str = FPath(..., pattern=JOB_ID_REGEX, max_length=64),
+):
     """Permanently delete a job and its child rows from the database."""
     _check_rate_limit(request, "db_write", max_requests=60, window_s=60)
     if not db.is_connected():
@@ -1368,8 +1675,9 @@ async def delete_job(request: Request, job_id: str):
 
 
 @app.get("/api/db/stats", dependencies=[Depends(_require_api_key)])
-async def db_statistics():
+async def db_statistics(request: Request):
     """Return aggregate statistics from the MySQL database."""
+    _check_rate_limit(request, "db_read", max_requests=120, window_s=60)
     return db.db_stats()
 
 

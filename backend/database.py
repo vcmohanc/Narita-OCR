@@ -9,15 +9,18 @@ Tables created automatically on startup:
   - ocr_tables      : extracted tables from Docling
 """
 
+import hashlib
+import hmac
 import json
 import logging
 import os
 import re
+import secrets
 import time
 import unicodedata
 import uuid
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import mysql.connector
@@ -283,12 +286,45 @@ def _create_tables():
                 REFERENCES ocr_clients (id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """,
+        # Authentication: Users table
+        """
+        CREATE TABLE IF NOT EXISTS ocr_users (
+            id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            username        VARCHAR(64)  NOT NULL UNIQUE,
+            display_name    VARCHAR(128) NOT NULL DEFAULT '',
+            role            ENUM('admin','user') NOT NULL DEFAULT 'user',
+            password_hash   VARCHAR(255) NOT NULL,
+            is_active       TINYINT(1)   NOT NULL DEFAULT 1,
+            failed_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+            locked_until    DATETIME     NULL,
+            last_login_at   DATETIME     NULL,
+            created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_username (username)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """,
+        # Authentication: Server-side Sessions table (stores SHA-256 hash of cookie token)
+        """
+        CREATE TABLE IF NOT EXISTS ocr_sessions (
+            id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            token_hash CHAR(64)     NOT NULL UNIQUE,
+            user_id    INT UNSIGNED NOT NULL,
+            ip_address VARCHAR(64)  NULL,
+            user_agent VARCHAR(255) NULL,
+            expires_at DATETIME     NOT NULL,
+            created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_token_hash (token_hash),
+            INDEX idx_expires    (expires_at),
+            CONSTRAINT fk_session_user FOREIGN KEY (user_id)
+                REFERENCES ocr_users (id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """,
     ]
     with _get_connection() as con:
         cur = con.cursor()
         for stmt in ddl:
             cur.execute(stmt)
         _seed_products(cur)
+        _seed_default_admin(cur)
         cur.close()
 
 
@@ -1840,6 +1876,300 @@ def delete_product(product_id: int) -> bool:
     with _get_connection() as con:
         cur = con.cursor()
         cur.execute("DELETE FROM ocr_products WHERE id = %s", (product_id,))
+        affected = cur.rowcount
+        cur.close()
+    return affected > 0
+
+
+# ---------------------------------------------------------------------------
+# Authentication & Session Management (Production Security)
+# ---------------------------------------------------------------------------
+
+_PBKDF2_ITERATIONS = 600_000
+_MAX_FAILED_ATTEMPTS = 5
+_LOCKOUT_MINUTES = 15
+
+
+def hash_password(password: str) -> str:
+    """Hash a password using PBKDF2-HMAC-SHA256 with a 32-byte random salt."""
+    salt = secrets.token_bytes(32)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${salt.hex()}${dk.hex()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Verify a plaintext password against a stored PBKDF2-HMAC-SHA256 hash in constant time."""
+    try:
+        algo, iters_str, salt_hex, hash_hex = stored_hash.split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        iterations = int(iters_str)
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(hash_hex)
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+        return hmac.compare_digest(dk, expected)
+    except Exception:
+        return False
+
+
+def _hash_session_token(raw_token: str) -> str:
+    return hashlib.sha256((raw_token or "").encode("utf-8")).hexdigest()
+
+
+def _seed_default_admin(cur) -> None:
+    """Seed initial admin account into ocr_users if no users exist yet."""
+    try:
+        cur.execute("SELECT COUNT(*) FROM ocr_users")
+        row = cur.fetchone()
+        if row and row[0] == 0:
+            admin_user = os.getenv("ADMIN_USERNAME", "admin").strip() or "admin"
+            admin_pass = os.getenv("ADMIN_PASSWORD", "Narita@2026!").strip() or "Narita@2026!"
+            pw_hash = hash_password(admin_pass)
+            cur.execute(
+                """
+                INSERT INTO ocr_users (username, display_name, role, password_hash, is_active)
+                VALUES (%s, %s, 'admin', %s, 1)
+                """,
+                (admin_user, "管理者 (Admin)", pw_hash),
+            )
+            logger.info("Seeded default admin user '%s' into ocr_users", admin_user)
+    except Exception as exc:
+        logger.warning("Could not seed default admin user: %s", exc)
+
+
+def authenticate_user(username: str, password: str) -> tuple[Optional[dict], str]:
+    """
+    Verify username + password against `ocr_users`.
+    Enforces account lockout after _MAX_FAILED_ATTEMPTS consecutive failures.
+    Returns (user_dict, status_code) where status_code is 'ok' | 'invalid' | 'locked' | 'inactive' | 'unavailable'.
+    """
+    if not is_connected():
+        return None, "unavailable"
+    uname = (username or "").strip()
+    if not uname or not password:
+        return None, "invalid"
+
+    now = datetime.utcnow()
+    try:
+        with _get_connection() as con:
+            cur = con.cursor(dictionary=True)
+            cur.execute(
+                """
+                SELECT id, username, display_name, role, password_hash,
+                       is_active, failed_attempts, locked_until
+                  FROM ocr_users
+                 WHERE LOWER(username) = LOWER(%s)
+                 LIMIT 1
+                """,
+                (uname,),
+            )
+            user = cur.fetchone()
+            if not user:
+                # Constant-time dummy work to mitigate username enumeration timing
+                hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), b"dummy_salt_padding", 50_000)
+                cur.close()
+                return None, "invalid"
+
+            if not user.get("is_active"):
+                cur.close()
+                return None, "inactive"
+
+            locked_until = user.get("locked_until")
+            if locked_until and locked_until > now:
+                cur.close()
+                return None, "locked"
+
+            if not verify_password(password, user["password_hash"]):
+                attempts = int(user.get("failed_attempts") or 0) + 1
+                if attempts >= _MAX_FAILED_ATTEMPTS:
+                    lock_exp = now + timedelta(minutes=_LOCKOUT_MINUTES)
+                    cur.execute(
+                        "UPDATE ocr_users SET failed_attempts = %s, locked_until = %s WHERE id = %s",
+                        (attempts, lock_exp, user["id"]),
+                    )
+                    cur.close()
+                    return None, "locked"
+                cur.execute(
+                    "UPDATE ocr_users SET failed_attempts = %s WHERE id = %s",
+                    (attempts, user["id"]),
+                )
+                cur.close()
+                return None, "invalid"
+
+            cur.execute(
+                """
+                UPDATE ocr_users
+                   SET failed_attempts = 0,
+                       locked_until    = NULL,
+                       last_login_at   = %s
+                 WHERE id = %s
+                """,
+                (now, user["id"]),
+            )
+            cur.close()
+            return {
+                "id":           user["id"],
+                "username":     user["username"],
+                "display_name": user["display_name"],
+                "role":         user["role"],
+            }, "ok"
+    except Exception as exc:
+        logger.error("authenticate_user failed: %s", exc)
+        return None, "unavailable"
+
+
+def create_session(user_id: int, ip_address: str = "", user_agent: str = "", ttl_seconds: int = 43200) -> str:
+    """Create a cryptographically random 256-bit server-side session and return raw token."""
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = _hash_session_token(raw_token)
+    now = datetime.utcnow()
+    expires_at = now + timedelta(seconds=ttl_seconds)
+    with _get_connection() as con:
+        cur = con.cursor()
+        # Prune expired sessions opportunistically
+        cur.execute("DELETE FROM ocr_sessions WHERE expires_at < %s", (now,))
+        cur.execute(
+            """
+            INSERT INTO ocr_sessions (token_hash, user_id, ip_address, user_agent, expires_at, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (token_hash, user_id, (ip_address or "")[:64], (user_agent or "")[:255], expires_at, now),
+        )
+        cur.close()
+    return raw_token
+
+
+def get_session_user(raw_token: str) -> Optional[dict]:
+    """Validate a raw session cookie token against `ocr_sessions` + `ocr_users`."""
+    if not raw_token or not is_connected():
+        return None
+    token_hash = _hash_session_token(raw_token)
+    now = datetime.utcnow()
+    try:
+        with _get_connection() as con:
+            cur = con.cursor(dictionary=True)
+            cur.execute(
+                """
+                SELECT u.id, u.username, u.display_name, u.role
+                  FROM ocr_sessions s
+                  JOIN ocr_users u ON u.id = s.user_id
+                 WHERE s.token_hash = %s
+                   AND s.expires_at > %s
+                   AND u.is_active = 1
+                 LIMIT 1
+                """,
+                (token_hash, now),
+            )
+            row = cur.fetchone()
+            cur.close()
+            return row
+    except Exception as exc:
+        logger.error("get_session_user failed: %s", exc)
+        return None
+
+
+def delete_session(raw_token: str) -> None:
+    """Revoke a session immediately on logout."""
+    if not raw_token or not is_connected():
+        return
+    token_hash = _hash_session_token(raw_token)
+    try:
+        with _get_connection() as con:
+            cur = con.cursor()
+            cur.execute("DELETE FROM ocr_sessions WHERE token_hash = %s", (token_hash,))
+            cur.close()
+    except Exception as exc:
+        logger.error("delete_session failed: %s", exc)
+
+
+def delete_user_sessions(user_id: int, keep_token: str = "") -> None:
+    """Revoke all sessions for a user (optionally keeping current session)."""
+    if not is_connected():
+        return
+    try:
+        with _get_connection() as con:
+            cur = con.cursor()
+            if keep_token:
+                cur.execute(
+                    "DELETE FROM ocr_sessions WHERE user_id = %s AND token_hash != %s",
+                    (user_id, _hash_session_token(keep_token)),
+                )
+            else:
+                cur.execute("DELETE FROM ocr_sessions WHERE user_id = %s", (user_id,))
+            cur.close()
+    except Exception as exc:
+        logger.error("delete_user_sessions failed: %s", exc)
+
+
+def change_user_password(user_id: int, current_password: str, new_password: str, current_token: str = "") -> tuple[bool, str]:
+    """Verify current password, update to new strong password, and revoke other sessions."""
+    if not is_connected():
+        return False, "Database unavailable"
+    if len(new_password or "") < 8:
+        return False, "新しいパスワードは8文字以上にしてください"
+    with _get_connection() as con:
+        cur = con.cursor(dictionary=True)
+        cur.execute("SELECT id, password_hash FROM ocr_users WHERE id = %s LIMIT 1", (user_id,))
+        user = cur.fetchone()
+        if not user or not verify_password(current_password, user["password_hash"]):
+            cur.close()
+            return False, "現在のパスワードが正しくありません"
+        new_hash = hash_password(new_password)
+        cur.execute(
+            "UPDATE ocr_users SET password_hash = %s, failed_attempts = 0, locked_until = NULL WHERE id = %s",
+            (new_hash, user_id),
+        )
+        cur.close()
+    delete_user_sessions(user_id, keep_token=current_token)
+    return True, "パスワードを更新しました"
+
+
+def list_users() -> list[dict]:
+    """List all registered users (admin view; never returns password_hash)."""
+    if not is_connected():
+        return []
+    with _get_connection() as con:
+        cur = con.cursor(dictionary=True)
+        cur.execute(
+            """
+            SELECT id, username, display_name, role, is_active, last_login_at, created_at
+              FROM ocr_users
+             ORDER BY id ASC
+            """
+        )
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+
+
+def create_user(username: str, password: str, display_name: str = "", role: str = "user") -> dict:
+    """Create a new user account."""
+    uname = (username or "").strip()
+    if not uname or len(uname) < 3:
+        raise ValueError("ユーザー名は3文字以上にしてください")
+    if len(password or "") < 8:
+        raise ValueError("パスワードは8文字以上にしてください")
+    safe_role = "admin" if role == "admin" else "user"
+    pw_hash = hash_password(password)
+    with _get_connection() as con:
+        cur = con.cursor()
+        cur.execute(
+            """
+            INSERT INTO ocr_users (username, display_name, role, password_hash, is_active)
+            VALUES (%s, %s, %s, %s, 1)
+            """,
+            (uname, (display_name or uname).strip(), safe_role, pw_hash),
+        )
+        new_id = cur.lastrowid
+        cur.close()
+    return {"id": new_id, "username": uname, "display_name": display_name or uname, "role": safe_role, "is_active": 1}
+
+
+def delete_user(user_id: int) -> bool:
+    """Delete a user by ID (cascades to sessions)."""
+    with _get_connection() as con:
+        cur = con.cursor()
+        cur.execute("DELETE FROM ocr_users WHERE id = %s", (user_id,))
         affected = cur.rowcount
         cur.close()
     return affected > 0
