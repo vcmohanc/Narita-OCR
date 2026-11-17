@@ -318,6 +318,19 @@ def _create_tables():
                 REFERENCES ocr_users (id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """,
+        # Dynamic runtime & security settings (everything except MySQL bootstrap credentials)
+        """
+        CREATE TABLE IF NOT EXISTS ocr_settings (
+            setting_key   VARCHAR(100) PRIMARY KEY,
+            setting_value TEXT         NOT NULL,
+            value_type    VARCHAR(20)  NOT NULL DEFAULT 'string',
+            category      VARCHAR(50)  NOT NULL DEFAULT 'general',
+            description   VARCHAR(255) NOT NULL DEFAULT '',
+            is_secret     TINYINT(1)   NOT NULL DEFAULT 0,
+            updated_by    VARCHAR(100) NOT NULL DEFAULT 'system',
+            updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """,
     ]
     with _get_connection() as con:
         cur = con.cursor()
@@ -325,6 +338,7 @@ def _create_tables():
             cur.execute(stmt)
         _seed_products(cur)
         _seed_default_admin(cur)
+        _seed_default_settings(cur)
         cur.close()
 
 
@@ -1980,9 +1994,11 @@ def authenticate_user(username: str, password: str) -> tuple[Optional[dict], str
                 return None, "locked"
 
             if not verify_password(password, user["password_hash"]):
+                max_attempts = get_setting_int("login_max_attempts", _MAX_FAILED_ATTEMPTS, min_val=1, max_val=50)
+                lockout_mins = get_setting_int("login_lockout_minutes", _LOCKOUT_MINUTES, min_val=1, max_val=1440)
                 attempts = int(user.get("failed_attempts") or 0) + 1
-                if attempts >= _MAX_FAILED_ATTEMPTS:
-                    lock_exp = now + timedelta(minutes=_LOCKOUT_MINUTES)
+                if attempts >= max_attempts:
+                    lock_exp = now + timedelta(minutes=lockout_mins)
                     cur.execute(
                         "UPDATE ocr_users SET failed_attempts = %s, locked_until = %s WHERE id = %s",
                         (attempts, lock_exp, user["id"]),
@@ -2173,4 +2189,148 @@ def delete_user(user_id: int) -> bool:
         affected = cur.rowcount
         cur.close()
     return affected > 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Dynamic Runtime Settings (ocr_settings)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_SECRET_MASK = "••••••••"
+
+_DEFAULT_SETTINGS = [
+    ("session_ttl_seconds", os.getenv("SESSION_TTL_SECONDS", "43200"), "int", "security", "セッション有効期限 (秒、例: 43200 = 12時間)", 0),
+    ("login_max_attempts", "5", "int", "security", "ロックアウトまでの最大ログイン失敗回数", 0),
+    ("login_lockout_minutes", "15", "int", "security", "アカウントロックアウト時間 (分)", 0),
+    ("login_rate_limit_per_min", "20", "int", "security", "IPごとのログイン試行上限 (回/分)", 0),
+    ("max_file_size_mb", "50", "int", "ocr", "アップロード最大ファイルサイズ (MB)", 0),
+    ("max_queued_jobs", os.getenv("MAX_QUEUED_JOBS", "20"), "int", "ocr", "同時キューイング可能なOCRジョブ上限数", 0),
+    ("ocr_api_key", os.getenv("OCR_API_KEY", "").strip(), "string", "security", "外部連携用 X-API-Key (空欄の場合は無効)", 1),
+    ("cors_origins", os.getenv("CORS_ORIGINS", "http://localhost:8080,http://127.0.0.1:8080"), "string", "network", "許可するCORSオリジン (カンマ区切り)", 0),
+]
+
+_INT_SETTING_BOUNDS = {
+    "session_ttl_seconds": (300, 2592000),
+    "login_max_attempts": (1, 50),
+    "login_lockout_minutes": (1, 1440),
+    "login_rate_limit_per_min": (1, 600),
+    "max_file_size_mb": (1, 500),
+    "max_queued_jobs": (1, 200),
+}
+
+
+def _seed_default_settings(cur) -> None:
+    """Insert default runtime settings into ocr_settings if not already present."""
+    try:
+        for key, val, vtype, cat, desc, is_sec in _DEFAULT_SETTINGS:
+            cur.execute(
+                """
+                INSERT IGNORE INTO ocr_settings
+                    (setting_key, setting_value, value_type, category, description, is_secret, updated_by)
+                VALUES (%s, %s, %s, %s, %s, %s, 'system')
+                """,
+                (key, str(val), vtype, cat, desc, is_sec),
+            )
+    except Exception as exc:
+        logger.warning("Could not seed default settings: %s", exc)
+
+
+def get_setting(key: str, default: str = "") -> str:
+    """Fetch a single setting value from ocr_settings, returning default if unavailable."""
+    if not is_connected():
+        return default
+    try:
+        with _get_connection() as con:
+            cur = con.cursor()
+            cur.execute("SELECT setting_value FROM ocr_settings WHERE setting_key = %s LIMIT 1", (key,))
+            row = cur.fetchone()
+            cur.close()
+        if row is not None and row[0] is not None:
+            return str(row[0])
+    except Exception:
+        pass
+    return default
+
+
+def get_setting_int(key: str, default: int = 0, min_val: Optional[int] = None, max_val: Optional[int] = None) -> int:
+    """Fetch an integer setting from ocr_settings with optional clamping."""
+    raw = get_setting(key, str(default))
+    try:
+        val = int(str(raw).strip())
+    except (TypeError, ValueError):
+        val = default
+    if min_val is not None and val < min_val:
+        val = min_val
+    if max_val is not None and val > max_val:
+        val = max_val
+    return val
+
+
+def get_all_settings(mask_secrets: bool = True) -> list[dict]:
+    """Return all settings ordered by category and key."""
+    if not is_connected():
+        return []
+    with _get_connection() as con:
+        cur = con.cursor(dictionary=True)
+        cur.execute(
+            """
+            SELECT setting_key, setting_value, value_type, category,
+                   description, is_secret, updated_by, updated_at
+              FROM ocr_settings
+             ORDER BY category ASC, setting_key ASC
+            """
+        )
+        rows = cur.fetchall()
+        cur.close()
+    for r in rows:
+        has_val = bool(r.get("setting_value"))
+        r["has_value"] = has_val
+        if mask_secrets and r.get("is_secret") and has_val:
+            r["setting_value"] = _SECRET_MASK
+        if r.get("updated_at") is not None:
+            r["updated_at"] = str(r["updated_at"])
+    return rows
+
+
+def update_settings(updates: dict, updated_by: str = "admin") -> list[dict]:
+    """Validate and update existing keys in ocr_settings."""
+    if not isinstance(updates, dict) or not updates:
+        raise ValueError("更新する設定が指定されていません")
+
+    with _get_connection() as con:
+        cur = con.cursor(dictionary=True)
+        cur.execute("SELECT setting_key, value_type, is_secret FROM ocr_settings")
+        meta = {row["setting_key"]: row for row in cur.fetchall()}
+
+        for key, raw_val in updates.items():
+            if key not in meta:
+                cur.close()
+                raise ValueError(f"不明な設定キーです: {key}")
+            val_str = "" if raw_val is None else str(raw_val).strip()
+            if meta[key]["is_secret"] and val_str == _SECRET_MASK:
+                # Leave secret unchanged when UI submits the mask placeholder
+                continue
+            if meta[key]["value_type"] == "int":
+                try:
+                    num = int(val_str)
+                except ValueError:
+                    cur.close()
+                    raise ValueError(f"{key} は整数で指定してください")
+                if key in _INT_SETTING_BOUNDS:
+                    lo, hi = _INT_SETTING_BOUNDS[key]
+                    if num < lo or num > hi:
+                        cur.close()
+                        raise ValueError(f"{key} は {lo}〜{hi} の範囲で指定してください")
+                val_str = str(num)
+            cur.execute(
+                """
+                UPDATE ocr_settings
+                   SET setting_value = %s,
+                       updated_by    = %s
+                 WHERE setting_key   = %s
+                """,
+                (val_str, (updated_by or "admin")[:100], key),
+            )
+        cur.close()
+    return get_all_settings(mask_secrets=True)
+
 

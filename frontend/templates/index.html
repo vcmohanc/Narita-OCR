@@ -6,7 +6,7 @@
   <title>OCR System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=35" />
+  <link rel="stylesheet" href="/static/style.css?v=36" />
 </head>
 <body>
 
@@ -56,6 +56,7 @@
           </div>
         </div>
         <div class="sidebar-auth-actions">
+          <button type="button" class="sidebar-auth-btn" id="openSettingsBtn" title="システム設定" style="display:none;">⚙ 設定</button>
           <button type="button" class="sidebar-auth-btn" id="openChangePwBtn" title="パスワードを変更">🔑 パスワード</button>
           <button type="button" class="sidebar-auth-btn logout" id="logoutBtn" title="ログアウト">ログアウト</button>
         </div>
@@ -346,6 +347,7 @@
             <option value="nanohana">発注書 なのはな生活協同組合（ベジコープ）</option>
             <option value="greenworld">発注書 グリーンワールド株式会社</option>
             <option value="rosen">週間発注リスト 株式会社相鉄ローゼン</option>
+            <option value="worlddelica">発注書 株式会社ワールドデリカ</option>
           </select>
           <span class="order-row-count today-item-count" id="todayOrderItemCount">0 品目</span>
           <div class="order-toolbar-actions">
@@ -409,6 +411,7 @@
             <div class="xls-sheet-tab" data-format="nanohana">なのはな生協 発注書</div>
             <div class="xls-sheet-tab" data-format="greenworld">グリーンワールド 発注書</div>
             <div class="xls-sheet-tab" data-format="rosen">ローゼン 発注リスト</div>
+            <div class="xls-sheet-tab" data-format="worlddelica">ワールドデリカ 発注書</div>
           </div>
           <div class="xls-sheetbar-status" id="todayOrderStatusBar">15 rows × 8 cols · 発注書</div>
         </div>
@@ -841,6 +844,7 @@
           <label class="modal-label" for="cpConfirmPw">新しいパスワード (確認) <span class="required">*</span></label>
           <input class="modal-input" id="cpConfirmPw" type="password" autocomplete="new-password" />
         </div>
+        <div id="cpError" style="display:none;color:#dc2626;font-size:12.5px;margin-top:6px;"></div>
       </div>
       <div class="modal-footer">
         <button class="btn-sm" id="cpCancelBtn" type="button">キャンセル</button>
@@ -849,6 +853,24 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=52"></script>
+  <!-- System Settings Modal (Admin Only) -->
+  <div class="modal-backdrop hidden" id="settingsModalBackdrop">
+    <div class="modal-box" style="max-width:600px">
+      <div class="modal-title">システム設定 (MySQL 動的保存)</div>
+      <div class="modal-body" style="max-height:65vh;overflow-y:auto">
+        <p style="font-size:12.5px;color:#64748b;margin:0 0 12px;">
+          すべての設定は MySQL (<code>ocr_settings</code>) に保存され、即座に反映されます。
+        </p>
+        <div class="settings-list" id="settingsList"></div>
+        <div class="settings-error" id="settingsError" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-sm" id="settingsCancelBtn" type="button">閉じる</button>
+        <button class="btn-primary modal-save-btn" id="settingsSaveBtn" type="button">設定を保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=54"></script>
 </body>
 </html>

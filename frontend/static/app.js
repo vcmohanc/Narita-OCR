@@ -1,4 +1,4 @@
-/* OCR System — app.js */
+﻿/* OCR System — app.js */
 "use strict";
 
 // When opened as file:// the browser can't resolve relative /api paths.
@@ -234,6 +234,18 @@ const TODAY_ORDER_FORMATS = {
     defaultDate: '2026-10-24',
     titleMatch: '相鉄ローゼン',
   },
+  worlddelica: {
+    cols: 5,
+    dayStartCol: null,
+    dayStep: 1,
+    storageKey: 'ocr_today_order_sheet_v1_worlddelica',
+    legacyStorageKey: null,
+    xlsxFile: 'worlddelica_order.xlsx',
+    downloadName: '発注書_株式会社ワールドデリカ.xlsx',
+    csvName: 'ワールドデリカ_発注書.csv',
+    defaultDate: '2026-10-25',
+    titleMatch: 'ワールドデリカ',
+  },
 };
 const TODAY_NANOHANA_PRESETS = [
   { orderNo: '648', name: '有機じゃが芋', spec: '600g', price: '230.0', qty: '23', amount: '5,290' },
@@ -264,6 +276,14 @@ const TODAY_GREENWORLD_PRESETS = [
 const TODAY_ROSEN_PRESETS = [
   { code: '', name: '特別栽培ベビーリーフ40gパック', irisu: '', cost: '', total: '', days: ['', '', '', '', '', '', ''], note: '' },
   { code: '', name: '特別栽培小松菜250g袋', irisu: '', cost: '', total: '', days: ['', '', '', '', '', '', ''], note: '' },
+];
+const TODAY_WORLDDELICA_PRESETS = [
+  { date: '', name: '群馬県産有機サニーレタス15入', qty: '', unit: '箱', note: '' },
+  { date: '', name: '有機玉ねぎ 20kg', qty: '', unit: '箱', note: '' },
+  { date: '', name: '有機カタローニャ', qty: '', unit: '袋', note: '' },
+  { date: '', name: '有機ステッキオ', qty: '', unit: '袋', note: '' },
+  { date: '', name: '有機フィノッキオ', qty: '', unit: '袋', note: '' },
+  { date: '', name: '群馬県産有機カリーノケール5入', qty: '', unit: '箱', note: '' },
 ];
 const TODAY_PRESET_ITEMS = ['大根', '赤からし水菜', '小江戸菜', 'スイスチャード', 'ほうれん草', 'キャベツ', 'ホテル風か様用'];
 const TODAY_TSUKIJI_PRESETS = [
@@ -505,6 +525,31 @@ function _createTodayOrderInitialRows(fmt = _todayOrderCurrentFormat) {
     return rows;
   }
 
+  if (fmt === 'worlddelica') {
+    const ncols = TODAY_ORDER_FORMATS.worlddelica.cols;
+    const pad = (text) => [text, ...Array(ncols - 1).fill('')];
+    const rows = [
+      { type: 'title',  cells: pad('発注書　株式会社ワールドデリカ') },
+      { type: 'meta',   cells: pad('宛先：株式会社ベジコープ 御中　／　発注日：10月22日　発注書No.18') },
+      { type: 'meta',   cells: pad('発注元：㈱ワールドデリカ（㈱東果内）担当 長谷川・堀切　TEL 0479-86-5178　FAX 0479-86-5177') },
+      { type: 'meta',   cells: pad('再送：サニーレタス追加') },
+      { type: 'spacer', cells: Array(ncols).fill('') },
+      { type: 'header', cells: ['納品日', '商品名', '数量', '単位', '備考'] },
+      ...TODAY_WORLDDELICA_PRESETS.map(p => ({
+        type: 'item',
+        cells: [p.date, p.name, p.qty, p.unit, p.note]
+      })),
+      { type: 'spacer', cells: Array(ncols).fill('') },
+      { type: 'note',   cells: pad('※ デリカフーズ納品先：〒121-0073 東京都足立区六町4-12-12 デリカフーズ㈱東京事務所 東京FSセンター（03-3858-8293）') },
+      { type: 'note',   cells: pad('※ 10/27・10/30・10/31は発注なし。') },
+      { type: 'note',   cells: pad('※ ご記入の上、FAX（0479-86-5177）にて返信をお願いします。') },
+    ];
+    for (let i = 0; i < 4; i++) {
+      rows.push({ type: 'data', cells: Array(ncols).fill('') });
+    }
+    return rows;
+  }
+
   if (fmt === 'props_japan') {
     const ncols = TODAY_ORDER_FORMATS.props_japan.cols;
     const pad = (text) => [text, ...Array(ncols - 1).fill('')];
@@ -711,9 +756,10 @@ function _renderTodayPresetChips() {
   const isFusui = _todayOrderCurrentFormat === 'fusui';
   const isGreenworld = _todayOrderCurrentFormat === 'greenworld';
   const isRosen = _todayOrderCurrentFormat === 'rosen';
+  const isWorldDelica = _todayOrderCurrentFormat === 'worlddelica';
   const items = isHaibukiya
     ? TODAY_HAIBUKIYA_PRESETS.map(p => p.name)
-    : (isProps ? TODAY_PROPS_PRESETS.map(p => p.name) : (isNationalAzabu ? TODAY_NATIONAL_AZABU_PRESETS.map(p => p.name) : (isTsukiji ? TODAY_TSUKIJI_PRESETS.map(p => p.name) : (isNanohana ? TODAY_NANOHANA_PRESETS.map(p => p.name) : (isFusui ? TODAY_FUSUI_PRESETS.map(p => p.name) : (isGreenworld ? TODAY_GREENWORLD_PRESETS.map(p => p.name) : (isRosen ? TODAY_ROSEN_PRESETS.map(p => p.name) : TODAY_PRESET_ITEMS)))))));
+    : (isProps ? TODAY_PROPS_PRESETS.map(p => p.name) : (isNationalAzabu ? TODAY_NATIONAL_AZABU_PRESETS.map(p => p.name) : (isTsukiji ? TODAY_TSUKIJI_PRESETS.map(p => p.name) : (isNanohana ? TODAY_NANOHANA_PRESETS.map(p => p.name) : (isFusui ? TODAY_FUSUI_PRESETS.map(p => p.name) : (isGreenworld ? TODAY_GREENWORLD_PRESETS.map(p => p.name) : (isRosen ? TODAY_ROSEN_PRESETS.map(p => p.name) : (isWorldDelica ? TODAY_WORLDDELICA_PRESETS.map(p => p.name) : TODAY_PRESET_ITEMS))))))));
 
   if (quickEl) {
     quickEl.innerHTML =
@@ -802,6 +848,13 @@ function _renderTodayPresetChips() {
             if (!firstAdded) firstAdded = tr;
           }
         });
+      } else if (_todayOrderCurrentFormat === 'worlddelica') {
+        TODAY_WORLDDELICA_PRESETS.forEach(p => {
+          if (!existing.has(p.name)) {
+            const tr = _appendTodayModalItemRow({ ...p });
+            if (!firstAdded) firstAdded = tr;
+          }
+        });
       } else {
         TODAY_PRESET_ITEMS.forEach(pName => {
           if (!existing.has(pName)) {
@@ -824,7 +877,8 @@ async function switchTodayOrderFormat(fmt) {
     : (fmt === 'nanohana' ? 'nanohana'
     : (fmt === 'fusui' ? 'fusui'
     : (fmt === 'greenworld' ? 'greenworld'
-    : (fmt === 'rosen' ? 'rosen' : 'chiba')))))));
+    : (fmt === 'rosen' ? 'rosen'
+    : (fmt === 'worlddelica' ? 'worlddelica' : 'chiba'))))))));
   _todayOrderCurrentFormat = nextFmt;
 
   const sel = document.getElementById('todayOrderFormatSelect');
@@ -855,7 +909,9 @@ async function switchTodayOrderFormat(fmt) {
                       ? 'No.・商品名・規格で検索…'
                       : (nextFmt === 'rosen'
                           ? '商品コード・商品名・備考で検索…'
-                          : (nextFmt === 'props_japan' ? '品番・品名・単位で検索…' : '品目・単位・備考で検索…'))))));
+                          : (nextFmt === 'worlddelica'
+                              ? '納品日・商品名・備考で検索…'
+                              : (nextFmt === 'props_japan' ? '品番・品名・単位で検索…' : '品目・単位・備考で検索…')))))));
   }
 
   _renderTodayPresetChips();
@@ -880,7 +936,9 @@ async function switchTodayOrderFormat(fmt) {
                             ? '発注書フォーマットを「グリーンワールド株式会社（7列）」に切り替えました'
                              : (nextFmt === 'rosen'
                                  ? '発注書フォーマットを「株式会社相鉄ローゼン（13列・7日間）」に切り替えました'
-                                 : '発注書フォーマットを「千葉自動発注書（8列）」に切り替えました')))))));
+                                 : (nextFmt === 'worlddelica'
+                                     ? '発注書フォーマットを「株式会社ワールドデリカ（5列）」に切り替えました'
+                                     : '発注書フォーマットを「千葉自動発注書（8列）」に切り替えました'))))))));
   showToast(fmtToast);
 }
 
@@ -908,6 +966,7 @@ function _getTodayHeaderDateSpan() {
     if (_todayOrderCurrentFormat === 'fusui') return '10/22〜10/25';
     if (_todayOrderCurrentFormat === 'greenworld') return '10/8〜10/11';
     if (_todayOrderCurrentFormat === 'rosen') return '10/24〜10/30';
+    if (_todayOrderCurrentFormat === 'worlddelica') return '10/25〜10/29';
     return '10/26〜10/31';
   }
   if (_todayOrderCurrentFormat === 'haibukiya') {
@@ -939,13 +998,16 @@ function _getTodayHeaderDateSpan() {
     const endRaw = String(hdr.cells[11] || '').split('\n')[0].trim() || '10/30';
     return `${startRaw}〜${endRaw}`;
   }
+  if (_todayOrderCurrentFormat === 'worlddelica') {
+    return '10/25〜10/29';
+  }
   const startRaw = String(hdr.cells[startCol] || '').split('\n')[0].trim() || '10/26';
   const endRaw = String(hdr.cells[startCol + 5] || '').split('\n')[0].trim() || '10/31';
   return `${startRaw}〜${endRaw}`;
 }
 
 function _syncTodayOrderMergedNotice() {
-  if (_todayOrderCurrentFormat === 'haibukiya' || _todayOrderCurrentFormat === 'props_japan' || _todayOrderCurrentFormat === 'national_azabu' || _todayOrderCurrentFormat === 'tsukiji' || _todayOrderCurrentFormat === 'nanohana' || _todayOrderCurrentFormat === 'fusui' || _todayOrderCurrentFormat === 'greenworld' || _todayOrderCurrentFormat === 'rosen') return;
+  if (_todayOrderCurrentFormat === 'haibukiya' || _todayOrderCurrentFormat === 'props_japan' || _todayOrderCurrentFormat === 'national_azabu' || _todayOrderCurrentFormat === 'tsukiji' || _todayOrderCurrentFormat === 'nanohana' || _todayOrderCurrentFormat === 'fusui' || _todayOrderCurrentFormat === 'greenworld' || _todayOrderCurrentFormat === 'rosen' || _todayOrderCurrentFormat === 'worlddelica') return;
   const hasItems = _todayOrderRows.some(r => r.type === 'item');
   if (hasItems) {
     _todayOrderRows = _todayOrderRows.filter(r => r.type !== 'merged');
@@ -1013,6 +1075,10 @@ function _getTodayRowCellClass(rowObj, ci, val) {
       if (ci === 1) cls += ' today-xls-header-left';
       else if (ci >= 3) cls += ' today-xls-header-right';
       else cls += ' today-xls-header-center';
+    } else if (_todayOrderCurrentFormat === 'worlddelica') {
+      if (ci === 1) cls += ' today-xls-header-left';
+      else if (ci === 2) cls += ' today-xls-header-right';
+      else cls += ' today-xls-header-center';
     } else {
       if (ci === 0) cls += ' today-xls-header-left';
       else if (ci === 1) cls += ' today-xls-header-right';
@@ -1076,6 +1142,12 @@ function _getTodayRowCellClass(rowObj, ci, val) {
     else if (ci === 2 || ci === 3) cls += ' today-xls-text';
     else if (ci >= 4 && ci <= 11) cls += ' today-xls-num today-cell-day';
     else if (ci === 12) cls += ' today-xls-note';
+  } else if (_todayOrderCurrentFormat === 'worlddelica') {
+    if (ci === 0) cls += ' today-xls-item-code';
+    else if (rowObj.type === 'item' && ci === 1) cls += ' today-xls-item-name';
+    else if (ci === 2) cls += ' today-xls-num';
+    else if (ci === 3) cls += ' today-xls-item-unit';
+    else if (ci === 4) cls += ' today-xls-note';
   } else {
     if (rowObj.type === 'item' && ci === 0) cls += ' today-xls-item-name';
     else if (ci === 1 && (rowObj.type === 'item' || String(rowObj.cells?.[0] || '').trim())) {
@@ -1312,6 +1384,17 @@ function _renderTodayModalTableHead(isoDateStr) {
         <th style="min-width:120px">備考</th>
         <th style="width:42px"></th>
       </tr>`;
+  } else if (_todayOrderCurrentFormat === 'worlddelica') {
+    thead.innerHTML =
+      `<tr>
+        <th style="width:32px">#</th>
+        <th style="width:90px">納品日</th>
+        <th style="min-width:200px">商品名 <span class="required">*</span></th>
+        <th style="width:70px">数量</th>
+        <th style="width:70px">単位</th>
+        <th style="min-width:140px">備考</th>
+        <th style="width:42px"></th>
+      </tr>`;
   } else {
     thead.innerHTML =
       `<tr>
@@ -1526,6 +1609,17 @@ function _appendTodayModalItemRow(itemData = null) {
     }
     const { td: noteTd } = makeInput('today-m-note', '備考', data.note || '');
     tr.appendChild(noteTd);
+  } else if (_todayOrderCurrentFormat === 'worlddelica') {
+    const { td: dateTd }  = makeInput('today-m-date', '10/25', data.date || '');
+    const { td: nameTd }  = makeInput('today-m-name', '商品名', data.name || '');
+    const { td: qtyTd }   = makeInput('today-m-qty today-m-num', '', data.qty || '');
+    const { td: unitTd }  = makeInput('today-m-unit', '箱/袋', data.unit || '');
+    const { td: noteTd }  = makeInput('today-m-note', '備考', data.note || '');
+    tr.appendChild(dateTd);
+    tr.appendChild(nameTd);
+    tr.appendChild(qtyTd);
+    tr.appendChild(unitTd);
+    tr.appendChild(noteTd);
   } else {
     if (isProps) {
       const { td: codeTd } = makeInput('today-m-code', '例: Y682', data.code || '');
@@ -1669,7 +1763,9 @@ function _fillTodayModalPreset(presetName) {
                             ? (TODAY_GREENWORLD_PRESETS.find(p => p.name === presetName) || { no: '', name: presetName, spec: '', irisu: '', cases: '', price: '', total: '' })
                              : (_todayOrderCurrentFormat === 'rosen'
                                  ? (TODAY_ROSEN_PRESETS.find(p => p.name === presetName) || { code: '', name: presetName, irisu: '', cost: '', total: '', days: Array(7).fill(''), note: '' })
-                                 : { name: presetName, unit: '', days: Array(6).fill('') })))))));
+                                 : (_todayOrderCurrentFormat === 'worlddelica'
+                                     ? (TODAY_WORLDDELICA_PRESETS.find(p => p.name === presetName) || { date: '', name: presetName, qty: '', unit: '', note: '' })
+                                     : { name: presetName, unit: '', days: Array(6).fill('') }))))))));
   const emptyRow = Array.from(tbody.children).find(tr => {
     const inp = tr.querySelector('.today-m-name');
     return inp && !inp.value.trim();
@@ -1751,6 +1847,13 @@ function _fillTodayModalPreset(presetName) {
       const dayInps = Array.from(emptyRow.querySelectorAll('.today-m-day'));
       dayInps.forEach((inp, idx) => { inp.value = (presetObj.days && presetObj.days[idx]) || ''; });
       (dayInps[0] || emptyRow.querySelector('.today-m-name'))?.focus();
+    } else if (_todayOrderCurrentFormat === 'worlddelica') {
+      if (emptyRow.querySelector('.today-m-date')) emptyRow.querySelector('.today-m-date').value = presetObj.date || '';
+      emptyRow.querySelector('.today-m-name').value = presetObj.name || '';
+      if (emptyRow.querySelector('.today-m-qty')) emptyRow.querySelector('.today-m-qty').value = presetObj.qty || '';
+      if (emptyRow.querySelector('.today-m-unit')) emptyRow.querySelector('.today-m-unit').value = presetObj.unit || '';
+      if (emptyRow.querySelector('.today-m-note')) emptyRow.querySelector('.today-m-note').value = presetObj.note || '';
+      (emptyRow.querySelector('.today-m-qty') || emptyRow.querySelector('.today-m-name'))?.focus();
     } else {
       emptyRow.querySelector('.today-m-name').value = presetName;
       emptyRow.querySelector('.today-m-unit')?.focus();
@@ -1773,6 +1876,7 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
   const isFusui = _todayOrderCurrentFormat === 'fusui';
   const isGreenworld = _todayOrderCurrentFormat === 'greenworld';
   const isRosen = _todayOrderCurrentFormat === 'rosen';
+  const isWorldDelica = _todayOrderCurrentFormat === 'worlddelica';
 
   const modalBox = backdrop.querySelector('.modal-box');
   if (modalBox) {
@@ -1798,7 +1902,9 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
                               ? '※ No.・商品名・規格・入数・ケース数・価格・合計を入力してください。'
                               : (isRosen
                                   ? '※ 商品コード・商品名・入数・原価・総数・7日分の発注数・備考を入力してください。'
-                                  : '※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。')))))));
+                                  : (isWorldDelica
+                                      ? '※ 納品日・商品名・数量・単位・備考を入力してください。'
+                                      : '※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。'))))))));
   }
 
   const baseIso = _extractTodayBaseIsoDate();
@@ -1898,11 +2004,19 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
                                       days: row.cells.slice(5, 12),
                                       note: row.cells[12] || '',
                                     })
-                                  : _appendTodayModalItemRow({
-                                      name: row.cells[0] || '',
-                                      unit: row.cells[1] || '',
-                                      days: row.cells.slice(2, 8),
-                                    }))))))));
+                                  : (isWorldDelica
+                                      ? _appendTodayModalItemRow({
+                                          date: row.cells[0] || '',
+                                          name: row.cells[1] || '',
+                                          qty: row.cells[2] || '',
+                                          unit: row.cells[3] || '',
+                                          note: row.cells[4] || '',
+                                        })
+                                      : _appendTodayModalItemRow({
+                                          name: row.cells[0] || '',
+                                          unit: row.cells[1] || '',
+                                          days: row.cells.slice(2, 8),
+                                        })))))))));
     if (delBtn) delBtn.classList.remove('hidden');
     focusEl = tr?.querySelector('.today-m-name');
   } else if (options.fillAllPresets) {
@@ -1931,6 +2045,11 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
       TODAY_ROSEN_PRESETS.forEach((p, idx) => {
         const tr = _appendTodayModalItemRow({ ...p, days: [...(p.days || Array(7).fill(''))] });
         if (idx === 0) focusEl = tr?.querySelector('.today-m-name');
+      });
+    } else if (isWorldDelica) {
+      TODAY_WORLDDELICA_PRESETS.forEach((p, idx) => {
+        const tr = _appendTodayModalItemRow({ ...p });
+        if (idx === 0) focusEl = tr?.querySelector('.today-m-qty');
       });
     } else {
       TODAY_PRESET_ITEMS.forEach((pName, idx) => {
@@ -1968,6 +2087,11 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
         const tr1 = _appendTodayModalItemRow({ ...pObj, days: [...(pObj.days || Array(7).fill(''))] });
         _appendTodayModalItemRow({ code: '', name: '', irisu: '', cost: '', total: '', days: Array(7).fill(''), note: '' });
         focusEl = tr1?.querySelector('.today-m-name');
+      } else if (isWorldDelica) {
+        const pObj = TODAY_WORLDDELICA_PRESETS.find(p => p.name === presetName) || { date: '', name: presetName, qty: '', unit: '', note: '' };
+        const tr1 = _appendTodayModalItemRow({ ...pObj });
+        _appendTodayModalItemRow({ date: '', name: '', qty: '', unit: '', note: '' });
+        focusEl = tr1?.querySelector('.today-m-qty');
       } else {
         const tr1 = _appendTodayModalItemRow({ name: presetName, unit: '', days: Array(6).fill('') });
         _appendTodayModalItemRow();
@@ -1978,8 +2102,9 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
       const tsukijiBlank = { division: '', origin: '千葉', name: '', unit: '', days: Array(6).fill(''), note: '' };
       const nanohanaBlank = { orderNo: '', name: '', spec: '', price: '', qty: '', amount: '' };
       const fusuiBlank = { code: '', name: '', spec: '', qty: '', price: '', amount: '' };
-      const blankObj = isNationalAzabu ? naBlank : (isTsukiji ? tsukijiBlank : (isNanohana ? nanohanaBlank : (isFusui ? fusuiBlank : (isRosen ? rosenBlank : { category: defCat, name: '', cultivation: '特別栽培', unit: isProps ? 'パック' : '', lot: isProps ? '10' : '', days: Array(isHaibukiya ? 12 : 6).fill('') }))));
+      const worlddelicaBlank = { date: '', name: '', qty: '', unit: '', note: '' };
       const rosenBlank = { code: '', name: '', irisu: '', cost: '', total: '', days: Array(7).fill(''), note: '' };
+      const blankObj = isNationalAzabu ? naBlank : (isTsukiji ? tsukijiBlank : (isNanohana ? nanohanaBlank : (isFusui ? fusuiBlank : (isWorldDelica ? worlddelicaBlank : (isRosen ? rosenBlank : { category: defCat, name: '', cultivation: '特別栽培', unit: isProps ? 'パック' : '', lot: isProps ? '10' : '', days: Array(isHaibukiya ? 12 : 6).fill('') })))));
       const tr1 = _appendTodayModalItemRow(blankObj);
       _appendTodayModalItemRow({ ...blankObj });
       _appendTodayModalItemRow({ ...blankObj });
@@ -2070,6 +2195,7 @@ function _renderTodayOrderGrid() {
   const isFusui = _todayOrderCurrentFormat === 'fusui';
   const isGreenworld = _todayOrderCurrentFormat === 'greenworld';
   const isRosen = _todayOrderCurrentFormat === 'rosen';
+  const isWorldDelica = _todayOrderCurrentFormat === 'worlddelica';
   const ncols = _todayColCount();
 
   _updateTodayOrderHeaderBadges();
@@ -2086,7 +2212,7 @@ function _renderTodayOrderGrid() {
   let selectedRowIdx = -1;
 
   const table = document.createElement('table');
-  table.className = 'xls-table today-xls-table' + (isHaibukiya ? ' format-haibukiya' : (isNationalAzabu ? ' format-national-azabu' : (isTsukiji ? ' format-tsukiji' : (isProps ? ' format-props-japan' : (isNanohana ? ' format-nanohana' : (isFusui ? ' format-fusui' : (isGreenworld ? ' format-greenworld' : (isRosen ? ' format-rosen' : ''))))))));
+  table.className = 'xls-table today-xls-table' + (isHaibukiya ? ' format-haibukiya' : (isNationalAzabu ? ' format-national-azabu' : (isTsukiji ? ' format-tsukiji' : (isProps ? ' format-props-japan' : (isNanohana ? ' format-nanohana' : (isFusui ? ' format-fusui' : (isGreenworld ? ' format-greenworld' : (isRosen ? ' format-rosen' : (isWorldDelica ? ' format-worlddelica' : '')))))))));
 
   const colgroup = document.createElement('colgroup');
   const rnCol = document.createElement('col');
@@ -2116,6 +2242,8 @@ function _renderTodayOrderGrid() {
       colEl.className = `today-col-gw-${ci}`;
     } else if (isRosen) {
       colEl.className = `today-col-rs-${ci}`;
+    } else if (isWorldDelica) {
+      colEl.className = `today-col-wd-${ci}`;
     } else {
       colEl.className = ci === 0 ? 'today-col-a' : (ci === 1 ? 'today-col-1' : 'today-col-other');
     }
@@ -2153,6 +2281,8 @@ function _renderTodayOrderGrid() {
       th.className = `xls-th-col today-th-gw-${ci}`;
     } else if (isRosen) {
       th.className = `xls-th-col today-th-rs-${ci}`;
+    } else if (isWorldDelica) {
+      th.className = `xls-th-col today-th-wd-${ci}`;
     } else {
       th.className = 'xls-th-col ' + (ci === 0 ? 'today-th-col-a' : (ci === 1 ? 'today-th-col-1' : 'today-th-col-other'));
     }
@@ -2246,12 +2376,14 @@ function _renderTodayOrderGrid() {
                                 ? ` today-td-gw-${ci}`
                                 : (isRosen
                                     ? ` today-td-rs-${ci}`
-                                    : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`)))))))))
+                                    : (isWorldDelica
+                                        ? ` today-td-wd-${ci}`
+                                        : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`))))))))))
       td.className = _getTodayRowCellClass(rowObj, ci, finalVal) + colClass + (selectedRowIdx === ri && selectedColIdx === ci ? ' xls-sel' : '');
       td.textContent = finalVal;
       td.title = finalVal;
     }
-    if (!isHaibukiya && !isNationalAzabu && !isTsukiji && !isNanohana && !isFusui && !isGreenworld && !isRosen && ci === nameColIdx) {
+    if (!isHaibukiya && !isNationalAzabu && !isTsukiji && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && ci === nameColIdx) {
       const unitTd = cellMatrix[ri]?.[unitColIdx];
       if (unitTd) {
         const unitVal = rowObj.cells[unitColIdx] != null ? String(rowObj.cells[unitColIdx]) : '';
@@ -2271,7 +2403,7 @@ function _renderTodayOrderGrid() {
 
   function startInlineEdit(ri, ci, initialChar = null) {
     if (_isTodayRowSpanned(rows[ri])) ci = 0;
-    const isUnitCol = !isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && ci === 1 && rows[ri]?.type !== 'header';
+    const isUnitCol = !isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && ci === 1 && rows[ri]?.type !== 'header';
     if (isUnitCol && initialChar !== null && /^[0-9０-９]$/.test(initialChar)) {
       showToast('単位列には数値を入力できません', true);
       return;
@@ -2443,7 +2575,9 @@ function _renderTodayOrderGrid() {
                                   ? ` today-td-gw-${ci}`
                                   : (isRosen
                                       ? ` today-td-rs-${ci}`
-                                      : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`)))))))))
+                                      : (isWorldDelica
+                                          ? ` today-td-wd-${ci}`
+                                          : (ci === 0 ? ' today-td-col-a' : (ci === 1 ? ' today-td-col-1' : ` today-td-col-${ci}`))))))))))
         td.className = _getTodayRowCellClass(rowObj, ci, val) + colClass;
         td.title = val;
         td.textContent = val;
@@ -2600,7 +2734,7 @@ function _renderTodayOrderGrid() {
     } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       const unitColIdx = isProps ? 2 : 1;
-      if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && selectedColIdx === unitColIdx && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key)) {
+      if (!isHaibukiya && !isNationalAzabu && !isNanohana && !isFusui && !isGreenworld && !isRosen && !isWorldDelica && selectedColIdx === unitColIdx && rows[selectedRowIdx]?.type !== 'header' && /^[0-9０-９]$/.test(e.key)) {
         showToast('単位列には数値を入力できません', true);
         return;
       }
@@ -2614,7 +2748,7 @@ function _renderTodayOrderGrid() {
     const itemCount = _countTodayOrderItems();
     const isNanohana = _todayOrderCurrentFormat === 'nanohana';
     const isFusui = _todayOrderCurrentFormat === 'fusui';
-    const fmtLabel = isHaibukiya ? '灰吹屋 発注書' : (isNationalAzabu ? 'ナショナル麻布 発注書' : (isTsukiji ? '築地産直ファーム 発注書' : (isProps ? 'プロップスジャパン 注文書' : (isFusui ? '風水プロジェクト 発注書' : (isNanohana ? 'なのはな生協 発注書' : (isGreenworld ? 'グリーンワールド 発注書' : (isRosen ? '相鉄ローゼン 発注リスト' : '千葉自動発注書')))))));
+    const fmtLabel = isHaibukiya ? '灰吹屋 発注書' : (isNationalAzabu ? 'ナショナル麻布 発注書' : (isTsukiji ? '築地産直ファーム 発注書' : (isProps ? 'プロップスジャパン 注文書' : (isFusui ? '風水プロジェクト 発注書' : (isNanohana ? 'なのはな生協 発注書' : (isGreenworld ? 'グリーンワールド 発注書' : (isRosen ? '相鉄ローゼン 発注リスト' : (isWorldDelica ? 'ワールドデリカ 発注書' : '千葉自動発注書'))))))));
     statusEl.textContent = `${rows.length} rows × ${ncols} cols · ${itemCount} 品目 · ${fmtLabel}`;
   }
 }
@@ -3010,6 +3144,15 @@ async function initTodayOrderView() {
             for (let d = 0; d < 7; d++) { const rawD = (daysRaw[d] || '').normalize('NFKC').trim(); normalizedDays.push(rawD); }
             if (validationError) break;
             collected.push({ category: '', cells: [code, name, irisu, costVal, total, ...normalizedDays, noteVal] });
+          } else if (_todayOrderCurrentFormat === 'worlddelica') {
+            const dateVal = (tr.querySelector('.today-m-date')?.value || '').trim();
+            const qtyVal  = (tr.querySelector('.today-m-qty')?.value || '').trim();
+            const unitVal = (tr.querySelector('.today-m-unit')?.value || '').trim();
+            const noteVal = (tr.querySelector('.today-m-note')?.value || '').trim();
+            const hasAny  = Boolean(dateVal || name || qtyVal || unitVal || noteVal);
+            if (!hasAny) continue;
+            if (!name) { nameInp?.classList.add('today-input-error'); validationError = `${idx + 1} 行目: 商品名を入力してください`; errorFocusEl = nameInp; break; }
+            collected.push({ category: '', cells: [dateVal, name, qtyVal, unitVal, noteVal] });
           } else {
             const unitInp = tr.querySelector('.today-m-unit');
             const dayInps = Array.from(tr.querySelectorAll('.today-m-day'));
@@ -7945,6 +8088,10 @@ async function dbFetch(path, opts) {
       if (nameEl) nameEl.textContent = display;
       if (roleEl) roleEl.textContent = user.role || "user";
       if (avatarEl) avatarEl.textContent = display.trim().charAt(0).toUpperCase() || "U";
+      const settingsBtn = document.getElementById("openSettingsBtn");
+      if (settingsBtn && user.role === "admin") {
+        settingsBtn.style.display = "";
+      }
     } catch (_) {
       // Ignore transient network errors on initial user badge load
     }
@@ -7993,13 +8140,13 @@ async function dbFetch(path, opts) {
       if (newInput) newInput.value = "";
       if (confirmInput) confirmInput.value = "";
       showErr("");
-      backdrop.classList.add("open");
+      backdrop.classList.remove("hidden");
       if (curInput) curInput.focus();
     }
 
     function closeModal() {
       if (!backdrop) return;
-      backdrop.classList.remove("open");
+      backdrop.classList.add("hidden");
       showErr("");
     }
 
@@ -8051,6 +8198,130 @@ async function dbFetch(path, opts) {
           showErr("Network error while updating password.");
         } finally {
           saveBtn.disabled = false;
+        }
+      });
+    }
+
+    // Admin System Settings Modal
+    const sBackdrop = document.getElementById("settingsModalBackdrop");
+    const sOpenBtn = document.getElementById("openSettingsBtn");
+    const sCancelBtn = document.getElementById("settingsCancelBtn");
+    const sSaveBtn = document.getElementById("settingsSaveBtn");
+    const sList = document.getElementById("settingsList");
+    const sErr = document.getElementById("settingsError");
+
+    function showSettingsErr(msg) {
+      if (!sErr) return;
+      if (!msg) {
+        sErr.style.display = "none";
+        sErr.textContent = "";
+      } else {
+        sErr.textContent = msg;
+        sErr.style.display = "block";
+      }
+    }
+
+    async function openSettingsModal() {
+      if (!sBackdrop || !sList) return;
+      showSettingsErr("");
+      sList.innerHTML = '<div style="color:#64748b;font-size:13px;">読み込み中...</div>';
+      sBackdrop.classList.remove("hidden");
+      try {
+        const res = await nativeFetch("/api/settings", { credentials: "same-origin" });
+        if (res.status === 401) {
+          window.location.replace("/login");
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showSettingsErr(data.detail || "設定の取得に失敗しました。");
+          sList.innerHTML = "";
+          return;
+        }
+        const items = data.settings || [];
+        sList.innerHTML = "";
+        items.forEach((item) => {
+          const wrap = document.createElement("div");
+          wrap.className = "settings-item";
+
+          const head = document.createElement("div");
+          head.className = "settings-item-head";
+          const keySpan = document.createElement("span");
+          keySpan.className = "settings-item-key";
+          keySpan.textContent = item.setting_key;
+          const catSpan = document.createElement("span");
+          catSpan.className = "settings-item-cat";
+          catSpan.textContent = item.category || "general";
+          head.appendChild(keySpan);
+          head.appendChild(catSpan);
+
+          const desc = document.createElement("div");
+          desc.className = "settings-item-desc";
+          desc.textContent = item.description || "";
+
+          const input = document.createElement("input");
+          input.className = "modal-input settings-input";
+          input.dataset.settingKey = item.setting_key;
+          input.type = item.value_type === "int" ? "number" : (item.is_secret ? "password" : "text");
+          input.value = item.setting_value || "";
+          if (item.is_secret) {
+            input.placeholder = "未設定 (変更する場合のみ入力)";
+          }
+
+          wrap.appendChild(head);
+          wrap.appendChild(desc);
+          wrap.appendChild(input);
+          sList.appendChild(wrap);
+        });
+      } catch (_) {
+        showSettingsErr("設定の読み込み中に通信エラーが発生しました。");
+        sList.innerHTML = "";
+      }
+    }
+
+    function closeSettingsModal() {
+      if (!sBackdrop) return;
+      sBackdrop.classList.add("hidden");
+      showSettingsErr("");
+    }
+
+    if (sOpenBtn) sOpenBtn.addEventListener("click", openSettingsModal);
+    if (sCancelBtn) sCancelBtn.addEventListener("click", closeSettingsModal);
+    if (sBackdrop) {
+      sBackdrop.addEventListener("click", (e) => {
+        if (e.target === sBackdrop) closeSettingsModal();
+      });
+    }
+    if (sSaveBtn) {
+      sSaveBtn.addEventListener("click", async () => {
+        if (!sList) return;
+        const inputs = sList.querySelectorAll(".settings-input");
+        const payload = {};
+        inputs.forEach((inp) => {
+          if (inp.dataset.settingKey) {
+            payload[inp.dataset.settingKey] = inp.value;
+          }
+        });
+        sSaveBtn.disabled = true;
+        showSettingsErr("");
+        try {
+          const res = await nativeFetch("/api/settings", {
+            method: "PUT",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ settings: payload }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showSettingsErr(body.detail || "設定の保存に失敗しました。");
+            sSaveBtn.disabled = false;
+            return;
+          }
+          closeSettingsModal();
+        } catch (_) {
+          showSettingsErr("設定の保存中に通信エラーが発生しました。");
+        } finally {
+          sSaveBtn.disabled = false;
         }
       });
     }

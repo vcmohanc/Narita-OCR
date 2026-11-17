@@ -169,13 +169,14 @@ def _get_authenticated_user(request: Request) -> Optional[dict]:
         if user:
             return user
 
-    if OCR_API_KEY:
+    active_api_key = db.get_setting("ocr_api_key", OCR_API_KEY).strip()
+    if active_api_key:
         key = request.headers.get("X-API-Key", "")
         if not key:
             auth = request.headers.get("Authorization", "")
             if auth.lower().startswith("bearer "):
                 key = auth[7:].strip()
-        if key and hmac.compare_digest(key, OCR_API_KEY):
+        if key and hmac.compare_digest(key, active_api_key):
             return {"id": 0, "username": "api-key", "display_name": "API Key", "role": "admin"}
 
     return None
@@ -332,14 +333,16 @@ async def serve_static(request: Request, file_path: str):
 @app.post("/api/auth/login")
 async def auth_login(request: Request, payload: LoginRequest):
     """Authenticate user credentials, enforce lockout/rate-limit, and set HttpOnly session cookie."""
-    _check_rate_limit(request, "login", max_requests=8, window_s=60)
+    login_rpm = db.get_setting_int("login_rate_limit_per_min", 20, min_val=1, max_val=600)
+    _check_rate_limit(request, "login", max_requests=login_rpm, window_s=60)
 
     user, status = db.authenticate_user(payload.username, payload.password)
     if status == "unavailable":
         raise HTTPException(status_code=503, detail="Database unavailable — cannot verify credentials")
     if status == "locked":
         _audit(request, "login_locked", f"username={payload.username}")
-        raise HTTPException(status_code=429, detail="ログイン試行回数が上限を超えました。15分後に再試行してください。")
+        lockout_mins = db.get_setting_int("login_lockout_minutes", 15, min_val=1, max_val=1440)
+        raise HTTPException(status_code=429, detail=f"ログイン試行回数が上限を超えました。{lockout_mins}分後に再試行してください。")
     if status == "inactive":
         _audit(request, "login_inactive", f"username={payload.username}")
         raise HTTPException(status_code=403, detail="このアカウントは無効化されています。")
@@ -352,11 +355,12 @@ async def auth_login(request: Request, payload: LoginRequest):
     if old_token:
         db.delete_session(old_token)
 
+    ttl_seconds = db.get_setting_int("session_ttl_seconds", SESSION_TTL_SECONDS, min_val=300, max_val=2592000)
     raw_token = db.create_session(
         user_id=user["id"],
         ip_address=_client_ip(request),
         user_agent=request.headers.get("User-Agent", ""),
-        ttl_seconds=SESSION_TTL_SECONDS,
+        ttl_seconds=ttl_seconds,
     )
     _audit(request, "login_success", f"username={user['username']} role={user['role']}")
 
@@ -364,7 +368,7 @@ async def auth_login(request: Request, payload: LoginRequest):
     resp.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=raw_token,
-        max_age=SESSION_TTL_SECONDS,
+        max_age=ttl_seconds,
         httponly=True,
         samesite="lax",
         secure=_is_https_request(request),
@@ -450,6 +454,34 @@ async def auth_delete_user(request: Request, user_id: int, admin: dict = Depends
     return {"deleted": True, "id": user_id}
 
 
+class SettingsUpdateRequest(BaseModel):
+    settings: dict
+
+
+@app.get("/api/settings")
+async def get_system_settings(admin: dict = Depends(_require_admin)):
+    """Return all dynamic runtime settings stored in MySQL (secrets masked)."""
+    return {"settings": db.get_all_settings(mask_secrets=True)}
+
+
+@app.put("/api/settings")
+async def update_system_settings(
+    request: Request,
+    payload: SettingsUpdateRequest,
+    admin: dict = Depends(_require_admin),
+):
+    """Update dynamic runtime settings in MySQL."""
+    try:
+        updated = db.update_settings(payload.settings, updated_by=admin.get("username", "admin"))
+        _audit(request, "settings_updated", f"by={admin['username']} keys={','.join(sorted(payload.settings.keys()))}")
+        return {"status": "ok", "settings": updated}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as exc:
+        logger.error("Failed to update settings: %s", exc)
+        raise HTTPException(status_code=500, detail="設定の保存に失敗しました")
+
+
 @app.post("/api/ocr/upload", dependencies=[Depends(_require_api_key)])
 async def upload_and_ocr(
     request: Request,
@@ -462,8 +494,9 @@ async def upload_and_ocr(
     """Upload a file and start OCR processing. Returns a job_id for polling."""
     _check_rate_limit(request, "upload", max_requests=20, window_s=60)
 
+    max_queued = db.get_setting_int("max_queued_jobs", MAX_QUEUED_JOBS, min_val=1, max_val=200)
     active_jobs = sum(1 for j in jobs.values() if j.get("status") in ("queued", "processing"))
-    if active_jobs >= MAX_QUEUED_JOBS:
+    if active_jobs >= max_queued:
         raise HTTPException(status_code=503, detail="OCR queue is full, please retry shortly")
 
     safe_name = Path(file.filename or "upload").name
@@ -492,14 +525,15 @@ async def upload_and_ocr(
     job_id = str(uuid.uuid4())
     dest = UPLOAD_DIR / f"{job_id}{ext}"
 
+    max_file_mb = db.get_setting_int("max_file_size_mb", MAX_FILE_SIZE_MB, min_val=1, max_val=500)
     # Stream upload to disk
     async with aiofiles.open(dest, "wb") as f:
         total = 0
         while chunk := await file.read(1024 * 256):
             total += len(chunk)
-            if total > MAX_FILE_SIZE_MB * 1024 * 1024:
+            if total > max_file_mb * 1024 * 1024:
                 dest.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
+                raise HTTPException(status_code=413, detail=f"File too large (max {max_file_mb} MB)")
             await f.write(chunk)
 
     if total == 0 or not _verify_magic_bytes(dest, ext):
@@ -677,6 +711,8 @@ TODAY_GREENWORLD_JSON = RESULT_DIR / "today_order_greenworld.json"
 TODAY_GREENWORLD_XLSX = FRONTEND_DIR / "static" / "greenworld_order.xlsx"
 TODAY_ROSEN_JSON = RESULT_DIR / "today_order_rosen.json"
 TODAY_ROSEN_XLSX = FRONTEND_DIR / "static" / "rosen_order.xlsx"
+TODAY_WORLDDELICA_JSON = RESULT_DIR / "today_order_worlddelica.json"
+TODAY_WORLDDELICA_XLSX = FRONTEND_DIR / "static" / "worlddelica_order.xlsx"
 _TODAY_ORDER_COLS = 8
 _TODAY_HAIBUKIYA_COLS = 20
 _TODAY_PROPS_COLS = 10
