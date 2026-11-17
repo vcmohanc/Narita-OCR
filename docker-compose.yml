@@ -15,7 +15,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runtime
-    image: ocr-webapp:latest
+    image: mohanc35/ocr-webapp:latest
     container_name: ocr-app
     restart: unless-stopped
     ports:

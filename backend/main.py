@@ -424,6 +424,8 @@ TODAY_FUSUI_JSON = RESULT_DIR / "today_order_fusui.json"
 TODAY_FUSUI_XLSX = FRONTEND_DIR / "static" / "fusui_order.xlsx"
 TODAY_NANOHANA_JSON = RESULT_DIR / "today_order_nanohana.json"
 TODAY_NANOHANA_XLSX = FRONTEND_DIR / "static" / "nanohana_order.xlsx"
+TODAY_GREENWORLD_JSON = RESULT_DIR / "today_order_greenworld.json"
+TODAY_GREENWORLD_XLSX = FRONTEND_DIR / "static" / "greenworld_order.xlsx"
 _TODAY_ORDER_COLS = 8
 _TODAY_HAIBUKIYA_COLS = 20
 _TODAY_PROPS_COLS = 10
@@ -431,6 +433,7 @@ _TODAY_TSUKIJI_COLS = 11
 _TODAY_NATIONAL_AZABU_COLS = 13
 _TODAY_FUSUI_COLS = 6
 _TODAY_NANOHANA_COLS = 6
+_TODAY_GREENWORLD_COLS = 7
 _TODAY_VALID_UNITS = (
     "cs", "p", "kg", "g", "束", "袋", "箱", "本", "個",
     "玉", "パック", "ケース", "枚", "セット", "ネット", "把", "丁", "尾", "杯",
@@ -451,6 +454,8 @@ def _get_today_format_cfg(fmt: str) -> tuple[str, int, Path, Path]:
         return "fusui", _TODAY_FUSUI_COLS, TODAY_FUSUI_JSON, TODAY_FUSUI_XLSX
     if key in ("nanohana", "nanohana_coop", "なのはな", "なのはな生協", "なのはな生活協同組合"):
         return "nanohana", _TODAY_NANOHANA_COLS, TODAY_NANOHANA_JSON, TODAY_NANOHANA_XLSX
+    if key in ("greenworld", "グリーンワールド", "グリーンワールド株式会社"):
+        return "greenworld", _TODAY_GREENWORLD_COLS, TODAY_GREENWORLD_JSON, TODAY_GREENWORLD_XLSX
     if key == "chiba":
         return "chiba", _TODAY_ORDER_COLS, TODAY_ORDER_JSON, TODAY_ORDER_XLSX
     raise HTTPException(status_code=400, detail=f"Unsupported today-order format '{fmt}'")
@@ -636,6 +641,24 @@ def _default_today_order_rows(fmt: str = "chiba") -> list[dict]:
             rows.append({"type": "data", "cells": [""] * _TODAY_NANOHANA_COLS})
         return rows
 
+    if fmt == "greenworld":
+        rows = [
+            {"type": "title",  "cells": ["発注書　グリーンワールド株式会社"] + [""] * (_TODAY_GREENWORLD_COLS - 1)},
+            {"type": "meta",   "cells": ["宛先：株式会社ベジコープ ご担当者様　／　担当：中谷（TEL 03-3857-7330　FAX 03-3857-7337）"] + [""] * (_TODAY_GREENWORLD_COLS - 1)},
+            {"type": "meta",   "cells": ["発注日：2026年10月8日　／　店着予定日：2026年10月11日"] + [""] * (_TODAY_GREENWORLD_COLS - 1)},
+            {"type": "spacer", "cells": [""] * _TODAY_GREENWORLD_COLS},
+            {"type": "header", "cells": ["No.", "商品名", "規格", "入数", "ケース数", "価格（CS）", "合計"]},
+            {"type": "item",   "cells": ["1", "有機カリーノケール（長野県産）", "1ケース", "", "2", "", ""]},
+            {"type": "spacer", "cells": [""] * _TODAY_GREENWORLD_COLS},
+            {"type": "data",   "cells": ["合計（ケース数）", "", "", "", "2", "", ""]},
+            {"type": "spacer", "cells": [""] * _TODAY_GREENWORLD_COLS},
+            {"type": "note",   "cells": ["※ 今回の発注は「有機カリーノケール（長野県産）2ケース」のみ（黄色）。価格欄は原本で未記入。"] + [""] * (_TODAY_GREENWORLD_COLS - 1)},
+            {"type": "note",   "cells": ["※ ご確認のうえ、納品書の返信をお願いします。"] + [""] * (_TODAY_GREENWORLD_COLS - 1)},
+        ]
+        for _ in range(4):
+            rows.append({"type": "data", "cells": [""] * _TODAY_GREENWORLD_COLS})
+        return rows
+
     rows = [
         {"type": "title",  "cells": ["千葉自動発注書（発注分のみ）", "", "", "", "", "", "", ""]},
         {"type": "meta",   "cells": ["宛先：千葉成田センター\u3000／\u3000発注先：葛西産直ファーム", "", "", "", "", "", "", ""]},
@@ -725,6 +748,10 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
         col_widths = {"A": 12.0, "B": 28.0, "C": 12.0, "D": 15.0, "E": 12.0, "F": 15.0}
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
+    elif fmt == "greenworld":
+        col_widths = {"A": 7.0, "B": 36.0, "C": 12.0, "D": 9.0, "E": 10.0, "F": 12.0, "G": 12.0}
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
     else:
         ws.column_dimensions["A"].width = 48.0
         for col_letter in ("B", "C", "D", "E", "F", "G", "H"):
@@ -773,6 +800,8 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                 is_num_col = (c_idx >= 4)
             elif fmt == "nanohana":
                 is_num_col = (c_idx >= 4)
+            elif fmt == "greenworld":
+                is_num_col = (c_idx >= 4)
             else:
                 is_num_col = (c_idx in (5, 6) or (c_idx >= 8 and c_idx <= 19))
             if rtype in ("item", "data") and is_num_col and str(raw_val).strip():
@@ -801,6 +830,8 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                 elif fmt == "fusui":
                     horiz = "left" if c_idx == 2 else ("right" if c_idx >= 4 else "center")
                 elif fmt == "nanohana":
+                    horiz = "left" if c_idx == 2 else ("right" if c_idx >= 4 else "center")
+                elif fmt == "greenworld":
                     horiz = "left" if c_idx == 2 else ("right" if c_idx >= 4 else "center")
                 else:
                     horiz = "left" if c_idx == 1 else ("right" if c_idx == 2 else "center")
@@ -878,6 +909,17 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                     elif c_idx == 2:
                         cell.alignment = Alignment(horizontal="left", vertical="center")
                     elif c_idx >= 4:
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif fmt == "greenworld":
+                    first_cell = str(cells[0] if len(cells) > 0 else "").strip()
+                    if first_cell == "合計（ケース数）":
+                        cell.font = font_summary
+                        cell.fill = fill_summary
+                    if c_idx in (1, 4):
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                    elif c_idx in (2, 3):
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
+                    elif c_idx >= 5:
                         cell.alignment = Alignment(horizontal="right", vertical="center")
                 else:
                     if c_idx == 2 or c_idx >= 3:

@@ -2056,11 +2056,11 @@ td{color:var(--muted)}
 
 /* ── Chiba Format (8 cols): Freeze Col 0 (品目) & Col 1 (単位) ── */
 .today-xls-table:not(.format-haibukiya) col.today-col-rn { width: 44px; }
-.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana) col.today-col-a { width: 280px; }
-.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana) col.today-col-1 { width: 76px; }
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana):not(.format-greenworld) col.today-col-a { width: 280px; }
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana):not(.format-greenworld) col.today-col-1 { width: 76px; }
 
-.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana) th.today-th-col-a,
-.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana) td.today-td-col-a {
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana):not(.format-greenworld) th.today-th-col-a,
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana):not(.format-greenworld) td.today-td-col-a {
   position: sticky;
   left: 44px;
   z-index: 4;
@@ -2068,18 +2068,18 @@ td{color:var(--muted)}
   width: 280px;
   min-width: 260px;
 }
-.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana) th.today-th-col-a {
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana):not(.format-greenworld) th.today-th-col-a {
   z-index: 14;
   background: #e2e8f0;
 }
-.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana) td.today-td-col-a.today-xls-header {
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana):not(.format-greenworld) td.today-td-col-a.today-xls-header {
   z-index: 12 !important;
   background: #1F3864 !important;
   color: #ffffff !important;
 }
 
-.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana) th.today-th-col-1,
-.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana) td.today-td-col-1 {
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana):not(.format-greenworld) th.today-th-col-1,
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana):not(.format-greenworld) td.today-td-col-1 {
   position: sticky;
   left: 324px;
   z-index: 4;
@@ -2089,11 +2089,11 @@ td{color:var(--muted)}
   border-right: 2px solid #2563eb !important;
   box-shadow: 4px 0 8px -2px rgba(0,0,0,0.18);
 }
-.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana) th.today-th-col-1 {
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana):not(.format-greenworld) th.today-th-col-1 {
   z-index: 14;
   background: #e2e8f0;
 }
-.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana) td.today-td-col-1.today-xls-header {
+.today-xls-table:not(.format-haibukiya):not(.format-props-japan):not(.format-national-azabu):not(.format-tsukiji):not(.format-fusui):not(.format-nanohana):not(.format-greenworld) td.today-td-col-1.today-xls-header {
   z-index: 12 !important;
   background: #1F3864 !important;
   color: #ffffff !important;
@@ -2131,6 +2131,23 @@ td{color:var(--muted)}
   font-weight: 700 !important;
   color: #1F3864 !important;
 }
+
+/* ── Greenworld 7-Column Format (グリーンワールド株式会社) ── */
+.today-xls-table.format-greenworld col.today-col-gw-0 { width: 50px; }
+.today-xls-table.format-greenworld col.today-col-gw-1 { width: 380px; }
+.today-xls-table.format-greenworld col.today-col-gw-2 { width: 100px; }
+.today-xls-table.format-greenworld col.today-col-gw-3 { width: 70px; }
+.today-xls-table.format-greenworld col.today-col-gw-4 { width: 85px; }
+.today-xls-table.format-greenworld col.today-col-gw-5 { width: 100px; }
+.today-xls-table.format-greenworld col.today-col-gw-6 { width: 100px; }
+
+.today-xls-table.format-greenworld td.today-td-gw-0 { text-align: center; }
+.today-xls-table.format-greenworld td.today-td-gw-1 { text-align: left; }
+.today-xls-table.format-greenworld td.today-td-gw-2 { text-align: left; }
+.today-xls-table.format-greenworld td.today-td-gw-3,
+.today-xls-table.format-greenworld td.today-td-gw-4,
+.today-xls-table.format-greenworld td.today-td-gw-5,
+.today-xls-table.format-greenworld td.today-td-gw-6 { text-align: right; }
 
 /* ── Haibukiya 20-Column Freeze Panes (Freeze Col 0~6: 品目〜JANコード) ── */
 .today-xls-table.format-haibukiya {
