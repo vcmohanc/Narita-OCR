@@ -41,7 +41,6 @@ const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
       if (view) view.classList.remove('hidden');
       appShell?.classList.remove('sidebar-expanded');
       if (mainArea) mainArea.scrollTop = 0;
-      if (target === 'order') initOrderView();
       if (target === 'todayOrder') initTodayOrderView();
       if (target === 'clients') initClientsView();
       if (target === 'productMaster') initProductMasterView();
