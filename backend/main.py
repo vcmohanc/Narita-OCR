@@ -2,7 +2,9 @@
 
 import os
 import io
+import re
 import json
+import urllib.parse
 import hmac
 import time
 import unicodedata
@@ -1836,7 +1838,7 @@ async def export_job_result(
 
     import urllib.parse
     def _build_content_disposition(ext_str: str) -> str:
-        safe_ascii = re.sub(r"[^\w\-.]", "_", filename_base) or "export"
+        safe_ascii = re.sub(r"[^a-zA-Z0-9_\-.]", "_", filename_base).strip("_") or "export"
         quoted = urllib.parse.quote(f"{filename_base}.{ext_str}")
         return f'attachment; filename="{safe_ascii}.{ext_str}"; filename*=UTF-8\'\'{quoted}'
 
