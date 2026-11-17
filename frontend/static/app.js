@@ -247,10 +247,10 @@ const TODAY_ORDER_FORMATS = {
     titleMatch: 'ワールドデリカ',
   },
   santoku: {
-    cols: 8,
+    cols: 10,
     dayStartCol: 3,
     dayStep: 1,
-    dayCount: 4,
+    dayCount: 6,
     storageKey: 'ocr_today_order_sheet_v1_santoku',
     legacyStorageKey: null,
     xlsxFile: 'santoku_order.xlsx',
@@ -299,10 +299,10 @@ const TODAY_WORLDDELICA_PRESETS = [
   { date: '', name: '群馬県産有機カリーノケール5入', qty: '', unit: '箱', note: '' },
 ];
 const TODAY_SANTOKU_PRESETS = [
-  { name: 'ベジコープ 小松菜', origin: '千葉・茨城', spec: '200g', days: Array(4).fill('') },
-  { name: 'ベジコープ ベビーリーフ', origin: '千葉', spec: '40g', days: Array(4).fill('') },
-  { name: 'ベジコープ グリーンリーフ', origin: '千葉・群馬', spec: 'L', days: Array(4).fill('') },
-  { name: 'ベジコープ サニーレタス', origin: '千葉・群馬', spec: 'L', days: Array(4).fill('') },
+  { name: 'ベジコープ 小松菜', origin: '千葉・茨城', spec: '200g', days: Array(6).fill('') },
+  { name: 'ベジコープ ベビーリーフ', origin: '千葉', spec: '40g', days: Array(6).fill('') },
+  { name: 'ベジコープ グリーンリーフ', origin: '千葉・群馬', spec: 'L', days: Array(6).fill('') },
+  { name: 'ベジコープ サニーレタス', origin: '千葉・群馬', spec: 'L', days: Array(6).fill('') },
 ];
 const TODAY_PRESET_ITEMS = ['大根', '赤からし水菜', '小江戸菜', 'スイスチャード', 'ほうれん草', 'キャベツ', 'ホテル風か様用'];
 const TODAY_TSUKIJI_PRESETS = [
@@ -545,20 +545,30 @@ function _createTodayOrderInitialRows(fmt = _todayOrderCurrentFormat) {
   }
 
   if (fmt === 'santoku') {
-    const ncols = TODAY_ORDER_FORMATS.santoku.cols;
+    const cfg = TODAY_ORDER_FORMATS.santoku;
+    const ncols = cfg.cols;
     const pad = (text) => [text, ...Array(ncols - 1).fill('')];
+    const [sy, sm, sd] = cfg.defaultDate.split('-').map(Number);
+    const _stWdays = ['日', '月', '火', '水', '木', '金', '土'];
+    const autoDateLabels = [];
+    for (let i = 0; i < cfg.dayCount; i++) {
+      const dt = new Date(sy, sm - 1, sd + i);
+      const mm = String(dt.getMonth() + 1).padStart(2, '0');
+      const dd = String(dt.getDate()).padStart(2, '0');
+      autoDateLabels.push(`${mm}/${dd}\n${_stWdays[dt.getDay()]}`);
+    }
     const rows = [
       { type: 'title',  cells: pad('発注書　株式会社三徳') },
       { type: 'meta',   cells: pad('宛先：株式会社ベジコープ 御中　／　発注者：㈱三徳 中小原') },
-      { type: 'meta',   cells: pad('対象期間：2026年9月28日〜10月4日') },
+      { type: 'meta',   cells: pad(`対象期間：2026年${sm}月${sd}日〜`) },
       { type: 'spacer', cells: Array(ncols).fill('') },
-      { type: 'header', cells: ['商品名', '産地', '規格', '09/28', '09/29', '10/01', '10/02', '総計'] },
+      { type: 'header', cells: ['商品名', '産地', '規格', ...autoDateLabels, '総計'] },
       ...TODAY_SANTOKU_PRESETS.map(p => ({
         type: 'item',
-        cells: [p.name, p.origin, p.spec, ...p.days, '']
+        cells: [p.name, p.origin, p.spec, ...Array(cfg.dayCount).fill(''), '']
       })),
       { type: 'spacer', cells: Array(ncols).fill('') },
-      { type: 'note',   cells: pad('※ いつもお世話になっております。9/28〜の発注書です。宜しくお願いします。') },
+      { type: 'note',   cells: pad(`※ いつもお世話になっております。${sm}/${sd}〜の発注書です。宜しくお願いします。`) },
     ];
     for (let i = 0; i < 4; i++) {
       rows.push({ type: 'data', cells: Array(ncols).fill('') });
@@ -1021,7 +1031,7 @@ function _getTodayHeaderDateSpan() {
     if (_todayOrderCurrentFormat === 'greenworld') return '10/8〜10/11';
     if (_todayOrderCurrentFormat === 'rosen') return '10/24〜10/30';
     if (_todayOrderCurrentFormat === 'worlddelica') return '10/25〜10/29';
-    if (_todayOrderCurrentFormat === 'santoku') return '9/28〜10/2';
+    if (_todayOrderCurrentFormat === 'santoku') return '9/28〜10/3';
     return '10/26〜10/31';
   }
   if (_todayOrderCurrentFormat === 'haibukiya') {
@@ -1058,7 +1068,7 @@ function _getTodayHeaderDateSpan() {
   }
   if (_todayOrderCurrentFormat === 'santoku') {
     const startRaw = String(hdr.cells[3] || '').split('\n')[0].trim() || '9/28';
-    const endRaw = String(hdr.cells[6] || '').split('\n')[0].trim() || '10/2';
+    const endRaw = String(hdr.cells[8] || '').split('\n')[0].trim() || '10/3';
     return `${startRaw}〜${endRaw}`;
   }
   const startRaw = String(hdr.cells[startCol] || '').split('\n')[0].trim() || '10/26';
@@ -1216,8 +1226,8 @@ function _getTodayRowCellClass(rowObj, ci, val) {
     if (rowObj.type === 'item' && ci === 0) cls += ' today-xls-item-name';
     else if (ci === 1) cls += ' today-xls-text';
     else if (ci === 2) cls += ' today-xls-text';
-    else if (ci >= 3 && ci <= 6) cls += ' today-xls-num today-cell-day';
-    else if (ci === 7) cls += ' today-xls-num';
+    else if (ci >= 3 && ci <= 8) cls += ' today-xls-num today-cell-day';
+    else if (ci === 9) cls += ' today-xls-num';
   } else {
     if (rowObj.type === 'item' && ci === 0) cls += ' today-xls-item-name';
     else if (ci === 1 && (rowObj.type === 'item' || String(rowObj.cells?.[0] || '').trim())) {
@@ -1708,7 +1718,7 @@ function _appendTodayModalItemRow(itemData = null) {
     tr.appendChild(origTd);
     tr.appendChild(specTd);
     const daysArr = Array.isArray(data.days) ? data.days : [];
-    for (let d = 0; d < 4; d++) {
+    for (let d = 0; d < 6; d++) {
       const { td: dayTd } = makeInput('today-m-day', '', daysArr[d] != null ? String(daysArr[d]) : '');
       tr.appendChild(dayTd);
     }
@@ -1858,7 +1868,7 @@ function _fillTodayModalPreset(presetName) {
                                  : (_todayOrderCurrentFormat === 'worlddelica'
                                      ? (TODAY_WORLDDELICA_PRESETS.find(p => p.name === presetName) || { date: '', name: presetName, qty: '', unit: '', note: '' })
                                      : (_todayOrderCurrentFormat === 'santoku'
-                                         ? (TODAY_SANTOKU_PRESETS.find(p => p.name === presetName) || { name: presetName, origin: '', spec: '', days: Array(4).fill('') })
+                                         ? (TODAY_SANTOKU_PRESETS.find(p => p.name === presetName) || { name: presetName, origin: '', spec: '', days: Array(6).fill('') })
                                          : { name: presetName, unit: '', days: Array(6).fill('') })))))))));
   const emptyRow = Array.from(tbody.children).find(tr => {
     const inp = tr.querySelector('.today-m-name');
@@ -2121,7 +2131,7 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
                                               name: row.cells[0] || '',
                                               origin: row.cells[1] || '',
                                               spec: row.cells[2] || '',
-                                              days: row.cells.slice(3, 7),
+                                              days: row.cells.slice(3, 9),
                                             })
                                           : _appendTodayModalItemRow({
                                               name: row.cells[0] || '',
@@ -2209,9 +2219,9 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
         _appendTodayModalItemRow({ date: '', name: '', qty: '', unit: '', note: '' });
         focusEl = tr1?.querySelector('.today-m-qty');
       } else if (isSantoku) {
-        const pObj = TODAY_SANTOKU_PRESETS.find(p => p.name === presetName) || { name: presetName, origin: '', spec: '', days: Array(4).fill('') };
-        const tr1 = _appendTodayModalItemRow({ ...pObj, days: [...(pObj.days || Array(4).fill(''))] });
-        _appendTodayModalItemRow({ name: '', origin: '', spec: '', days: Array(4).fill('') });
+        const pObj = TODAY_SANTOKU_PRESETS.find(p => p.name === presetName) || { name: presetName, origin: '', spec: '', days: Array(6).fill('') };
+        const tr1 = _appendTodayModalItemRow({ ...pObj, days: [...(pObj.days || Array(6).fill(''))] });
+        _appendTodayModalItemRow({ name: '', origin: '', spec: '', days: Array(6).fill('') });
         focusEl = tr1?.querySelector('.today-m-day');
       } else {
         const tr1 = _appendTodayModalItemRow({ name: presetName, unit: '', days: Array(6).fill('') });
@@ -2225,7 +2235,7 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
       const fusuiBlank = { code: '', name: '', spec: '', qty: '', price: '', amount: '' };
       const worlddelicaBlank = { date: '', name: '', qty: '', unit: '', note: '' };
       const rosenBlank = { code: '', name: '', irisu: '', cost: '', total: '', days: Array(7).fill(''), note: '' };
-      const santokuBlank = { name: '', origin: '', spec: '', days: Array(4).fill('') };
+      const santokuBlank = { name: '', origin: '', spec: '', days: Array(6).fill('') };
       const blankObj = isNationalAzabu ? naBlank : (isTsukiji ? tsukijiBlank : (isNanohana ? nanohanaBlank : (isFusui ? fusuiBlank : (isWorldDelica ? worlddelicaBlank : (isRosen ? rosenBlank : (isSantoku ? santokuBlank : { category: defCat, name: '', cultivation: '特別栽培', unit: isProps ? 'パック' : '', lot: isProps ? '10' : '', days: Array(isHaibukiya ? 12 : 6).fill('') }))))));
       const tr1 = _appendTodayModalItemRow(blankObj);
       _appendTodayModalItemRow({ ...blankObj });
@@ -2285,7 +2295,7 @@ async function deleteTodayOrderRow(ri, skipConfirm = false) {
     return;
   }
   const label = rowObj.cells[0] ? `「${rowObj.cells[0]}」` : `行 ${ri + 1}`;
-  if (!skipConfirm && !confirm(`${label} を削除しますか？`)) return;
+  if (!skipConfirm && !(await showConfirmToast(`${label} を削除しますか？`))) return;
 
   if (_todayOrderRows.length <= 1) {
     _todayOrderRows[0].cells = Array(_todayColCount()).fill('');
@@ -2368,7 +2378,7 @@ function _renderTodayOrderGrid() {
     } else if (isWorldDelica) {
       colEl.className = `today-col-wd-${ci}`;
     } else if (isSantoku) {
-      colEl.className = ci >= 3 && ci <= 6 ? 'today-col-st-day' : `today-col-st-${ci}`;
+      colEl.className = ci >= 3 && ci <= 8 ? 'today-col-st-day' : `today-col-st-${ci}`;
     } else {
       colEl.className = ci === 0 ? 'today-col-a' : (ci === 1 ? 'today-col-1' : 'today-col-other');
     }
@@ -2988,7 +2998,7 @@ async function initTodayOrderView() {
     });
 
     document.getElementById('todayOrderResetBtn')?.addEventListener('click', async () => {
-      if (!confirm('表示中の発注書を初期状態にリセットしますか？')) return;
+      if (!(await showConfirmToast('表示中の発注書を初期状態にリセットしますか？', { confirmText: 'リセット', danger: true }))) return;
       const fmt = _todayOrderCurrentFormat;
       const cfg = _todayFmtCfg(fmt);
       try { localStorage.removeItem(cfg.storageKey); } catch {}
@@ -3294,7 +3304,7 @@ async function initTodayOrderView() {
             if (!hasAny) continue;
             if (!name) { nameInp?.classList.add('today-input-error'); validationError = `${idx + 1} 行目: 商品名を入力してください`; errorFocusEl = nameInp; break; }
             const normalizedDays = [];
-            for (let d = 0; d < 4; d++) {
+            for (let d = 0; d < 6; d++) {
               const rawD = (daysRaw[d] || '').normalize('NFKC').trim();
               normalizedDays.push(rawD);
             }
@@ -3591,7 +3601,7 @@ function updateOrderBulkUI() {
 async function deleteOrderJob(jobId, filename, triggerBtn = null) {
   if (!jobId) return false;
   const label = filename || jobId;
-  if (!confirm(`発注書「${label}」を削除しますか？\nこの操作は元に戻せません。`)) return false;
+  if (!(await showConfirmToast(`発注書「${label}」を削除しますか？\nこの操作は元に戻せません。`))) return false;
   if (triggerBtn) triggerBtn.disabled = true;
   try {
     const r = await dbFetch(`/api/db/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
@@ -3735,7 +3745,7 @@ document.getElementById('orderSelectAll')?.addEventListener('change', e => {
 document.getElementById('orderBulkDeleteBtn')?.addEventListener('click', async () => {
   const ids = Array.from(_orderSelectedIds);
   if (!ids.length) return;
-  if (!confirm(`選択した ${ids.length} 件の発注書を削除しますか？\nこの操作は元に戻せません。`)) return;
+  if (!(await showConfirmToast(`選択した ${ids.length} 件の発注書を削除しますか？\nこの操作は元に戻せません。`))) return;
   const bulkBtn = document.getElementById('orderBulkDeleteBtn');
   if (bulkBtn) bulkBtn.disabled = true;
   try {
@@ -4131,7 +4141,7 @@ function renderClientsSheet() {
       const id = parseInt(btn.dataset.id, 10);
       const client = _clientsAllList.find(x => x.id === id);
       const label = client ? `${client.name_ja} (${client.code})` : `ID ${id}`;
-      if (!confirm(`取引先「${label}」を削除しますか？ 既存の発注書データは保持されます。`)) return;
+      if (!(await showConfirmToast(`取引先「${label}」を削除しますか？ 既存の発注書データは保持されます。`))) return;
       btn.disabled = true;
       try {
         const r = await dbFetch(`/api/db/clients/${id}`, { method: 'DELETE' });
@@ -4693,7 +4703,7 @@ function renderProductSheet() {
       const id = parseInt(btn.dataset.id, 10);
       const prod = _productAllRows.find(x => x.id === id);
       const label = prod ? `${prod.product_code} (${prod.name_ja})` : `ID ${id}`;
-      if (!confirm(`商品「${label}」を削除しますか？`)) return;
+      if (!(await showConfirmToast(`商品「${label}」を削除しますか？`))) return;
       btn.disabled = true;
       try {
         const r = await dbFetch(`/api/db/products/${id}`, { method: 'DELETE' });
@@ -7972,11 +7982,84 @@ document.getElementById("copyBtn").addEventListener("click", () => {
 let toastTimer = null;
 function showToast(msg, isErr = false, duration = 3500) {
   const el = document.getElementById("toast");
+  if (!el) return;
   el.textContent = msg;
-  el.style.background = isErr ? "#dc2626" : "#111827";
+  el.classList.toggle("toast-err", !!isErr);
+  el.style.background = "";
   el.classList.remove("hidden");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add("hidden"), duration);
+}
+
+function showConfirmToast(message, opts = {}) {
+  const {
+    confirmText = "削除する",
+    cancelText = "キャンセル",
+    danger = true,
+  } = opts;
+  return new Promise((resolve) => {
+    let container = document.getElementById("confirmToastContainer");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "confirmToastContainer";
+      container.className = "confirm-toast-container";
+      document.body.appendChild(container);
+    }
+    container.innerHTML = "";
+
+    const card = document.createElement("div");
+    card.className = "confirm-toast" + (danger ? "" : " primary");
+    card.setAttribute("role", "alertdialog");
+
+    const body = document.createElement("div");
+    body.className = "confirm-toast-body";
+
+    const icon = document.createElement("div");
+    icon.className = "confirm-toast-icon";
+    icon.textContent = danger ? "🗑" : "⚠";
+
+    const msgEl = document.createElement("div");
+    msgEl.className = "confirm-toast-msg";
+    msgEl.textContent = message;
+
+    body.appendChild(icon);
+    body.appendChild(msgEl);
+
+    const actions = document.createElement("div");
+    actions.className = "confirm-toast-actions";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "confirm-toast-btn cancel";
+    cancelBtn.textContent = cancelText;
+
+    const okBtn = document.createElement("button");
+    okBtn.type = "button";
+    okBtn.className = "confirm-toast-btn ok";
+    okBtn.textContent = confirmText;
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(okBtn);
+    card.appendChild(body);
+    card.appendChild(actions);
+    container.appendChild(card);
+
+    let settled = false;
+    function finish(result) {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("keydown", onKey);
+      card.remove();
+      resolve(result);
+    }
+    function onKey(e) {
+      if (e.key === "Escape") finish(false);
+    }
+    document.addEventListener("keydown", onKey);
+    cancelBtn.addEventListener("click", () => finish(false));
+    okBtn.addEventListener("click", () => finish(true));
+    cancelBtn.focus();
+  });
 }
 
 function esc(s) {
@@ -8098,7 +8181,7 @@ async function dbFetch(path, opts) {
       bodyEl.querySelectorAll('.del-job-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           const jobId = btn.dataset.jobId;
-          if (!confirm('この解析履歴を削除しますか？')) return;
+          if (!(await showConfirmToast('この解析履歴を削除しますか？'))) return;
           btn.disabled = true;
           try {
             const r = await dbFetch(`/api/db/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
@@ -8167,7 +8250,7 @@ async function dbFetch(path, opts) {
     bulkDeleteBtn.addEventListener('click', async () => {
       const ids = getCheckedIds();
       if (!ids.length) return;
-      if (!confirm(`Delete ${ids.length} job(s)? This cannot be undone.`)) return;
+      if (!(await showConfirmToast(`${ids.length} 件の解析履歴を削除しますか？\nこの操作は元に戻せません。`))) return;
       bulkDeleteBtn.disabled = true;
       try {
         const r = await dbFetch('/api/db/jobs/bulk-delete', {
