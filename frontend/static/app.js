@@ -994,16 +994,7 @@ function _renderTodayPresetChips() {
 }
 
 async function switchTodayOrderFormat(fmt) {
-  const nextFmt = fmt === 'haibukiya' ? 'haibukiya'
-    : (fmt === 'props_japan' ? 'props_japan'
-    : (fmt === 'national_azabu' ? 'national_azabu'
-    : (fmt === 'tsukiji' ? 'tsukiji'
-    : (fmt === 'nanohana' ? 'nanohana'
-    : (fmt === 'fusui' ? 'fusui'
-    : (fmt === 'greenworld' ? 'greenworld'
-    : (fmt === 'rosen' ? 'rosen'
-    : (fmt === 'worlddelica' ? 'worlddelica'
-    : (fmt === 'santoku' ? 'santoku' : 'chiba')))))))));
+  const nextFmt = TODAY_ORDER_FORMATS[fmt] ? fmt : Object.keys(TODAY_ORDER_FORMATS)[0];
   _todayOrderCurrentFormat = nextFmt;
 
   const sel = document.getElementById('todayOrderFormatSelect');
@@ -3076,6 +3067,22 @@ function _insertHaibukiyaItemUnderCategory(categoryName, cells) {
 
 async function initTodayOrderView() {
   if (!_todayOrderInitialized) {
+    // Build tabs and format-select dynamically from TODAY_ORDER_FORMATS
+    const tabsContainer = document.getElementById('todayOrderSheetTabs');
+    if (tabsContainer) {
+      tabsContainer.innerHTML = Object.entries(TODAY_FMT_LABELS).map(([key, label]) =>
+        `<div class="xls-sheet-tab${key === _todayOrderCurrentFormat ? ' active' : ''}" data-format="${esc(key)}">${esc(label)}</div>`
+      ).join('');
+    }
+    const fmtSelect = document.getElementById('todayOrderFormatSelect');
+    if (fmtSelect) {
+      fmtSelect.innerHTML = Object.entries(TODAY_ORDER_FORMATS).map(([key, cfg]) => {
+        const label = cfg.downloadName.replace(/\.xlsx?$/i, '').replace(/_/g, ' ');
+        return `<option value="${esc(key)}">${esc(label)}</option>`;
+      }).join('');
+      fmtSelect.value = _todayOrderCurrentFormat;
+    }
+
     await switchTodayOrderFormat(_todayOrderCurrentFormat);
 
     document.getElementById('todayOrderFormatSelect')?.addEventListener('change', (e) => {

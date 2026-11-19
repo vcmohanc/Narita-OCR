@@ -259,18 +259,7 @@
             本日の発注書
           </div>
           <select class="filter-select today-format-select" id="todayOrderFormatSelect" aria-label="発注書フォーマット選択" title="表示する発注書フォーマットを選択">
-            <option value="chiba">千葉自動発注書（葛西産直ファーム）</option>
-            <option value="haibukiya">発注書 株式会社灰吹屋 御中（ベジコープ）</option>
-            <option value="tsukiji">発注書 築地産直ファーム（千葉分）</option>
-            <option value="props_japan">注文書 株式会社プロップスジャパン（発注分のみ）</option>
-            <option value="national_azabu">発注書 ナショナル麻布株式会社 御中（発注分のみ）</option>
-            <option value="fusui">発注書 株式会社風水プロジェクト（ゆうき市場）</option>
-            <option value="nanohana">発注書 なのはな生活協同組合（ベジコープ）</option>
-            <option value="greenworld">発注書 グリーンワールド株式会社</option>
-            <option value="rosen">週間発注リスト 株式会社相鉄ローゼン</option>
-            <option value="worlddelica">発注書 株式会社ワールドデリカ</option>
-            <option value="santoku">発注書 株式会社三徳</option>
-            <option value="josoSeikyo">発注明細書 常総生協</option>
+            <!-- populated dynamically from TODAY_ORDER_FORMATS in app.js -->
           </select>
           <span class="order-row-count today-item-count" id="todayOrderItemCount">0 品目</span>
           <div class="order-toolbar-actions">
@@ -324,18 +313,7 @@
         <!-- Bottom Sheet tab bar -->
         <div class="xls-sheetbar">
           <div class="xls-sheet-tabs" id="todayOrderSheetTabs">
-            <div class="xls-sheet-tab active" data-format="chiba">千葉自動発注書</div>
-            <div class="xls-sheet-tab" data-format="haibukiya">灰吹屋 発注書</div>
-            <div class="xls-sheet-tab" data-format="tsukiji">築地産直ファーム</div>
-            <div class="xls-sheet-tab" data-format="props_japan">プロップスジャパン 注文書</div>
-            <div class="xls-sheet-tab" data-format="national_azabu">ナショナル麻布 発注書</div>
-            <div class="xls-sheet-tab" data-format="fusui">風水プロジェクト 発注書</div>
-            <div class="xls-sheet-tab" data-format="nanohana">なのはな生協 発注書</div>
-            <div class="xls-sheet-tab" data-format="greenworld">グリーンワールド 発注書</div>
-            <div class="xls-sheet-tab" data-format="rosen">ローゼン 発注リスト</div>
-            <div class="xls-sheet-tab" data-format="worlddelica">ワールドデリカ 発注書</div>
-            <div class="xls-sheet-tab" data-format="santoku">三徳 発注書</div>
-            <div class="xls-sheet-tab" data-format="josoSeikyo">常総生協</div>
+            <!-- populated dynamically from TODAY_ORDER_FORMATS in app.js -->
           </div>
           <div class="xls-sheetbar-status" id="todayOrderStatusBar">15 rows × 8 cols · 発注書</div>
         </div>
@@ -795,6 +773,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=65"></script>
+  <script src="/static/app.js?v=66"></script>
 </body>
 </html>
