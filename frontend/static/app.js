@@ -7080,10 +7080,15 @@ function populateHomeClientSelects(clients) {
   const upSel = document.getElementById('uploadClientSelect');
   if (upSel) {
     const prev = upSel.value;
+    const dbGroup = list.length
+      ? `<optgroup label="📁 取引先マスタ">${list.map(c => `<option value="${esc(c.id)}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''} (${esc(c.code)})</option>`).join('')}</optgroup>`
+      : '';
     upSel.innerHTML =
       '<option value="">🔍 自動判別 (ファイル名・OCR内容から自動マッチ)</option>' +
-      todayFmtGroup;
-    if (prev && prev.startsWith('__fmt__:')) upSel.value = prev;
+      todayFmtGroup +
+      dbGroup;
+    const prevValid = prev && (prev.startsWith('__fmt__:') || list.some(c => String(c.id) === String(prev)));
+    if (prevValid) upSel.value = prev;
   }
   const resSel = document.getElementById('resultsClientSelect');
   if (resSel) {
@@ -7098,6 +7103,12 @@ function populateHomeClientSelects(clients) {
 function getEffectiveUploadClient() {
   const upSel = document.getElementById('uploadClientSelect');
   const cid = upSel?.value ? String(upSel.value) : '';
+  if (cid.startsWith('__fmt__:')) {
+    const key = cid.slice(8);
+    const cfg = TODAY_ORDER_FORMATS[key];
+    if (cfg) return { mode: 'today_fmt', fmt: key, cfg, label: TODAY_FMT_LABELS[key] || key };
+    return null;
+  }
   if (cid) {
     const found = _xlsAllClients.find(c => String(c.id) === cid) || null;
     return found ? { mode: 'manual', client: found } : null;
@@ -7118,12 +7129,27 @@ function updateUploadClientPreview() {
   if (!preview) return;
 
   const info = getEffectiveUploadClient();
-  if (!info || !info.client) {
+  if (!info) {
     preview.classList.add('hidden');
     return;
   }
-  const { mode, client } = info;
+  const { mode } = info;
   preview.classList.remove('hidden');
+
+  if (mode === 'today_fmt') {
+    if (modeBadge) {
+      modeBadge.classList.toggle('mode-manual', true);
+      modeBadge.classList.toggle('mode-auto', false);
+      modeBadge.textContent = '📋 発注書フォーマット指定';
+    }
+    if (nameEl) nameEl.textContent = info.label;
+    if (rowBadge) rowBadge.textContent = `${info.cfg.cols} 列`;
+    if (colsEl) colsEl.textContent = info.cfg.downloadName.replace(/\.xlsx?$/i, '');
+    return;
+  }
+
+  if (!info.client) { preview.classList.add('hidden'); return; }
+  const { client } = info;
   if (modeBadge) {
     modeBadge.classList.toggle('mode-manual', mode === 'manual');
     modeBadge.classList.toggle('mode-auto', mode === 'auto');
@@ -7150,7 +7176,15 @@ async function loadHomeUploadClients(force = false) {
 document.getElementById('uploadClientSelect')?.addEventListener('change', updateUploadClientPreview);
 document.getElementById('uploadClientHeadingBtn')?.addEventListener('click', () => {
   const info = getEffectiveUploadClient();
-  if (!info || !info.client) {
+  if (!info) {
+    showToast('見出しを設定する取引先をプルダウンから選択してください', true);
+    return;
+  }
+  if (info.mode === 'today_fmt') {
+    showToast('本日の発注書フォーマットには見出し設定はありません。取引先マスタから選択してください。', true);
+    return;
+  }
+  if (!info.client) {
     showToast('見出しを設定する取引先をプルダウンから選択してください', true);
     return;
   }
