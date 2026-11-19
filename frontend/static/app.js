@@ -2106,7 +2106,7 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
                                           ? '※ 商品名・産地・規格・日別数量を入力してください。総計は自動計算されます。'
                                           : (isJosoSeikyo
                                               ? '※ OCR No.・商品名・規格・単価・入数・発注数を入力してください。納品数・金額は自動計算されます。'
-                                              : '※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。')))))))))));
+                                              : '※ 品目名と単位（cs, p, kg, 束, 袋, 箱, 本, 個 など）は必須です。'))))))))));
   }
 
   const baseIso = _extractTodayBaseIsoDate();
@@ -2454,7 +2454,7 @@ function _renderTodayOrderGrid() {
   let selectedRowIdx = -1;
 
   const table = document.createElement('table');
-  table.className = 'xls-table today-xls-table' + (isHaibukiya ? ' format-haibukiya' : (isNationalAzabu ? ' format-national-azabu' : (isTsukiji ? ' format-tsukiji' : (isProps ? ' format-props-japan' : (isNanohana ? ' format-nanohana' : (isFusui ? ' format-fusui' : (isGreenworld ? ' format-greenworld' : (isRosen ? ' format-rosen' : (isWorldDelica ? ' format-worlddelica' : (isSantoku ? ' format-santoku' : (isJoso ? ' format-joso' : ''))))))))))));
+  table.className = 'xls-table today-xls-table' + (isHaibukiya ? ' format-haibukiya' : (isNationalAzabu ? ' format-national-azabu' : (isTsukiji ? ' format-tsukiji' : (isProps ? ' format-props-japan' : (isNanohana ? ' format-nanohana' : (isFusui ? ' format-fusui' : (isGreenworld ? ' format-greenworld' : (isRosen ? ' format-rosen' : (isWorldDelica ? ' format-worlddelica' : (isSantoku ? ' format-santoku' : (isJoso ? ' format-joso' : '')))))))))));
 
   const colgroup = document.createElement('colgroup');
   const rnCol = document.createElement('col');
