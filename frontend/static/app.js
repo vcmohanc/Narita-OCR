@@ -7080,22 +7080,13 @@ function _detectClientFromFilenameClientSide(filename, clients) {
 
 function populateHomeClientSelects(clients) {
   const list = Array.isArray(clients) ? clients : [];
-  const todayFmtOpts = Object.entries(TODAY_FMT_LABELS)
-    .map(([key, label]) => `<option value="__fmt__:${esc(key)}">${esc(label)}</option>`)
-    .join('');
-  const todayFmtGroup = `<optgroup label="📋 本日の発注書">${todayFmtOpts}</optgroup>`;
   const upSel = document.getElementById('uploadClientSelect');
   if (upSel) {
     const prev = upSel.value;
-    const dbGroup = list.length
-      ? `<optgroup label="📁 取引先マスタ">${list.map(c => `<option value="${esc(c.id)}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''} (${esc(c.code)})</option>`).join('')}</optgroup>`
-      : '';
     upSel.innerHTML =
       '<option value="">🔍 自動判別 (ファイル名・OCR内容から自動マッチ)</option>' +
-      todayFmtGroup +
-      dbGroup;
-    const prevValid = prev && (prev.startsWith('__fmt__:') || list.some(c => String(c.id) === String(prev)));
-    if (prevValid) upSel.value = prev;
+      list.map(c => `<option value="${esc(c.id)}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''} (${esc(c.code)})</option>`).join('');
+    if (prev && list.some(c => String(c.id) === String(prev))) upSel.value = prev;
   }
   const resSel = document.getElementById('resultsClientSelect');
   if (resSel) {
