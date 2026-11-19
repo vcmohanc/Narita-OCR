@@ -123,6 +123,21 @@ async function initOrderView() {
 }
 
 // ── Today Order view (Multi-Format: Chiba + Haibukiya CRUD) ───
+// Display labels matching the sheet tab labels in index.html
+const TODAY_FMT_LABELS = {
+  chiba: '千葉自動発注書',
+  haibukiya: '灰吹屋 発注書',
+  tsukiji: '築地産直ファーム',
+  props_japan: 'プロップスジャパン 注文書',
+  national_azabu: 'ナショナル麻布 発注書',
+  fusui: '風水プロジェクト 発注書',
+  nanohana: 'なのはな生協 発注書',
+  greenworld: 'グリーンワールド 発注書',
+  rosen: 'ローゼン 発注リスト',
+  worlddelica: 'ワールドデリカ 発注書',
+  santoku: '三徳 発注書',
+  josoSeikyo: '常総生協',
+};
 const TODAY_ORDER_FORMATS = {
   chiba: {
     cols: 8,
@@ -7058,13 +7073,22 @@ function _detectClientFromFilenameClientSide(filename, clients) {
 
 function populateHomeClientSelects(clients) {
   const list = Array.isArray(clients) ? clients : [];
+  const todayFmtOpts = Object.entries(TODAY_FMT_LABELS)
+    .map(([key, label]) => `<option value="__fmt__:${esc(key)}">${esc(label)}</option>`)
+    .join('');
+  const todayFmtGroup = `<optgroup label="📋 本日の発注書">${todayFmtOpts}</optgroup>`;
   const upSel = document.getElementById('uploadClientSelect');
   if (upSel) {
     const prev = upSel.value;
+    const dbGroup = list.length
+      ? `<optgroup label="📁 取引先マスタ">${list.map(c => `<option value="${esc(c.id)}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''} (${esc(c.code)})</option>`).join('')}</optgroup>`
+      : '';
     upSel.innerHTML =
       '<option value="">🔍 自動判別 (ファイル名・OCR内容から自動マッチ)</option>' +
-      list.map(c => `<option value="${esc(c.id)}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''} (${esc(c.code)})</option>`).join('');
-    if (prev && list.some(c => String(c.id) === String(prev))) upSel.value = prev;
+      todayFmtGroup +
+      dbGroup;
+    const prevValid = prev && (list.some(c => String(c.id) === String(prev)) || prev.startsWith('__fmt__:'));
+    if (prevValid) upSel.value = prev;
   }
   const resSel = document.getElementById('resultsClientSelect');
   if (resSel) {
@@ -7256,7 +7280,9 @@ document.getElementById("processBtn").addEventListener("click", async () => {
 
   try {
     setProgress(8, "Uploading file…");
-    const selectedClientId = document.getElementById("uploadClientSelect")?.value || "";
+    const _rawClientVal = document.getElementById("uploadClientSelect")?.value || "";
+    // __fmt__: values are today-order hints for display only; strip them before sending to the backend
+    const selectedClientId = _rawClientVal.startsWith('__fmt__:') ? '' : _rawClientVal;
     const form = new FormData();
     form.append("file", selectedFile);
     if (selectedClientId) form.append("client_id", selectedClientId);
