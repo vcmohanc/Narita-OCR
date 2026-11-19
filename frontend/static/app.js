@@ -7080,15 +7080,10 @@ function populateHomeClientSelects(clients) {
   const upSel = document.getElementById('uploadClientSelect');
   if (upSel) {
     const prev = upSel.value;
-    const dbGroup = list.length
-      ? `<optgroup label="📁 取引先マスタ">${list.map(c => `<option value="${esc(c.id)}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''} (${esc(c.code)})</option>`).join('')}</optgroup>`
-      : '';
     upSel.innerHTML =
       '<option value="">🔍 自動判別 (ファイル名・OCR内容から自動マッチ)</option>' +
-      todayFmtGroup +
-      dbGroup;
-    const prevValid = prev && (list.some(c => String(c.id) === String(prev)) || prev.startsWith('__fmt__:'));
-    if (prevValid) upSel.value = prev;
+      todayFmtGroup;
+    if (prev && prev.startsWith('__fmt__:')) upSel.value = prev;
   }
   const resSel = document.getElementById('resultsClientSelect');
   if (resSel) {
