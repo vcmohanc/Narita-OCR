@@ -7292,6 +7292,7 @@ document.getElementById("processBtn").addEventListener("click", async () => {
         const rr = await fetch(`${API_BASE}/api/ocr/result/${job_id}`);
         if (!rr.ok) throw new Error("Failed to retrieve result");
         currentResult = await rr.json();
+        if (!currentResult) throw new Error("Server returned an empty result");
         await _ensureXlsClientsLoaded();
         if (currentResult && selectedClientId) {
           const picked = _xlsAllClients.find(c => String(c.id) === String(selectedClientId));
@@ -7502,6 +7503,7 @@ function _renderResultsClientBar(res, activeClient) {
 }
 
 function renderResults(res, opts = {}) {
+  if (!res) return;
   const { preserveTab = false } = opts;
   const activeClient = _resolveResultClient(res);
   const conf = res.confidence_avg ? (res.confidence_avg * 100).toFixed(1) + "%" : null;
