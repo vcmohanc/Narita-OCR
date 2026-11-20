@@ -6156,6 +6156,83 @@ function _buildDocTable(sheet) {
   return html;
 }
 
+function _buildClientExtractedSheet(sheets, client) {
+  if (!client) return null;
+  const cols = _parseClientHeadingCols(client);
+  if (!cols.length) return null;
+
+  const mainSheet = sheets.find(s => s.name !== 'Full Text') || sheets[0];
+  if (!mainSheet || !mainSheet.rows || mainSheet.rows.length < 2) return null;
+
+  const rows = mainSheet.rows;
+  const headerRowHint = Math.max(0, (parseInt(client.header_row, 10) || 1) - 1);
+
+  const norm = s => String(s || '').replace(/[　\s]+/g, '').toLowerCase();
+
+  const findHeaderRow = () => {
+    let bestIdx = -1;
+    let bestScore = 0;
+    const scan = (start, end) => {
+      for (let ri = start; ri < end; ri++) {
+        let matches = 0;
+        cols.forEach(col => {
+          const colN = norm(col);
+          if (rows[ri].some(cell => { const cn = norm(cell); return cn && (cn.includes(colN) || colN.includes(cn)); })) matches++;
+        });
+        const score = matches / cols.length;
+        if (score > bestScore) { bestScore = score; bestIdx = ri; }
+      }
+    };
+    scan(Math.max(0, headerRowHint - 2), Math.min(rows.length, headerRowHint + 10));
+    if (bestScore < 0.3) scan(0, rows.length);
+    return bestScore >= 0.3 ? bestIdx : -1;
+  };
+
+  const hdrIdx = findHeaderRow();
+  if (hdrIdx < 0) return null;
+
+  const hdrRow = rows[hdrIdx].map(c => String(c || ''));
+  const colIndices = cols.map(clientCol => {
+    const colN = norm(clientCol);
+    let bestCi = -1; let bestScore = 0;
+    hdrRow.forEach((cell, ci) => {
+      const cn = norm(cell);
+      if (!cn) return;
+      let score = 0;
+      if (cn === colN) score = 1.0;
+      else if (cn.includes(colN) || colN.includes(cn)) score = 0.7;
+      else {
+        const minLen = Math.min(cn.length, colN.length);
+        if (minLen > 1) {
+          let common = 0;
+          for (let i = 0; i < minLen; i++) { if (cn[i] === colN[i]) common++; }
+          score = (common / Math.max(cn.length, colN.length)) * 0.5;
+        }
+      }
+      if (score > bestScore) { bestScore = score; bestCi = ci; }
+    });
+    return bestScore >= 0.3 ? bestCi : -1;
+  });
+
+  const outRows = [cols.slice()];
+  for (let ri = hdrIdx + 1; ri < rows.length; ri++) {
+    const outRow = colIndices.map(ci => ci >= 0 ? String(rows[ri][ci] || '') : '');
+    if (outRow.every(v => !v.trim())) continue;
+    outRows.push(outRow);
+  }
+  if (outRows.length <= 1) return null;
+
+  return {
+    name: (client.name_ja || client.code || '') + ' 発注書',
+    rows: outRows,
+    hasHeader: true,
+    headerIdx: 0,
+    customHeaders: [],
+    clientHeaders: [],
+    clientHeadingId: null,
+  };
+}
+
 function _buildNanohanaExtractedSheet(sheets) {
   const mainSheet = sheets.find(s => s.name !== 'Full Text') || sheets[0];
   if (!mainSheet || !mainSheet.rows || mainSheet.rows.length < 3) return null;
@@ -6354,7 +6431,7 @@ async function openOrderPreview(jobId, filename) {
     }
   }
 
-  // なのはな: inject extracted & date-filtered sheet as first tab
+  // Inject extracted sheet as first tab: なのはな uses special multi-date extraction; other clients use heading_columns config
   {
     const jobMeta2 = Array.isArray(_orderAllJobs) ? _orderAllJobs.find(j => j.job_id === jobId) : null;
     const isNanohana =
@@ -6363,6 +6440,15 @@ async function openOrderPreview(jobId, filename) {
     if (isNanohana) {
       const nanoSheet = _buildNanohanaExtractedSheet(_xlsSheets);
       if (nanoSheet) _xlsSheets.unshift(nanoSheet);
+    } else {
+      const detectedClientId = clientSelectEl ? clientSelectEl.value : '';
+      if (detectedClientId) {
+        const detectedClient = _xlsAllClients.find(c => String(c.id) === String(detectedClientId));
+        if (detectedClient && detectedClient.heading_columns) {
+          const extractedSheet = _buildClientExtractedSheet(_xlsSheets, detectedClient);
+          if (extractedSheet) _xlsSheets.unshift(extractedSheet);
+        }
+      }
     }
   }
 
