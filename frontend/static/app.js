@@ -42,8 +42,8 @@ const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
       appShell?.classList.remove('sidebar-expanded');
       if (mainArea) mainArea.scrollTop = 0;
       if (target === 'todayOrder') initTodayOrderView();
+      if (target === 'order') initOrderView();
       if (target === 'clients') initClientsView();
-      if (target === 'productMaster') initProductMasterView();
     });
   });
 })();
@@ -108,7 +108,6 @@ document.getElementById('clientFormSave')?.addEventListener('click', async () =>
     showToast(_clientModalEditId ? '取引先情報を更新しました' : '取引先を追加しました');
     await reloadOrderSheet();
     if (typeof reloadClientsSheet === 'function') await reloadClientsSheet();
-    if (typeof reloadProductSheet === 'function' && _productsLoaded) await reloadProductSheet();
     if (typeof loadHomeUploadClients === 'function') await loadHomeUploadClients(true);
   } catch (e) { showToast('エラー: ' + e.message, true); }
   finally { saveBtn.disabled = false; saveBtn.textContent = '取引先を保存'; }
@@ -200,15 +199,16 @@ const TODAY_ORDER_FORMATS = {
     titleMatch: '築地',
   },
   nanohana: {
-    cols: 6,
-    dayStartCol: null,
-    dayStep: 1,
-    storageKey: 'ocr_today_order_sheet_v1_nanohana',
+    cols: 16,
+    dayStartCol: 6,
+    dayStep: 2,
+    dayCount: 5,
+    storageKey: 'ocr_today_order_sheet_v4_nanohana',
     legacyStorageKey: null,
     xlsxFile: 'nanohana_order.xlsx',
     downloadName: '発注書_なのはな生活協同組合.xlsx',
     csvName: 'なのはな生活協同組合_発注書.csv',
-    defaultDate: '2026-10-23',
+    defaultDate: '2026-11-04',
     titleMatch: 'なのはな',
   },
   fusui: {
@@ -287,25 +287,26 @@ const TODAY_ORDER_FORMATS = {
     titleMatch: '常総生協',
   },
 };
+const _nanaBlankDays = () => ({ cp: ['','','','',''], qty: ['','','','',''] });
 const TODAY_NANOHANA_PRESETS = [
-  { orderNo: '648', name: '有機じゃが芋', spec: '600g', price: '230.0', qty: '23', amount: '5,290' },
-  { orderNo: '650', name: '有機玉ねぎ', spec: '600g', price: '230.0', qty: '30', amount: '6,900' },
-  { orderNo: '658', name: '有機ルッコラ', spec: '50g', price: '120.0', qty: '12', amount: '1,440' },
-  { orderNo: '665', name: '有機生しい茸（菌床）', spec: '90g', price: '178.0', qty: '17', amount: '3,026' },
-  { orderNo: '666', name: '有機きくらげ', spec: '60g', price: '147.0', qty: '14', amount: '2,058' },
-  { orderNo: '667', name: '有機たもぎたけ', spec: '100g', price: '210.0', qty: '13', amount: '2,730' },
-  { orderNo: '668', name: 'じゃが芋', spec: '500g', price: '165.0', qty: '12', amount: '1,980' },
-  { orderNo: '669', name: 'じゃが芋', spec: '1kg', price: '280.0', qty: '26', amount: '7,280' },
-  { orderNo: '672', name: '玉ねぎ', spec: '500g', price: '165.0', qty: '40', amount: '6,600' },
-  { orderNo: '673', name: '玉ねぎ', spec: '1kg', price: '265.0', qty: '80', amount: '21,200' },
-  { orderNo: '675', name: 'ごぼう（カット）', spec: '200g', price: '160.0', qty: '36', amount: '5,760' },
-  { orderNo: '680', name: '大根（カット）', spec: '1本分', price: '180.0', qty: '59', amount: '10,620' },
-  { orderNo: '681', name: '大根（ハーフ）', spec: '1/2本', price: '120.0', qty: '53', amount: '6,360' },
-  { orderNo: '687', name: '白菜', spec: '1個', price: '290.0', qty: '25', amount: '7,250' },
-  { orderNo: '688', name: 'ミニ白菜', spec: '1個', price: '155.0', qty: '80', amount: '12,400' },
-  { orderNo: '689', name: 'キャベツ', spec: '1個', price: '190.0', qty: '102', amount: '19,380' },
-  { orderNo: '705', name: '葉ねぎ', spec: '100g', price: '130.0', qty: '47', amount: '6,110' },
-  { orderNo: '199401', name: '長ねぎ（カット）', spec: '300g', price: '280.0', qty: '25', amount: '7,000' },
+  { orderNo: '648',    toku: '', name: '有機じゃが芋',        spec: '600g',   price: '230.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '650',    toku: '', name: '有機玉ねぎ',          spec: '600g',   price: '230.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '658',    toku: '', name: '有機ルッコラ',        spec: '50g',    price: '120.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '665',    toku: '', name: '有機生しい茸（菌床）', spec: '90g',    price: '178.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '666',    toku: '', name: '有機きくらげ',        spec: '60g',    price: '147.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '667',    toku: '', name: '有機たもぎたけ',      spec: '100g',   price: '210.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '668',    toku: '', name: 'じゃが芋',            spec: '500g',   price: '165.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '669',    toku: '', name: 'じゃが芋',            spec: '1kg',    price: '280.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '672',    toku: '', name: '玉ねぎ',              spec: '500g',   price: '165.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '673',    toku: '', name: '玉ねぎ',              spec: '1kg',    price: '265.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '675',    toku: '', name: 'ごぼう（カット）',    spec: '200g',   price: '160.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '680',    toku: '', name: '大根（カット）',      spec: '1本分',  price: '180.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '681',    toku: '', name: '大根（ハーフ）',      spec: '1/2本',  price: '120.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '687',    toku: '', name: '白菜',                spec: '1個',    price: '290.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '688',    toku: '', name: 'ミニ白菜',            spec: '1個',    price: '155.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '689',    toku: '', name: 'キャベツ',            spec: '1個',    price: '190.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '705',    toku: '', name: '葉ねぎ',              spec: '100g',   price: '130.0', irisu: '', ..._nanaBlankDays() },
+  { orderNo: '199401', toku: '', name: '長ねぎ（カット）',    spec: '300g',   price: '280.0', irisu: '', ..._nanaBlankDays() },
 ];
 const TODAY_FUSUI_PRESETS = [
   { code: '1029510171', name: '有機青じそ 10枚P 有機認証（広島県）出来商店', spec: '10枚P', qty: '100', price: '125', amount: '12,500' },
@@ -493,18 +494,19 @@ function _createTodayOrderInitialRows(fmt = _todayOrderCurrentFormat) {
     const rows = [
       { type: 'title',  cells: pad('発注書　なのはな生活協同組合') },
       { type: 'meta',   cells: pad('宛先：株式会社ベジコープ 御中　／　発注番号：0455971　／　担当：渡邊') },
-      { type: 'meta',   cells: pad('発注日：2026年10月23日（金）　／　10月4回　／　納品日：2026年10月29日（木）　／　納品場所：なのはな生活協同組合') },
+      { type: 'meta',   cells: pad('発注日：2026年11月1日（土）　／　11月1回　／　納品日：2026年11月4日（火）　／　納品場所：なのはな生活協同組合') },
       { type: 'meta',   cells: pad('発注元：〒263-0001 千葉市稲毛区長沼原町678-2　TEL 043-216-7087　FAX 043-215-0510') },
       { type: 'spacer', cells: Array(ncols).fill('') },
-      { type: 'header', cells: ['注文No.', '商品名', '規格容量', '納入価格（円）', '総数（P）', '金額（円）'] },
+      { type: 'header', cells: ['注文No.', '特価', '商品名', '納品日', '', '', '11/4(水)', '', '11/5(木)', '', '11/6(金)', '', '11/7(土)', '', '11/8(日)', ''] },
+      { type: 'header', cells: ['', '', '', '規格容量', '納入価格', '入数', 'C/P', '総数', 'C/P', '総数', 'C/P', '総数', 'C/P', '総数', 'C/P', '総数'] },
       ...TODAY_NANOHANA_PRESETS.map(p => ({
         type: 'item',
-        cells: [p.orderNo, p.name, p.spec, p.price, p.qty, p.amount]
+        cells: [p.orderNo, p.toku, p.name, p.spec, p.price, p.irisu,
+                ...p.cp.flatMap((v, i) => [v, p.qty[i]])]
       })),
-      { type: 'data',   cells: ['合計', '', '', '', '694', '133,384'] },
+      { type: 'data',   cells: ['合計', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''] },
       { type: 'spacer', cells: Array(ncols).fill('') },
       { type: 'note',   cells: pad('※ 午前着指定で発送をお願いします。') },
-      { type: 'note',   cells: pad('※ 金額は納入価格×総数で算出した参考値です（原本には記載なし）。') },
     ];
     for (let i = 0; i < 4; i++) {
       rows.push({ type: 'data', cells: Array(ncols).fill('') });
@@ -831,6 +833,18 @@ async function saveTodayOrderSheet(silent = false) {
   }
 }
 
+function _ensureNanohanaHeaders() {
+  const ncols = TODAY_ORDER_FORMATS.nanohana.cols;
+  const hasHeaders = _todayOrderRows.some(r => r.type === 'header');
+  if (hasHeaders) return;
+  // Find first item row to insert before it
+  const firstItemIdx = _todayOrderRows.findIndex(r => r.type === 'item' || r.type === 'data');
+  const insertAt = firstItemIdx >= 0 ? firstItemIdx : _todayOrderRows.length;
+  const hdr1 = { type: 'header', cells: ['注文No.', '特価', '商品名', '納品日', '', '', '11/4(水)', '', '11/5(木)', '', '11/6(金)', '', '11/7(土)', '', '11/8(日)', ''] };
+  const hdr2 = { type: 'header', cells: ['', '', '', '規格容量', '納入価格', '入数', 'C/P', '総数', 'C/P', '総数', 'C/P', '総数', 'C/P', '総数', 'C/P', '総数'] };
+  _todayOrderRows.splice(insertAt, 0, hdr1, hdr2);
+}
+
 async function loadTodayOrderSheet(fmt = _todayOrderCurrentFormat) {
   const cfg = _todayFmtCfg(fmt);
   try {
@@ -840,6 +854,7 @@ async function loadTodayOrderSheet(fmt = _todayOrderCurrentFormat) {
       if (data && !data.is_default && Array.isArray(data.rows) && data.rows.length) {
         if (_isValidFormatRows(data.rows, fmt)) {
           _todayOrderRows = _normalizeTodayOrderRowsClient(data.rows, fmt);
+          if (fmt === 'nanohana') _ensureNanohanaHeaders();
           _persistTodayOrderLocal(fmt);
           return;
         }
@@ -852,6 +867,7 @@ async function loadTodayOrderSheet(fmt = _todayOrderCurrentFormat) {
       const parsed = JSON.parse(cached);
       if (Array.isArray(parsed) && parsed.length && _isValidFormatRows(parsed, fmt)) {
         _todayOrderRows = _normalizeTodayOrderRowsClient(parsed, fmt);
+        if (fmt === 'nanohana') _ensureNanohanaHeaders();
         return;
       }
     }
@@ -861,7 +877,6 @@ async function loadTodayOrderSheet(fmt = _todayOrderCurrentFormat) {
 }
 
 function _renderTodayPresetChips() {
-  const quickEl = document.getElementById('todayOrderQuickPresets');
   const modalEl = document.getElementById('todayItemPresetChips');
   const isHaibukiya = _todayOrderCurrentFormat === 'haibukiya';
   const isProps = _todayOrderCurrentFormat === 'props_japan';
@@ -877,19 +892,6 @@ function _renderTodayPresetChips() {
   const items = isHaibukiya
     ? TODAY_HAIBUKIYA_PRESETS.map(p => p.name)
     : (isProps ? TODAY_PROPS_PRESETS.map(p => p.name) : (isNationalAzabu ? TODAY_NATIONAL_AZABU_PRESETS.map(p => p.name) : (isTsukiji ? TODAY_TSUKIJI_PRESETS.map(p => p.name) : (isNanohana ? TODAY_NANOHANA_PRESETS.map(p => p.name) : (isFusui ? TODAY_FUSUI_PRESETS.map(p => p.name) : (isGreenworld ? TODAY_GREENWORLD_PRESETS.map(p => p.name) : (isRosen ? TODAY_ROSEN_PRESETS.map(p => p.name) : (isWorldDelica ? TODAY_WORLDDELICA_PRESETS.map(p => p.name) : (isSantoku ? TODAY_SANTOKU_PRESETS.map(p => p.name) : (isJosoSeikyo ? TODAY_JOSO_PRESETS.map(p => p.name) : TODAY_PRESET_ITEMS))))))))));
-
-  if (quickEl) {
-    quickEl.innerHTML =
-      '<span class="today-preset-label">クイック追加:</span>' +
-      items.map(n => `<button type="button" class="today-preset-chip" data-preset="${esc(n)}">+ ${esc(n)}</button>`).join('') +
-      `<button type="button" class="today-preset-chip today-preset-chip-all" id="todayOrderAddAllPresetsBtn">+ 全${items.length}品目を一括追加</button>`;
-    quickEl.querySelectorAll('.today-preset-chip[data-preset]').forEach(btn => {
-      btn.addEventListener('click', () => openTodayOrderItemModal(null, btn.dataset.preset || ''));
-    });
-    document.getElementById('todayOrderAddAllPresetsBtn')?.addEventListener('click', () => {
-      openTodayOrderItemModal(null, '', { fillAllPresets: true });
-    });
-  }
 
   if (modalEl) {
     modalEl.innerHTML =
@@ -1082,7 +1084,7 @@ function _getTodayHeaderDateSpan() {
     if (_todayOrderCurrentFormat === 'haibukiya') return '10/19〜10/24';
     if (_todayOrderCurrentFormat === 'props_japan') return '9/21〜9/26';
     if (_todayOrderCurrentFormat === 'tsukiji') return '10/26〜10/31';
-    if (_todayOrderCurrentFormat === 'nanohana') return '10/23〜10/29';
+    if (_todayOrderCurrentFormat === 'nanohana') return '11/4〜11/8';
     if (_todayOrderCurrentFormat === 'fusui') return '10/22〜10/25';
     if (_todayOrderCurrentFormat === 'greenworld') return '10/8〜10/11';
     if (_todayOrderCurrentFormat === 'rosen') return '10/24〜10/30';
@@ -1107,7 +1109,9 @@ function _getTodayHeaderDateSpan() {
     return `${startRaw}〜${endRaw}`;
   }
   if (_todayOrderCurrentFormat === 'nanohana') {
-    return '10/23〜10/29';
+    const startRaw = String(hdr.cells[6] || '').split('\n')[0].trim() || '11/4';
+    const endRaw   = String(hdr.cells[14] || '').split('\n')[0].trim() || '11/8';
+    return `${startRaw}〜${endRaw}`;
   }
   if (_todayOrderCurrentFormat === 'fusui') {
     return '10/22〜10/25';
@@ -1260,10 +1264,12 @@ function _getTodayRowCellClass(rowObj, ci, val) {
     } else if (rowObj.type === 'item' && ci === 2) cls += ' today-xls-item-unit';
     else if (ci >= 3 || (val && /^[\d,，.\-￥¥\s]+$/.test(val) && /\d/.test(val))) cls += ' today-xls-num';
   } else if (isNanohana) {
-    if (ci === 0) cls += ' today-xls-item-code';
-    else if (rowObj.type === 'item' && ci === 1) cls += ' today-xls-item-name';
-    else if (ci === 2) cls += ' today-xls-text';
-    else if (ci >= 3) cls += ' today-xls-num';
+    if (rowObj.type === 'header' || rowObj.type === 'header_top' || rowObj.type === 'header_sub') {
+      cls += ' today-xls-header-center';
+    } else if (ci === 0) cls += ' today-xls-item-code';
+    else if (rowObj.type === 'item' && ci === 2) cls += ' today-xls-item-name';
+    else if (ci === 1 || ci === 3) cls += ' today-xls-text';
+    else cls += ' today-xls-num';
   } else if (isFusui) {
     if (ci === 0) cls += ' today-xls-item-code';
     else if (rowObj.type === 'item' && ci === 1) cls += ' today-xls-item-name';
@@ -1710,18 +1716,24 @@ function _appendTodayModalItemRow(itemData = null) {
     const { td: noteTd } = makeInput('today-m-note', '備考', data.note || '');
     tr.appendChild(noteTd);
   } else if (isNanohana) {
-    const { td: orderNoTd } = makeInput('today-m-orderno', '648', data.orderNo || '');
+    const { td: orderNoTd } = makeInput('today-m-orderno', 'No.', data.orderNo || '');
+    const { td: tokuTd }    = makeInput('today-m-toku', '特価', data.toku || '');
     const { td: nameTd }    = makeInput('today-m-name', '商品名', data.name || '');
-    const { td: specTd }    = makeInput('today-m-spec', '600g', data.spec || '');
-    const { td: priceTd }   = makeInput('today-m-price today-m-num', '230.0', data.price || '');
-    const { td: qtyTd }     = makeInput('today-m-qty today-m-num', '23', data.qty || '');
-    const { td: amountTd }  = makeInput('today-m-amount today-m-num', '5,290', data.amount || '');
+    const { td: specTd }    = makeInput('today-m-spec', '規格', data.spec || '');
+    const { td: priceTd }   = makeInput('today-m-price today-m-num', '価格', data.price || '');
+    const { td: irisuTd }   = makeInput('today-m-irisu today-m-num', '入数', data.irisu || '');
     tr.appendChild(orderNoTd);
+    tr.appendChild(tokuTd);
     tr.appendChild(nameTd);
     tr.appendChild(specTd);
     tr.appendChild(priceTd);
-    tr.appendChild(qtyTd);
-    tr.appendChild(amountTd);
+    tr.appendChild(irisuTd);
+    for (let _di = 0; _di < 5; _di++) {
+      const { td: cpTd }  = makeInput('today-m-nana-cp', 'C/P', (data.cp || [])[_di] || '');
+      const { td: qtyTd } = makeInput('today-m-nana-qty today-m-num', '総数', (data.qty || [])[_di] || '');
+      tr.appendChild(cpTd);
+      tr.appendChild(qtyTd);
+    }
   } else if (isFusui) {
     const { td: codeTd }   = makeInput('today-m-code', '1029510171', data.code || '');
     const { td: nameTd }   = makeInput('today-m-name', '商品名', data.name || '');
@@ -1940,7 +1952,7 @@ function _fillTodayModalPreset(presetName) {
             : (isProps
                 ? (TODAY_PROPS_PRESETS.find(p => p.name === presetName) || { code: '', name: presetName, unit: 'パック', lot: '10', days: Array(6).fill('') })
                 : (isNanohana
-                    ? (TODAY_NANOHANA_PRESETS.find(p => p.name === presetName) || { orderNo: '', name: presetName, spec: '', price: '', qty: '', amount: '' })
+                    ? (TODAY_NANOHANA_PRESETS.find(p => p.name === presetName) || { orderNo: '', toku: '', name: presetName, spec: '', price: '', irisu: '', cp: ['','','','',''], qty: ['','','','',''] })
                     : (isFusui
                         ? (TODAY_FUSUI_PRESETS.find(p => p.name === presetName) || { code: '', name: presetName, spec: '', qty: '', price: '', amount: '' })
                         : (isGreenworld
@@ -2003,12 +2015,16 @@ function _fillTodayModalPreset(presetName) {
       (dayInps[0] || emptyRow.querySelector('.today-m-name'))?.focus();
     } else if (isNanohana) {
       if (emptyRow.querySelector('.today-m-orderno')) emptyRow.querySelector('.today-m-orderno').value = presetObj.orderNo || '';
+      if (emptyRow.querySelector('.today-m-toku')) emptyRow.querySelector('.today-m-toku').value = presetObj.toku || '';
       emptyRow.querySelector('.today-m-name').value = presetObj.name || '';
       if (emptyRow.querySelector('.today-m-spec')) emptyRow.querySelector('.today-m-spec').value = presetObj.spec || '';
       if (emptyRow.querySelector('.today-m-price')) emptyRow.querySelector('.today-m-price').value = presetObj.price || '';
-      if (emptyRow.querySelector('.today-m-qty')) emptyRow.querySelector('.today-m-qty').value = presetObj.qty || '';
-      if (emptyRow.querySelector('.today-m-amount')) emptyRow.querySelector('.today-m-amount').value = presetObj.amount || '';
-      (emptyRow.querySelector('.today-m-qty') || emptyRow.querySelector('.today-m-name'))?.focus();
+      if (emptyRow.querySelector('.today-m-irisu')) emptyRow.querySelector('.today-m-irisu').value = presetObj.irisu || '';
+      const _cpInps = emptyRow.querySelectorAll('.today-m-nana-cp');
+      const _qtyInps = emptyRow.querySelectorAll('.today-m-nana-qty');
+      (presetObj.cp || []).forEach((v, i) => { if (_cpInps[i]) _cpInps[i].value = v; });
+      (presetObj.qty || []).forEach((v, i) => { if (_qtyInps[i]) _qtyInps[i].value = v; });
+      emptyRow.querySelector('.today-m-name')?.focus();
     } else if (isFusui) {
       if (emptyRow.querySelector('.today-m-code')) emptyRow.querySelector('.today-m-code').value = presetObj.code || '';
       emptyRow.querySelector('.today-m-name').value = presetObj.name || '';
@@ -2177,11 +2193,13 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
                   : (isNanohana
                       ? _appendTodayModalItemRow({
                           orderNo: row.cells[0] || '',
-                          name: row.cells[1] || '',
-                          spec: row.cells[2] || '',
-                          price: row.cells[3] || '',
-                          qty: row.cells[4] || '',
-                          amount: row.cells[5] || '',
+                          toku:    row.cells[1] || '',
+                          name:    row.cells[2] || '',
+                          spec:    row.cells[3] || '',
+                          price:   row.cells[4] || '',
+                          irisu:   row.cells[5] || '',
+                          cp:  [0,1,2,3,4].map(i => row.cells[6 + i*2] || ''),
+                          qty: [0,1,2,3,4].map(i => row.cells[7 + i*2] || ''),
                         })
                       : (isFusui
                           ? _appendTodayModalItemRow({
@@ -2344,7 +2362,7 @@ function openTodayOrderItemModal(rowIdx = null, presetName = '', options = {}) {
     } else {
       const naBlank = { category: defCat, name: '', spec: '', priceP: '', priceCs: '', jan: '', days: Array(6).fill(''), note: '' };
       const tsukijiBlank = { division: '', origin: '千葉', name: '', unit: '', days: Array(6).fill(''), note: '' };
-      const nanohanaBlank = { orderNo: '', name: '', spec: '', price: '', qty: '', amount: '' };
+      const nanohanaBlank = { orderNo: '', toku: '', name: '', spec: '', price: '', irisu: '', cp: ['','','','',''], qty: ['','','','',''] };
       const fusuiBlank = { code: '', name: '', spec: '', qty: '', price: '', amount: '' };
       const worlddelicaBlank = { date: '', name: '', qty: '', unit: '', note: '' };
       const rosenBlank = { code: '', name: '', irisu: '', cost: '', total: '', days: Array(7).fill(''), note: '' };
@@ -2404,7 +2422,7 @@ function closeTodayOrderMetaModal() {
 async function deleteTodayOrderRow(ri, skipConfirm = false) {
   if (!_todayOrderRows.length || ri < 0 || ri >= _todayOrderRows.length) return;
   const rowObj = _todayOrderRows[ri];
-  if (rowObj.type === 'title' || rowObj.type === 'header') {
+  if (rowObj.type === 'title' || rowObj.type === 'header' || rowObj.type === 'header_top' || rowObj.type === 'header_sub') {
     showToast('タイトル行・見出し行は削除できません', true);
     return;
   }
@@ -2789,6 +2807,7 @@ function _renderTodayOrderGrid() {
     }
   }
 
+  let _nanohanaHdr1Done = false;
   rows.forEach((rowObj, ri) => {
     const tr = document.createElement('tr');
     trList[ri] = tr;
@@ -2812,6 +2831,95 @@ function _renderTodayOrderGrid() {
     }
     if (searchQ && rowObj.type === 'item' && !matchesSearch) {
       tr.classList.add('hidden');
+    }
+
+    // なのはな: 2-row merged header
+    // rn1 + cols 0-2 use rowspan=2; act1 has NO rowspan; tr2 fills only cols 3-15 + act2
+    if (isNanohana && rowObj.type === 'header') {
+      if (!_nanohanaHdr1Done) {
+        _nanohanaHdr1Done = true;
+        // ── Row 1 ──
+        tr.classList.add('today-xls-row', 'today-xls-row-header');
+        const rn1 = document.createElement('td');
+        rn1.className = 'xls-td-row';
+        rn1.rowSpan = 2;
+        rn1.textContent = ri + 1;
+        rn1.addEventListener('click', e => { e.stopPropagation(); selectCell(ri, 0, true); });
+        tr.appendChild(rn1);
+        rowNumCells[ri] = rn1;
+        cellMatrix[ri] = [];
+        // cols 0-2: 注文No. / 特価 / 商品名 — rowspan=2 (true merged cells)
+        for (let ci = 0; ci < 3; ci++) {
+          const td = document.createElement('td');
+          td.rowSpan = 2;
+          const v = String(rowObj.cells[ci] || '');
+          td.className = `${_getTodayRowCellClass(rowObj, ci, v)} today-td-nanohana-${ci}`;
+          td.textContent = v;
+          td.style.verticalAlign = 'middle';
+          td.addEventListener('click', () => selectCell(ri, ci, true));
+          td.addEventListener('dblclick', e2 => { e2.stopPropagation(); startInlineEdit(ri, ci); });
+          tr.appendChild(td);
+          cellMatrix[ri][ci] = td;
+        }
+        // 納品日: colspan=3
+        const nohiTd = document.createElement('td');
+        nohiTd.colSpan = 3;
+        nohiTd.className = 'today-xls-header today-xls-header-center today-td-nanohana-3';
+        nohiTd.textContent = '納品日';
+        nohiTd.addEventListener('click', () => selectCell(ri, 3, true));
+        tr.appendChild(nohiTd);
+        cellMatrix[ri][3] = nohiTd; cellMatrix[ri][4] = nohiTd; cellMatrix[ri][5] = nohiTd;
+        // 5 date cols: colspan=2 each
+        for (let d = 0; d < 5; d++) {
+          const ci = 6 + d * 2;
+          const v = String(rowObj.cells[ci] || '');
+          const td = document.createElement('td');
+          td.colSpan = 2;
+          td.className = `${_getTodayRowCellClass(rowObj, ci, v)} today-td-nanohana-${ci}`;
+          td.textContent = v;
+          td.style.textAlign = 'center';
+          td.addEventListener('click', () => selectCell(ri, ci, true));
+          td.addEventListener('dblclick', e2 => { e2.stopPropagation(); openTodayOrderMetaModal('date'); });
+          tr.appendChild(td);
+          cellMatrix[ri][ci] = td; cellMatrix[ri][ci + 1] = td;
+        }
+        // act1: NO rowspan — row 2 gets its own act2
+        const act1 = document.createElement('td');
+        act1.className = 'today-xls-actions today-xls-actions-hdr';
+        act1.textContent = '操作';
+        tr.appendChild(act1);
+        tbody.appendChild(tr);
+        // ── Row 2: cols 0-3 covered by rowspan → only cols 3-15 + act2 ──
+        const subRow = rows[ri + 1];
+        if (subRow && subRow.type === 'header') {
+          const tr2 = document.createElement('tr');
+          tr2.classList.add('today-xls-row', 'today-xls-row-header');
+          cellMatrix[ri + 1] = [];
+          // point covered cols at the rowspanned cells
+          rowNumCells[ri + 1] = rn1;
+          for (let ci = 0; ci < 3; ci++) cellMatrix[ri + 1][ci] = cellMatrix[ri][ci];
+          // cols 3-15: 規格容量/納入価格/入数 + C/P・総数 × 5
+          for (let ci = 3; ci < ncols; ci++) {
+            const v = String(subRow.cells[ci] || '');
+            const td = document.createElement('td');
+            td.className = `${_getTodayRowCellClass(subRow, ci, v)} today-td-nanohana-${ci}`;
+            td.textContent = v;
+            td.addEventListener('click', () => selectCell(ri + 1, ci, true));
+            tr2.appendChild(td);
+            cellMatrix[ri + 1][ci] = td;
+          }
+          // act2
+          const act2 = document.createElement('td');
+          act2.className = 'today-xls-actions today-xls-actions-hdr';
+          tr2.appendChild(act2);
+          trList[ri + 1] = tr2;
+          tbody.appendChild(tr2);
+        }
+        return;
+      } else {
+        cellMatrix[ri] = cellMatrix[ri] || [];
+        return;
+      }
     }
 
     const rowNum = document.createElement('td');
@@ -3065,7 +3173,118 @@ function _insertHaibukiyaItemUnderCategory(categoryName, cells) {
   return baseIdx;
 }
 
+/* ── Today OCR list (shown after DB save) ───────────────────────── */
+
+let _todayOcrData = null;
+
+function _isDateColumn(header) {
+  if (!header) return false;
+  const h = String(header).replace(/\s/g, '');
+  // matches 9/21月, 9/21(月), bare weekday — also allows trailing text like "変更"
+  return /\d{1,2}\/\d{1,2}[月火水木金土日]/.test(h) ||
+         /\d{1,2}\/\d{1,2}\([月火水木金土日]\)/.test(h) ||
+         /^[月火水木金土日]$/.test(h);
+}
+
+function _renderTodayOcrList(result) {
+  const container = document.getElementById('todayOcrList');
+  if (!container) return;
+
+  const sheets = (result && Array.isArray(result.custom_sheets))
+    ? result.custom_sheets.filter(s => s.name !== 'Full Text' && Array.isArray(s.rows) && s.rows.length > 1)
+    : [];
+
+  if (!sheets.length) {
+    container.innerHTML = `<div class="today-ocr-empty">
+      <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"/></svg>
+      <p>表示できるデータがありません</p>
+    </div>`;
+    return;
+  }
+
+  let html = '';
+  for (const sheet of sheets) {
+    const rows = sheet.rows;
+    // find header row
+    const hdrIdx = typeof sheet.headerIdx === 'number' ? sheet.headerIdx
+      : (sheet.hasHeader ? 0 : -1);
+    const headers = hdrIdx >= 0 ? rows[hdrIdx] : null;
+    const dataRows = rows.filter((_, i) => i !== hdrIdx);
+
+    // detect date columns
+    let dateColIndices = [];
+    if (headers) {
+      headers.forEach((h, i) => { if (_isDateColumn(h)) dateColIndices.push(i); });
+    }
+
+    // filter: only keep rows with at least one non-empty date-column value
+    const filteredRows = (dateColIndices.length >= 2)
+      ? dataRows.filter(row =>
+          dateColIndices.some(ci => {
+            const v = String(row[ci] ?? '').trim();
+            return v !== '' && v !== '0' && v !== '-' && v !== '変更';
+          })
+        )
+      : dataRows;
+
+    if (!filteredRows.length) continue;
+
+    // show 品名 column + date columns (or all columns if no date columns detected)
+    let visibleIndices;
+    if (dateColIndices.length >= 2) {
+      const hinmeiIdx = headers ? headers.findIndex(h => String(h ?? '').replace(/\s/g, '').includes('品名')) : -1;
+      visibleIndices = hinmeiIdx >= 0
+        ? [hinmeiIdx, ...dateColIndices]
+        : dateColIndices;
+    } else {
+      visibleIndices = headers ? headers.map((_, i) => i) : filteredRows[0].map((_, i) => i);
+    }
+
+    const dispHeaders = headers
+      ? visibleIndices.map(i => String(headers[i] ?? '').replace(/\n/g, ' ').trim())
+      : visibleIndices.map(i => String(i + 1));
+
+    html += `<div class="today-ocr-info">
+      <span class="today-ocr-filename">${esc(sheet.name)}</span>
+      ${result.filename ? `<span class="today-ocr-client">${esc(result.filename)}</span>` : ''}
+      <span class="today-ocr-client">${filteredRows.length}行</span>
+    </div>`;
+
+    html += `<div class="today-ocr-table-wrap"><table class="today-ocr-table"><thead><tr>`;
+    dispHeaders.forEach(h => { html += `<th>${esc(h)}</th>`; });
+    html += `</tr></thead><tbody>`;
+    for (const row of filteredRows) {
+      html += '<tr>';
+      visibleIndices.forEach(ci => {
+        const v = String(row[ci] ?? '').replace(/\n/g, ' ').trim();
+        html += `<td${v ? ' style="font-weight:600"' : ''}>${esc(v)}</td>`;
+      });
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+
+  container.innerHTML = html || `<div class="today-ocr-empty">
+    <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1z"/></svg>
+    <p>対象データがありません</p>
+  </div>`;
+}
+
+function _navigateToTodayOrder(result) {
+  _todayOcrData = result;
+  // switch sidebar nav
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector('.nav-item[data-view="todayOrder"]');
+  if (btn) btn.classList.add('active');
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+  const view = document.getElementById('viewTodayOrder');
+  if (view) view.classList.remove('hidden');
+  _renderTodayOcrList(result);
+}
+
 async function initTodayOrderView() {
+  // Render saved OCR data if available
+  if (_todayOcrData) _renderTodayOcrList(_todayOcrData);
   if (!_todayOrderInitialized) {
     // Build tabs and format-select dynamically from TODAY_ORDER_FORMATS
     const tabsContainer = document.getElementById('todayOrderSheetTabs');
@@ -3077,7 +3296,7 @@ async function initTodayOrderView() {
     const fmtSelect = document.getElementById('todayOrderFormatSelect');
     if (fmtSelect) {
       fmtSelect.innerHTML = Object.entries(TODAY_ORDER_FORMATS).map(([key, cfg]) => {
-        const label = cfg.downloadName.replace(/\.xlsx?$/i, '').replace(/_/g, ' ');
+        const label = cfg.downloadName.replace(/\.xlsx?$/i, '').replace(/_/g, ' ').replace(/^(発注書|発注明細書|注文書|週間発注リスト)\s*/u, '');
         return `<option value="${esc(key)}">${esc(label)}</option>`;
       }).join('');
       fmtSelect.value = _todayOrderCurrentFormat;
@@ -3368,11 +3587,15 @@ async function initTodayOrderView() {
             collected.push({ category: '', cells: [division, origin, name, unitRaw, ...normalizedDays, note] });
           } else if (isNanohana) {
             const orderNo = (tr.querySelector('.today-m-orderno')?.value || '').trim();
-            const spec = (tr.querySelector('.today-m-spec')?.value || '').trim();
-            const price = (tr.querySelector('.today-m-price')?.value || '').trim();
-            const qty = (tr.querySelector('.today-m-qty')?.value || '').trim();
-            const amount = (tr.querySelector('.today-m-amount')?.value || '').trim();
-            const hasAny = Boolean(orderNo || name || spec || price || qty || amount);
+            const toku    = (tr.querySelector('.today-m-toku')?.value || '').trim();
+            const spec    = (tr.querySelector('.today-m-spec')?.value || '').trim();
+            const price   = (tr.querySelector('.today-m-price')?.value || '').trim();
+            const irisu   = (tr.querySelector('.today-m-irisu')?.value || '').trim();
+            const _cpInps  = Array.from(tr.querySelectorAll('.today-m-nana-cp'));
+            const _qtyInps = Array.from(tr.querySelectorAll('.today-m-nana-qty'));
+            const cp  = _cpInps.map(i => i.value.trim());
+            const qty = _qtyInps.map(i => i.value.trim());
+            const hasAny = Boolean(orderNo || name || spec || price || irisu || cp.some(v=>v) || qty.some(v=>v));
             if (!hasAny) continue;
 
             if (!name) {
@@ -3382,7 +3605,9 @@ async function initTodayOrderView() {
               break;
             }
 
-            collected.push({ category: '', cells: [orderNo, name, spec, price, qty, amount] });
+            const _nanaCells = [orderNo, toku, name, spec, price, irisu];
+            for (let _ni = 0; _ni < 5; _ni++) _nanaCells.push(cp[_ni] || '', qty[_ni] || '');
+            collected.push({ category: '', cells: _nanaCells });
           } else if (isFusui) {
             const code = (tr.querySelector('.today-m-code')?.value || '').trim();
             const spec = (tr.querySelector('.today-m-spec')?.value || '').trim();
@@ -4147,7 +4372,6 @@ document.getElementById('clientHeadingSave')?.addEventListener('click', async ()
     closeClientHeadingModal();
     showToast(`「${targetLabel}」の見出し設定を保存しました`);
     await reloadClientsSheet();
-    if (typeof reloadProductSheet === 'function' && _productsLoaded) await reloadProductSheet();
     if (typeof _refreshXlsClientsAfterEdit === 'function') await _refreshXlsClientsAfterEdit();
     if (typeof loadHomeUploadClients === 'function') await loadHomeUploadClients(true);
     if (typeof currentResult !== 'undefined' && currentResult && currentResult.client && String(currentResult.client.id) === String(targetId)) {
@@ -4367,16 +4591,6 @@ document.getElementById('clientsExportBtn')?.addEventListener('click', () => {
   showToast(`Exported ${rows.length} clients`);
 });
 
-// ============================================================
-// Product Master view — Catalog & Price Management
-// ============================================================
-let _productsLoaded    = false;
-let _productAllRows    = [];
-let _productAllClients = [];
-let _productSort       = { col: 'product_code', dir: 1 };
-let _productModalEditId = null;
-let _pmForceShowAllClients = false;
-
 function buildClientHeadingColsHtml(headingColumns, maxChips = 6, variant = 'default') {
   const colItems = headingColumns
     ? String(headingColumns).split(/[,、\n]+/).map(s => s.trim()).filter(Boolean)
@@ -4410,530 +4624,6 @@ function buildClientHeadingFormatHtml(headerRow, headingColumns, maxChips = 6, v
   }
   return `<div class="client-cols-preview"><span class="client-row-badge">行 ${hRow}</span>${colsHtml}</div>`;
 }
-
-function _resolveProductClientHeading(p) {
-  const client = _productAllClients.find(c => c.id === p.client_id);
-  const headerRow = p.client_header_row ?? client?.header_row ?? 1;
-  const headingCols = p.client_heading_columns ?? client?.heading_columns ?? '';
-  return { client, headerRow, headingCols };
-}
-
-function renderProductClientsHeadingGrid() {
-  const grid = document.getElementById('productClientsHeadingGrid');
-  const tabStrip = document.getElementById('productClientsTabStrip');
-  const countEl = document.getElementById('productClientsHeadingCount');
-  const viewAllBtn = document.getElementById('pmViewAllClientsBtn');
-  if (!grid) return;
-
-  if (countEl) {
-    countEl.textContent = `${_productAllClients.length} 社`;
-  }
-
-  if (!_productAllClients.length) {
-    if (tabStrip) tabStrip.innerHTML = '';
-    if (viewAllBtn) viewAllBtn.classList.add('hidden');
-    grid.innerHTML = '<div class="sheet-empty" style="padding:14px">取引先が登録されていません。</div>';
-    return;
-  }
-
-  const cf = document.getElementById('productClientFilter');
-  const activeClientId = cf?.value || '';
-  const searchQuery = (document.getElementById('productSearch')?.value || '').trim().toLowerCase();
-
-  // Render quick client selector tabs
-  if (tabStrip) {
-    const allTab = `<button type="button" class="pm-client-tab${!activeClientId ? ' active' : ''}" data-client-id="">すべての取引先 <span class="pm-tab-badge">${_productAllClients.length}</span></button>`;
-    const clientTabs = _productAllClients.map(c => {
-      const isActive = activeClientId && String(c.id) === activeClientId;
-      const colCount = String(c.heading_columns || '').split(/[,、\n]+/).map(s => s.trim()).filter(Boolean).length;
-      return `<button type="button" class="pm-client-tab${isActive ? ' active' : ''}" data-client-id="${esc(c.id)}" title="${esc(c.code)}${c.name_en ? ' · ' + esc(c.name_en) : ''}">
-        <span>${esc(c.name_ja || c.code)}</span>${colCount ? `<span class="pm-tab-badge">${colCount}</span>` : ''}
-      </button>`;
-    }).join('');
-    tabStrip.innerHTML = allTab + clientTabs;
-
-    tabStrip.querySelectorAll('.pm-client-tab').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (!cf) return;
-        const cid = btn.dataset.clientId || '';
-        cf.value = cid;
-        _pmForceShowAllClients = false;
-        renderProductSheet();
-      });
-    });
-  }
-
-  const selectedClient = activeClientId
-    ? _productAllClients.find(c => String(c.id) === activeClientId)
-    : null;
-
-  if (viewAllBtn) {
-    if (selectedClient) {
-      viewAllBtn.classList.remove('hidden');
-      viewAllBtn.textContent = _pmForceShowAllClients ? '⊡ 選択中の取引先に絞込' : `⊞ 全 ${_productAllClients.length} 社を表示`;
-    } else {
-      viewAllBtn.classList.add('hidden');
-    }
-  }
-
-  // Focused Single-Client Schema Banner when a specific client is filtered
-  if (selectedClient && !_pmForceShowAllClients) {
-    grid.innerHTML = `<div class="pm-active-schema-banner">
-      <div class="pm-active-schema-info">
-        <div class="pm-active-schema-name">
-          <span class="prod-code">${esc(selectedClient.code)}</span>
-          <span>${esc(selectedClient.name_ja)}</span>
-        </div>
-        <div class="pm-active-schema-sub">
-          ${selectedClient.name_en ? `<span>${esc(selectedClient.name_en)}</span><span>·</span>` : ''}
-          <span>見出し行: <strong>${selectedClient.header_row || 1} 行目</strong></span>
-        </div>
-      </div>
-      <div class="pm-active-schema-cols">
-        <div class="pm-cols-list">${buildClientHeadingColsHtml(selectedClient.heading_columns, 0, 'schema')}</div>
-      </div>
-      <div class="pm-active-schema-actions">
-        <button class="prod-btn prod-btn-headings pm-banner-headings-btn" data-id="${esc(selectedClient.id)}" type="button" title="見出しフォーマットを設定">⚙ 見出し設定</button>
-      </div>
-    </div>`;
-
-    grid.querySelector('.pm-banner-headings-btn')?.addEventListener('click', () => {
-      openClientHeadingModal(selectedClient);
-    });
-    return;
-  }
-
-  const matrixClients = searchQuery
-    ? _productAllClients.filter(c =>
-        (c.code || '').toLowerCase().includes(searchQuery) ||
-        (c.name_ja || '').toLowerCase().includes(searchQuery) ||
-        (c.name_en || '').toLowerCase().includes(searchQuery) ||
-        (c.heading_columns || '').toLowerCase().includes(searchQuery)
-      )
-    : _productAllClients;
-
-  if (!matrixClients.length) {
-    grid.innerHTML = '<div class="sheet-empty" style="padding:20px">条件に一致する取引先見出しフォーマットが見つかりませんでした。</div>';
-    return;
-  }
-
-  // Enterprise Aligned Schema Matrix Table when viewing All Clients
-  grid.innerHTML = `<div class="pm-schema-matrix-wrap">
-    <table class="pm-schema-table">
-      <thead>
-        <tr>
-          <th>取引先</th>
-          <th style="text-align:center">見出し行</th>
-          <th>注文書列見出し (A → Z)</th>
-          <th style="text-align:right">操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${matrixClients.map(c => {
-          const isActive = activeClientId && String(c.id) === activeClientId;
-          return `<tr class="pm-schema-row${isActive ? ' active' : ''}" data-client-id="${esc(c.id)}" title="${esc(c.name_ja || c.code)} で絞り込み">
-            <td class="pm-schema-client-cell">
-              <div class="pm-schema-client-main">
-                <span class="prod-code">${esc(c.code)}</span>
-                <span class="pm-schema-client-ja">${esc(c.name_ja)}</span>
-              </div>
-              ${c.name_en ? `<div class="pm-schema-client-en">${esc(c.name_en)}</div>` : ''}
-            </td>
-            <td class="pm-schema-row-cell"><span class="pm-row-badge">行 ${c.header_row || 1}</span></td>
-            <td><div class="pm-cols-list">${buildClientHeadingColsHtml(c.heading_columns, 0, 'schema')}</div></td>
-            <td class="pm-schema-action-cell">
-              <button class="prod-btn prod-btn-headings pm-card-headings-btn" data-id="${esc(c.id)}" type="button" title="見出しフォーマットを設定">⚙ 見出し設定</button>
-            </td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>
-  </div>`;
-
-  grid.querySelectorAll('.pm-schema-row').forEach(row => {
-    row.addEventListener('click', () => {
-      if (!cf) return;
-      const cid = row.dataset.clientId;
-      cf.value = cf.value === cid ? '' : cid;
-      _pmForceShowAllClients = false;
-      renderProductSheet();
-    });
-  });
-
-  grid.querySelectorAll('.pm-card-headings-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const id = parseInt(btn.dataset.id, 10);
-      const client = _productAllClients.find(x => x.id === id);
-      if (client) openClientHeadingModal(client);
-    });
-  });
-}
-
-document.getElementById('pmViewAllClientsBtn')?.addEventListener('click', () => {
-  _pmForceShowAllClients = !_pmForceShowAllClients;
-  const grid = document.getElementById('productClientsHeadingGrid');
-  const toggleBtn = document.getElementById('toggleProductHeadingsBtn');
-  if (grid && grid.classList.contains('hidden')) {
-    grid.classList.remove('hidden');
-    if (toggleBtn) toggleBtn.textContent = '▾ 見出しを非表示';
-  }
-  renderProductClientsHeadingGrid();
-});
-
-document.getElementById('toggleProductHeadingsBtn')?.addEventListener('click', () => {
-  const grid = document.getElementById('productClientsHeadingGrid');
-  const btn = document.getElementById('toggleProductHeadingsBtn');
-  if (!grid || !btn) return;
-  const hidden = grid.classList.toggle('hidden');
-  btn.textContent = hidden ? '▸ 見出しを表示' : '▾ 見出しを非表示';
-});
-
-function updateProductModalHeadingPreview() {
-  const previewEl = document.getElementById('productFormClientHeadingPreview');
-  const clientSel = document.getElementById('productFormClient');
-  if (!previewEl || !clientSel) return;
-
-  const cid = clientSel.value ? parseInt(clientSel.value, 10) : null;
-  if (cid) {
-    const client = _productAllClients.find(c => c.id === cid);
-    if (client) {
-      previewEl.classList.remove('hidden');
-      previewEl.innerHTML = `<div style="font-weight:600;color:var(--text2);margin-bottom:6px">見出しフォーマット (${esc(client.name_ja)}):</div>` +
-        buildClientHeadingFormatHtml(client.header_row, client.heading_columns, 0, 'schema');
-      return;
-    }
-  }
-
-  if (_productAllClients.length > 0) {
-    previewEl.classList.remove('hidden');
-    previewEl.innerHTML = `<div style="font-weight:600;color:var(--text2);margin-bottom:6px">全取引先 見出しフォーマット (${_productAllClients.length}社):</div>` +
-      `<div style="display:flex;flex-direction:column;gap:6px;max-height:140px;overflow-y:auto">` +
-      _productAllClients.map(c =>
-        `<div style="display:flex;align-items:flex-start;gap:8px">
-          <span class="prod-code" style="flex-shrink:0;white-space:nowrap">${esc(c.name_ja || c.code)}</span>
-          ${buildClientHeadingFormatHtml(c.header_row, c.heading_columns, 0, 'schema')}
-        </div>`
-      ).join('') +
-      `</div>`;
-  } else {
-    previewEl.classList.add('hidden');
-    previewEl.innerHTML = '';
-  }
-}
-
-document.getElementById('productFormClient')?.addEventListener('change', updateProductModalHeadingPreview);
-
-function openProductModal(product = null) {
-  _productModalEditId = product ? product.id : null;
-  const title = document.getElementById('productModalTitle');
-  if (title) title.textContent = product ? '商品情報を編集' : '商品を追加';
-  document.getElementById('productFormCode').value   = product ? (product.product_code || '') : '';
-  document.getElementById('productFormNameJa').value = product ? (product.name_ja      || '') : '';
-  document.getElementById('productFormNameEn').value = product ? (product.name_en      || '') : '';
-  document.getElementById('productFormSpec').value   = product ? (product.spec         || '') : '';
-  document.getElementById('productFormPrice').value  = product && product.unit_price != null ? product.unit_price : '';
-
-  // populate client select
-  const clientSel = document.getElementById('productFormClient');
-  if (clientSel) {
-    clientSel.innerHTML = '<option value="">(指定なし / 共通商品)</option>' +
-      _productAllClients.map(c => `<option value="${c.id}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''}</option>`).join('');
-    clientSel.value = product && product.client_id ? String(product.client_id) : '';
-  }
-  updateProductModalHeadingPreview();
-
-  const modal = document.getElementById('productModalBackdrop');
-  if (modal) modal.classList.remove('hidden');
-  document.getElementById('productFormCode')?.focus();
-}
-
-function closeProductModal() {
-  document.getElementById('productModalBackdrop')?.classList.add('hidden');
-}
-
-document.getElementById('productFormCancel')?.addEventListener('click', closeProductModal);
-document.getElementById('productModalBackdrop')?.addEventListener('click', e => {
-  if (e.target === document.getElementById('productModalBackdrop')) closeProductModal();
-});
-
-document.getElementById('addProductBtn')?.addEventListener('click', () => openProductModal(null));
-
-document.getElementById('productFormSave')?.addEventListener('click', async () => {
-  const code   = document.getElementById('productFormCode')?.value.trim();
-  const nameJa = document.getElementById('productFormNameJa')?.value.trim();
-  const nameEn = document.getElementById('productFormNameEn')?.value.trim();
-  const spec   = document.getElementById('productFormSpec')?.value.trim();
-  const priceVal = document.getElementById('productFormPrice')?.value.trim();
-  const clientIdVal = document.getElementById('productFormClient')?.value;
-
-  if (!code || !nameJa) {
-    showToast('商品コードと商品名(日本語)は必須項目です', true);
-    return;
-  }
-
-  const unit_price = priceVal === '' ? null : parseFloat(priceVal);
-  if (unit_price !== null && isNaN(unit_price)) {
-    showToast('単価は有効な数値を入力してください', true);
-    return;
-  }
-  const client_id = clientIdVal ? parseInt(clientIdVal, 10) : null;
-
-  const saveBtn = document.getElementById('productFormSave');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '保存中…'; }
-
-  try {
-    const url    = _productModalEditId ? `/api/db/products/${_productModalEditId}` : `/api/db/products`;
-    const method = _productModalEditId ? 'PUT' : 'POST';
-    const r = await dbFetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        product_code: code,
-        name_ja: nameJa,
-        name_en: nameEn || null,
-        spec: spec || null,
-        unit_price: unit_price,
-        client_id: client_id,
-      })
-    });
-    if (!r || !r.ok) {
-      const err = r ? await r.json().catch(() => ({})) : {};
-      throw new Error(err.detail || (r ? r.statusText : 'サーバーに接続できません'));
-    }
-    closeProductModal();
-    showToast(_productModalEditId ? '商品情報を更新しました' : '商品を追加しました');
-    await reloadProductSheet();
-  } catch (e) {
-    showToast('エラー: ' + e.message, true);
-  } finally {
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '商品を保存'; }
-  }
-});
-
-async function initProductMasterView() {
-  if (_productsLoaded) return;
-  await reloadProductSheet();
-  _productsLoaded = true;
-}
-
-async function reloadProductSheet() {
-  const tbody = document.getElementById('productSheetBody');
-  const headingGrid = document.getElementById('productClientsHeadingGrid');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="sheet-loading">読み込み中…</td></tr>';
-  else if (headingGrid) headingGrid.innerHTML = '<div class="sheet-loading" style="padding:16px">取引先見出しフォーマットを読み込み中…</div>';
-
-  try {
-    const [prodsRes, clientsRes] = await Promise.all([
-      dbFetch('/api/db/products?limit=1000').catch(() => null),
-      dbFetch('/api/db/clients'),
-    ]);
-    if (!clientsRes || !clientsRes.ok) throw new Error('Database not connected');
-    _productAllClients = await clientsRes.json();
-    _productAllRows = prodsRes && prodsRes.ok ? await prodsRes.json() : [];
-
-    // Populate client filter dropdown
-    const cf = document.getElementById('productClientFilter');
-    if (cf) {
-      const prev = cf.value;
-      cf.innerHTML = '<option value="">すべての取引先</option>' +
-        _productAllClients.map(c => `<option value="${c.id}">${esc(c.name_ja)}${c.name_en ? ' / ' + esc(c.name_en) : ''}</option>`).join('');
-      cf.value = prev;
-    }
-
-    renderProductSheet();
-  } catch (e) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="sheet-loading" style="color:var(--danger)">Error: ${esc(e.message)}</td></tr>`;
-    else if (headingGrid) headingGrid.innerHTML = `<div class="sheet-loading" style="padding:16px;color:var(--danger)">Error: ${esc(e.message)}</div>`;
-  }
-}
-
-function getFilteredSortedProducts() {
-  const q       = (document.getElementById('productSearch')?.value || '').toLowerCase();
-  const clientF = document.getElementById('productClientFilter')?.value || '';
-
-  let rows = _productAllRows.filter(p => {
-    if (clientF && String(p.client_id) !== clientF) return false;
-    if (q) {
-      const code   = (p.product_code || '').toLowerCase();
-      const ja     = (p.name_ja || '').toLowerCase();
-      const en     = (p.name_en || '').toLowerCase();
-      const spec   = (p.spec || '').toLowerCase();
-      const client = (p.client_name_ja || p.client_name_en || '').toLowerCase();
-      const { headingCols } = _resolveProductClientHeading(p);
-      const hcols  = (headingCols || '').toLowerCase();
-      if (!code.includes(q) && !ja.includes(q) && !en.includes(q) && !spec.includes(q) && !client.includes(q) && !hcols.includes(q)) {
-        return false;
-      }
-    }
-    return true;
-  });
-
-  const { col, dir } = _productSort;
-  rows.sort((a, b) => {
-    let av, bv;
-    if (col === 'product_code') { av = (a.product_code || '').toLowerCase(); bv = (b.product_code || '').toLowerCase(); }
-    else if (col === 'name_ja') { av = (a.name_ja || '').toLowerCase(); bv = (b.name_ja || '').toLowerCase(); }
-    else if (col === 'name_en') { av = (a.name_en || '').toLowerCase(); bv = (b.name_en || '').toLowerCase(); }
-    else if (col === 'spec')    { av = (a.spec || '').toLowerCase(); bv = (b.spec || '').toLowerCase(); }
-    else if (col === 'unit_price') { av = a.unit_price ?? -1; bv = b.unit_price ?? -1; }
-    else if (col === 'client')  { av = (a.client_name_ja || '').toLowerCase(); bv = (b.client_name_ja || '').toLowerCase(); }
-    else if (col === 'heading_format') {
-      const ha = _resolveProductClientHeading(a);
-      const hb = _resolveProductClientHeading(b);
-      av = a.client_id ? `row${String(ha.headerRow).padStart(3, '0')}:${(ha.headingCols || '').toLowerCase()}` : 'zzz';
-      bv = b.client_id ? `row${String(hb.headerRow).padStart(3, '0')}:${(hb.headingCols || '').toLowerCase()}` : 'zzz';
-    }
-    else { av = a.updated_at || a.created_at || ''; bv = b.updated_at || b.created_at || ''; }
-    if (av < bv) return -dir; if (av > bv) return dir; return 0;
-  });
-  return rows;
-}
-
-function renderProductSheet() {
-  renderProductClientsHeadingGrid();
-
-  const tbody   = document.getElementById('productSheetBody');
-  const countEl = document.getElementById('productRowCount');
-  if (!tbody) {
-    if (countEl) countEl.textContent = `${_productAllClients.length} 社`;
-    return;
-  }
-
-  const rows = getFilteredSortedProducts();
-  if (countEl) countEl.textContent = `${rows.length} 件`;
-
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="sheet-empty">条件に一致する商品が見つかりませんでした。</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = rows.map((p, idx) => {
-    const clientName = p.client_name_ja
-      ? `<span class="sheet-client">${esc(p.client_name_ja)}</span>${p.client_name_en ? `<span class="sheet-client-en">${esc(p.client_name_en)}</span>` : ''}`
-      : '<span class="sheet-unassigned">—</span>';
-    const { headerRow, headingCols } = _resolveProductClientHeading(p);
-    const headingFormatCell = p.client_id
-      ? `<div class="pm-cell-heading-wrap">
-          ${buildClientHeadingFormatHtml(headerRow, headingCols, 4, 'schema')}
-          <button class="prod-btn prod-btn-headings pm-row-headings-btn" data-client-id="${esc(p.client_id)}" title="取引先見出し設定を開く">⚙</button>
-         </div>`
-      : '<span class="sheet-unassigned">—</span>';
-    const priceStr = p.unit_price != null ? '¥' + Number(p.unit_price).toLocaleString('ja-JP', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '—';
-    const updated = p.updated_at || p.created_at ? (p.updated_at || p.created_at).replace('T', ' ').slice(0, 16) : '—';
-
-    return `<tr class="${idx % 2 === 1 ? 'row-alt' : ''}" data-product-id="${esc(p.id)}">
-      <td class="col-no">${idx + 1}</td>
-      <td><span class="prod-code">${esc(p.product_code)}</span></td>
-      <td><strong>${esc(p.name_ja)}</strong></td>
-      <td>${esc(p.name_en || '—')}</td>
-      <td>${esc(p.spec || '—')}</td>
-      <td class="prod-price">${priceStr}</td>
-      <td>${clientName}</td>
-      <td>${headingFormatCell}</td>
-      <td class="col-date">${esc(updated)}</td>
-      <td class="prod-actions">
-        <button class="prod-btn prod-btn-edit" data-id="${esc(p.id)}" title="商品情報を編集">✎ 編集</button>
-        <button class="prod-btn prod-btn-del" data-id="${esc(p.id)}" title="商品を削除">🗑</button>
-      </td>
-    </tr>`;
-  }).join('');
-
-  // Wire edit, heading config, and delete buttons
-  tbody.querySelectorAll('.pm-row-headings-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const cid = parseInt(btn.dataset.clientId, 10);
-      const client = _productAllClients.find(x => x.id === cid);
-      if (client) openClientHeadingModal(client);
-    });
-  });
-
-  tbody.querySelectorAll('.prod-btn-edit').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const id = parseInt(btn.dataset.id, 10);
-      const prod = _productAllRows.find(x => x.id === id);
-      if (prod) openProductModal(prod);
-    });
-  });
-
-  tbody.querySelectorAll('.prod-btn-del').forEach(btn => {
-    btn.addEventListener('click', async e => {
-      e.stopPropagation();
-      const id = parseInt(btn.dataset.id, 10);
-      const prod = _productAllRows.find(x => x.id === id);
-      const label = prod ? `${prod.product_code} (${prod.name_ja})` : `ID ${id}`;
-      if (!(await showConfirmToast(`商品「${label}」を削除しますか？`))) return;
-      btn.disabled = true;
-      try {
-        const r = await dbFetch(`/api/db/products/${id}`, { method: 'DELETE' });
-        if (!r || !r.ok) {
-          const err = r ? await r.json().catch(() => ({})) : {};
-          throw new Error(err.detail || (r ? r.statusText : '削除に失敗しました'));
-        }
-        showToast(`商品「${label}」を削除しました`);
-        await reloadProductSheet();
-      } catch (err) {
-        showToast('Delete failed: ' + err.message, true);
-        btn.disabled = false;
-      }
-    });
-  });
-}
-
-// ── Product Sorting & Filters ──
-document.querySelectorAll('#productSheet .sortable').forEach(th => {
-  th.addEventListener('click', () => {
-    const col = th.dataset.col;
-    if (_productSort.col === col) { _productSort.dir *= -1; }
-    else { _productSort = { col, dir: 1 }; }
-    document.querySelectorAll('#productSheet .sortable').forEach(h => {
-      const ic = h.querySelector('.sort-icon');
-      if (ic) ic.textContent = h.dataset.col === col ? (_productSort.dir === 1 ? '↑' : '↓') : '↕';
-    });
-    renderProductSheet();
-  });
-});
-
-document.getElementById('productSearch')?.addEventListener('input', () => renderProductSheet());
-document.getElementById('productClientFilter')?.addEventListener('change', () => {
-  _pmForceShowAllClients = false;
-  renderProductSheet();
-});
-
-document.getElementById('productRefreshBtn')?.addEventListener('click', async () => {
-  _productsLoaded = false;
-  await reloadProductSheet();
-  _productsLoaded = true;
-});
-
-// CSV Export
-document.getElementById('productExportBtn')?.addEventListener('click', () => {
-  const rows = getFilteredSortedProducts();
-  const header = ['No.', 'Item Code', 'Product Name (JA)', 'Product Name (EN)', 'Spec', 'Unit Price', 'Client Code', 'Client Name (JA)', 'Client Header Row', 'Client Heading Columns', 'Updated At'];
-  const lines = [header, ...rows.map((p, i) => {
-    const { headerRow, headingCols } = _resolveProductClientHeading(p);
-    return [
-      i + 1,
-      p.product_code || '',
-      p.name_ja || '',
-      p.name_en || '',
-      p.spec || '',
-      p.unit_price != null ? p.unit_price : '',
-      p.client_code || '',
-      p.client_name_ja || '',
-      p.client_id ? headerRow : '',
-      p.client_id ? headingCols : '',
-      p.updated_at || p.created_at || '',
-    ];
-  })].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
-  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const a    = Object.assign(document.createElement('a'), { href: url, download: 'products_' + new Date().toISOString().slice(0, 10) + '.csv' });
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-  showToast(`Exported ${rows.length} products`);
-});
 
 // ── Excel Preview Modal ───────────────────────────────────────
 let _xlsActiveSheet = 0;
@@ -4979,10 +4669,6 @@ async function _ensureXlsClientsLoaded(force = false) {
     if (_xlsAllClients.length) return _xlsAllClients;
     if (Array.isArray(_clientsAllList) && _clientsAllList.length) {
       _xlsAllClients = _clientsAllList;
-      return _xlsAllClients;
-    }
-    if (Array.isArray(_productAllClients) && _productAllClients.length) {
-      _xlsAllClients = _productAllClients;
       return _xlsAllClients;
     }
   }
@@ -5814,6 +5500,7 @@ function _renderXlsGrid(sheet) {
 
   let selectedTd = null, selectedColIdx = -1, selectedRowIdx = -1;
   const cellMatrix = [];
+  const trList = [];
 
   const table = document.createElement('table');
   table.className = 'xls-table';
@@ -6064,10 +5751,24 @@ function _renderXlsGrid(sheet) {
     });
   }
 
+  // detect date columns for row filtering
+  const _dateColIndices = [];
+  for (let _ci = 0; _ci < maxCols; _ci++) {
+    if (_isDateColumn(_resolveSheetColHeading(sheet, _ci))) _dateColIndices.push(_ci);
+  }
+  const _shouldHideRow = (rowCells) => {
+    if (_dateColIndices.length < 2) return false;
+    return _dateColIndices.every(ci => {
+      const v = String(rowCells[ci] ?? '').trim();
+      return v === '' || v === '0' || v === '-' || v === '変更';
+    });
+  };
+
   let visibleRowNum = 0;
   rows.forEach((rowCells, ri) => {
     const isHdr = hasHeader && ri === headerIdx;
     if (hideHeaderRowInBody && isHdr) return;
+    if (!isHdr && _shouldHideRow(rowCells)) return;
 
     visibleRowNum += 1;
     const tr = document.createElement('tr');
@@ -6104,6 +5805,7 @@ function _renderXlsGrid(sheet) {
 
     tr.appendChild(rowNum);
     rowNumCells[ri] = rowNum;
+    trList[ri] = tr;
     cellMatrix[ri] = [];
 
     for (let ci = 0; ci < maxCols; ci++) {
@@ -6454,6 +6156,101 @@ function _buildDocTable(sheet) {
   return html;
 }
 
+function _buildNanohanaExtractedSheet(sheets) {
+  const mainSheet = sheets.find(s => s.name !== 'Full Text') || sheets[0];
+  if (!mainSheet || !mainSheet.rows || mainSheet.rows.length < 3) return null;
+  const rows = mainSheet.rows;
+
+  // Find lower header row: contains "注文No" and "商品名"
+  let hdrIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 30); i++) {
+    const rStr = rows[i].map(c => String(c || '')).join('');
+    if ((rStr.includes('注文No') || rStr.includes('注文Ｎｏ')) && rStr.includes('商品名')) {
+      hdrIdx = i; break;
+    }
+  }
+  if (hdrIdx < 0) return null;
+
+  const hdrRow  = rows[hdrIdx].map(c => String(c || '').trim());
+  const dateRow = hdrIdx > 0 ? rows[hdrIdx - 1].map(c => String(c || '').trim()) : [];
+
+  const findCol = (...terms) => {
+    for (let ci = 0; ci < hdrRow.length; ci++) {
+      if (terms.some(t => hdrRow[ci].includes(t))) return ci;
+    }
+    return -1;
+  };
+  const colOrderNo = findCol('注文No', '注文Ｎｏ', '注文no');
+  const colToku    = findCol('特価');
+  const colName    = findCol('商品名');
+  const colSpec    = findCol('規格容量', '規格・容量', '規格/容量');
+  const colPrice   = findCol('納入価格', '仕入価格');
+  const colIrisu   = findCol('入数');
+  if (colOrderNo < 0 || colName < 0) return null;
+
+  // Identify C/P + 総数 column pairs from header row
+  const pairs = [];
+  for (let ci = 0; ci < hdrRow.length; ci++) {
+    const v = hdrRow[ci];
+    if (v === 'C/P' || v === 'C／P' || v === 'CP' || v === 'Ｃ／Ｐ' || v === 'C / P') {
+      const nci = ci + 1;
+      if (nci < hdrRow.length && hdrRow[nci].includes('総数')) {
+        // Date is in dateRow at the C/P column position (or one before if merged)
+        let dateLabel = (dateRow[ci] || '').trim();
+        if (!dateLabel && ci > 0) dateLabel = (dateRow[ci - 1] || '').trim();
+        pairs.push({ cpCol: ci, qtyCol: nci, dateLabel });
+        ci = nci;
+      }
+    }
+  }
+  if (pairs.length === 0) return null;
+
+  // Keep only pairs where the date header is a real date (not empty / not 納品日)
+  const isDateStr = s => s !== '' && s !== '納品日' && !/^[\s/]+$/.test(s);
+  const activePairs = pairs.filter(p => isDateStr(p.dateLabel));
+  if (activePairs.length === 0) return null;
+
+  const fixedCols = [
+    { idx: colOrderNo, label: '注文No.' },
+    { idx: colToku,    label: '特価' },
+    { idx: colName,    label: '商品名' },
+    { idx: colSpec,    label: '規格容量' },
+    { idx: colPrice,   label: '納入価格' },
+    { idx: colIrisu,   label: '入数' },
+  ].filter(c => c.idx >= 0);
+
+  // Upper row: blank for most fixed cols, 納品日 above 規格容量, then date labels
+  const upperRow = fixedCols.map(c => c.label === '規格容量' ? '納品日' : '');
+  activePairs.forEach(p => { upperRow.push(p.dateLabel); upperRow.push(''); });
+
+  // Lower row: fixed column labels + C/P + 総数 for each active date
+  const lowerRow = fixedCols.map(c => c.label);
+  activePairs.forEach(() => { lowerRow.push('C/P'); lowerRow.push('総数'); });
+
+  const outRows = [upperRow, lowerRow];
+
+  for (let ri = hdrIdx + 1; ri < rows.length; ri++) {
+    const row = rows[ri].map(c => String(c || ''));
+    const orderVal = (row[colOrderNo] || '').trim();
+    if (!orderVal || !/^\d/.test(orderVal)) continue;
+    const outRow = fixedCols.map(c => row[c.idx] || '');
+    activePairs.forEach(p => { outRow.push(row[p.cpCol] || ''); outRow.push(row[p.qtyCol] || ''); });
+    outRows.push(outRow);
+  }
+
+  if (outRows.length <= 2) return null;
+
+  return {
+    name: 'なのはな発注書',
+    rows: outRows,
+    hasHeader: true,
+    headerIdx: 1,
+    customHeaders: [],
+    clientHeaders: [],
+    clientHeadingId: null,
+  };
+}
+
 async function openOrderPreview(jobId, filename) {
   const modal       = document.getElementById('xlsModal');
   const titleEl     = document.getElementById('xlsTitle');
@@ -6499,8 +6296,9 @@ async function openOrderPreview(jobId, filename) {
     result = currentResult;
   }
 
-  if (!result) { loading.textContent = 'Could not load result.'; return; }
+  if (!result) { loading.textContent = 'データを読み込めませんでした。'; return; }
 
+  try {
   _xlsResult = result;
   _xlsSheets = _buildSheets(result);
   _xlsActiveSheet = 0;
@@ -6543,19 +6341,34 @@ async function openOrderPreview(jobId, filename) {
     }
     clientSelectEl.value = initialClientId ? String(initialClientId) : '';
     clientSelectEl.onchange = () => _updateXlsClientBarUI();
-
-    // Auto-apply matched client heading format if sheet has not been customized
+    // Auto-apply client heading for the detected client across all sheets
     if (initialClientId) {
       const detectedClient = _xlsAllClients.find(c => String(c.id) === String(initialClientId));
-      if (detectedClient && _xlsSheets[0] && _xlsSheets[0].clientHeadingId == null) {
-        _applyClientHeadingToSheet(_xlsSheets[0], detectedClient);
+      if (detectedClient) {
+        _xlsSheets.forEach(sheet => {
+          if (sheet.clientHeadingId == null) {
+            _applyClientHeadingToSheet(sheet, detectedClient);
+          }
+        });
       }
+    }
+  }
+
+  // なのはな: inject extracted & date-filtered sheet as first tab
+  {
+    const jobMeta2 = Array.isArray(_orderAllJobs) ? _orderAllJobs.find(j => j.job_id === jobId) : null;
+    const isNanohana =
+      (jobMeta2?.client_name_ja || '').includes('なのはな') ||
+      (result.fused_text || result.text || '').includes('なのはな');
+    if (isNanohana) {
+      const nanoSheet = _buildNanohanaExtractedSheet(_xlsSheets);
+      if (nanoSheet) _xlsSheets.unshift(nanoSheet);
     }
   }
 
   // Document View tab (default)
   const docTab = document.createElement('div');
-  docTab.className = 'xls-sheet-tab xls-sheet-tab-doc active';
+  docTab.className = 'xls-sheet-tab xls-sheet-tab-doc';
   docTab.textContent = '文書プレビュー';
   docTab.addEventListener('click', () => {
     _xlsActiveSheet = -1;
@@ -6944,11 +6757,35 @@ async function openOrderPreview(jobId, filename) {
   }
 
   loading.classList.add('hidden');
-  _xlsActiveSheet = -1;
-  document.getElementById('xlsDocWrap').classList.remove('hidden');
-  document.querySelector('.xls-formulabar').classList.add('xls-formulabar-hidden');
-  document.getElementById('xlsClientHeadingBar').classList.add('xls-client-bar-hidden');
-  _renderDocumentView(_xlsResult);
+  if (_xlsSheets.length > 0) {
+    _xlsActiveSheet = 0;
+    document.getElementById('xlsDocWrap').classList.add('hidden');
+    document.getElementById('xlsGridWrap').classList.remove('hidden');
+    const _fbar = document.querySelector('.xls-formulabar');
+    if (_fbar) _fbar.classList.remove('xls-formulabar-hidden');
+    const _cbar = document.getElementById('xlsClientHeadingBar');
+    if (_cbar) _cbar.classList.remove('xls-client-bar-hidden');
+    const firstSheetTab = sheetTabsEl.querySelector('.xls-sheet-tab:not(.xls-sheet-tab-doc)');
+    if (firstSheetTab) firstSheetTab.classList.add('active');
+    _renderXlsGrid(_xlsSheets[0]);
+    _updateXlsClientBarUI();
+  } else {
+    _xlsActiveSheet = -1;
+    document.getElementById('xlsDocWrap').classList.remove('hidden');
+    const _fbar = document.querySelector('.xls-formulabar');
+    if (_fbar) _fbar.classList.add('xls-formulabar-hidden');
+    const _cbar = document.getElementById('xlsClientHeadingBar');
+    if (_cbar) _cbar.classList.add('xls-client-bar-hidden');
+    docTab.classList.add('active');
+    _renderDocumentView(_xlsResult);
+  }
+
+  } catch(err) {
+    loading.classList.remove('hidden');
+    loading.textContent = 'エラー: ' + (err && err.message ? err.message : String(err));
+    console.error('[openOrderPreview]', err);
+    return;
+  }
 
   document.getElementById('xlsCsvBtn').onclick = () => {
     const sheet = _xlsSheets[_xlsActiveSheet];
@@ -7250,6 +7087,13 @@ function pickFile(file) {
   if (!file) return;
   selectedFile = file;
   document.getElementById("processBtn").disabled = false;
+
+  // Auto-select matching client from filename
+  const upSel = document.getElementById('uploadClientSelect');
+  if (upSel && _xlsAllClients.length) {
+    const autoClient = _detectClientFromFilenameClientSide(file.name, _xlsAllClients);
+    upSel.value = autoClient ? String(autoClient.id) : '';
+  }
 
   const ext   = file.name.split(".").pop().toLowerCase();
   const isImg = /^(jpg|jpeg|png|bmp|gif|webp|tif|tiff)$/.test(ext);
@@ -8098,7 +7942,7 @@ if (saveDbBtn) {
         ? ` → ${saved.client.name_ja} / ${saved.client.name_en}`
         : "";
       showToast(`Saved "${saved.filename}" to database${clientTxt}`);
-      if (typeof window._onJobSaved === "function") window._onJobSaved(saved);
+      if (typeof window._onJobSaved === "function") window._onJobSaved(saved, currentResult);
     } catch (err) {
       saveDbBtn.textContent = prevLabel;
       showToast("Save failed: " + err.message, true);
@@ -8472,9 +8316,10 @@ async function dbFetch(path, opts) {
 
   // Auto-refresh history when a job is saved to MySQL
   const origSavedHandler = window._onJobSaved;
-  window._onJobSaved = function(saved) {
-    if (origSavedHandler) origSavedHandler(saved);
+  window._onJobSaved = function(saved, ocrResult) {
+    if (origSavedHandler) origSavedHandler(saved, ocrResult);
     setTimeout(() => { loadClients(); loadHistory(); }, 250);
+    if (ocrResult) _navigateToTodayOrder(ocrResult);
   };
 })();
 

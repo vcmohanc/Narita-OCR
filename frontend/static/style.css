@@ -852,8 +852,8 @@ td{color:var(--muted)}
 }
 .xls-overlay.hidden{display:none}
 .xls-window{
-  width:94vw;height:90vh;max-width:1440px;
-  background:#fff;border-radius:4px;
+  width:100vw;height:100vh;height:100dvh;max-width:100vw;
+  background:#fff;border-radius:0;
   box-shadow:0 24px 64px rgba(0,0,0,.45);
   display:flex;flex-direction:column;overflow:hidden;
 }
@@ -972,7 +972,7 @@ td{color:var(--muted)}
 .xls-grid-wrap{height:100%;overflow:auto;background:#fff}
 .xls-grid-wrap.hidden{display:none}
 /* spreadsheet table */
-.xls-table{border-collapse:collapse;min-width:100%;background:#fff}
+.xls-table{border-collapse:collapse;width:100%;table-layout:auto;background:#fff}
 .xls-th-corner{
   position:sticky;top:0;left:0;z-index:4;
   width:52px;min-width:52px;
@@ -983,7 +983,7 @@ td{color:var(--muted)}
   position:sticky;top:0;z-index:3;
   background:#e8e8e8;border:1px solid #c0c0c0;border-top:none;
   text-align:center;font-size:11px;font-weight:600;color:#333;
-  padding:4px 8px;min-width:96px;user-select:none;
+  padding:4px 6px;min-width:60px;user-select:none;
   font-family:'Calibri','Arial',sans-serif;white-space:nowrap;
   box-sizing:border-box;
 }
@@ -1041,9 +1041,9 @@ td{color:var(--muted)}
 }
 .xls-td-row.xls-row-sel{background:#bdd7ee;border-color:#2d6ea6}
 .xls-cell{
-  border:1px solid #d0d0d0;padding:3px 8px;
+  border:1px solid #d0d0d0;padding:3px 6px;
   font-size:12px;font-family:'Calibri','Arial',sans-serif;
-  color:#000;min-width:96px;max-width:320px;
+  color:#000;min-width:60px;max-width:280px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   cursor:cell;vertical-align:middle;background:#fff;
 }
@@ -2190,20 +2190,40 @@ td{color:var(--muted)}
 .today-xls-table.format-fusui td.today-td-fusui-4,
 .today-xls-table.format-fusui td.today-td-fusui-5 { text-align: right; }
 
-/* ── Nanohana 6-Column Format (なのはな生活協同組合) ── */
-.today-xls-table.format-nanohana col.today-col-nanohana-0 { width: 100px; }
-.today-xls-table.format-nanohana col.today-col-nanohana-1 { width: 280px; }
-.today-xls-table.format-nanohana col.today-col-nanohana-2 { width: 100px; }
-.today-xls-table.format-nanohana col.today-col-nanohana-3 { width: 120px; }
-.today-xls-table.format-nanohana col.today-col-nanohana-4 { width: 100px; }
-.today-xls-table.format-nanohana col.today-col-nanohana-5 { width: 120px; }
+/* ── Nanohana 16-Column Format (なのはな生活協同組合) ── */
+.today-xls-table.format-nanohana col.today-col-nanohana-0 { width: 70px; }   /* 注文No. */
+.today-xls-table.format-nanohana col.today-col-nanohana-1 { width: 46px; }   /* 特価 */
+.today-xls-table.format-nanohana col.today-col-nanohana-2 { width: 200px; }  /* 商品名 */
+.today-xls-table.format-nanohana col.today-col-nanohana-3 { width: 90px; }   /* 規格容量 */
+.today-xls-table.format-nanohana col.today-col-nanohana-4 { width: 80px; }   /* 納入価格 */
+.today-xls-table.format-nanohana col.today-col-nanohana-5 { width: 46px; }   /* 入数 */
+.today-xls-table.format-nanohana col.today-col-nanohana-6,
+.today-xls-table.format-nanohana col.today-col-nanohana-7,
+.today-xls-table.format-nanohana col.today-col-nanohana-8,
+.today-xls-table.format-nanohana col.today-col-nanohana-9,
+.today-xls-table.format-nanohana col.today-col-nanohana-10,
+.today-xls-table.format-nanohana col.today-col-nanohana-11,
+.today-xls-table.format-nanohana col.today-col-nanohana-12,
+.today-xls-table.format-nanohana col.today-col-nanohana-13,
+.today-xls-table.format-nanohana col.today-col-nanohana-14,
+.today-xls-table.format-nanohana col.today-col-nanohana-15 { width: 55px; }  /* C/P + 総数 × 5 days */
 
 .today-xls-table.format-nanohana td.today-td-nanohana-0 { text-align: center; }
-.today-xls-table.format-nanohana td.today-td-nanohana-1 { text-align: left; }
-.today-xls-table.format-nanohana td.today-td-nanohana-2 { text-align: center; }
-.today-xls-table.format-nanohana td.today-td-nanohana-3,
+.today-xls-table.format-nanohana td.today-td-nanohana-1 { text-align: center; }
+.today-xls-table.format-nanohana td.today-td-nanohana-2 { text-align: left; }
+.today-xls-table.format-nanohana td.today-td-nanohana-3 { text-align: center; }
 .today-xls-table.format-nanohana td.today-td-nanohana-4,
-.today-xls-table.format-nanohana td.today-td-nanohana-5 { text-align: right; }
+.today-xls-table.format-nanohana td.today-td-nanohana-5,
+.today-xls-table.format-nanohana td.today-td-nanohana-6,
+.today-xls-table.format-nanohana td.today-td-nanohana-7,
+.today-xls-table.format-nanohana td.today-td-nanohana-8,
+.today-xls-table.format-nanohana td.today-td-nanohana-9,
+.today-xls-table.format-nanohana td.today-td-nanohana-10,
+.today-xls-table.format-nanohana td.today-td-nanohana-11,
+.today-xls-table.format-nanohana td.today-td-nanohana-12,
+.today-xls-table.format-nanohana td.today-td-nanohana-13,
+.today-xls-table.format-nanohana td.today-td-nanohana-14,
+.today-xls-table.format-nanohana td.today-td-nanohana-15 { text-align: right; }
 
 .today-xls-table.format-nanohana tr.today-row-summary td:not(.xls-td-row):not(.today-xls-actions) {
   background: #D9E1F2 !important;

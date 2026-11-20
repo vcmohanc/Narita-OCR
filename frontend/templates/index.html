@@ -4,8 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>OCR System</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <!-- Non-blocking font load: use media trick so it never stalls page load -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"></noscript>
   <link rel="stylesheet" href="/static/style.css?v=39" />
 </head>
 <body>
@@ -30,18 +32,20 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           <span>ホーム</span>
         </button>
-        <button class="nav-item" data-view="todayOrder">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/></svg>
-          <span>本日の発注書</span>
+        <button class="nav-item" data-view="order">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <span>発注一覧</span>
         </button>
+        <div class="sidebar-section-label">マスタデータ</div>
         <button class="nav-item" data-view="clients">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>取引先マスタ</span>
         </button>
-        <button class="nav-item" data-view="productMaster">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-          <span>商品マスタ</span>
+        <button class="nav-item" data-view="todayOrder">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/></svg>
+          <span>商品</span>
         </button>
+
       </div>
       <div class="sidebar-auth-footer" id="sidebarAuthFooter">
         <div class="sidebar-user-row">
@@ -247,6 +251,63 @@
         </div>
       </div>
 
+      <!-- ORDER VIEW -->
+      <div class="view hidden" id="viewOrder">
+        <div class="order-topbar">
+          <div class="order-topbar-title">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            発注一覧
+          </div>
+          <input class="filter-search" id="orderSearch" type="search" placeholder="ファイル名で検索…" style="max-width:200px" />
+          <select id="orderClientFilter" class="filter-select" aria-label="取引先フィルター">
+            <option value="">すべての取引先</option>
+          </select>
+          <select id="orderStatusFilter" class="filter-select" aria-label="ステータスフィルター">
+            <option value="">すべてのステータス</option>
+            <option value="done">完了</option>
+            <option value="error">エラー</option>
+            <option value="processing">処理中</option>
+          </select>
+          <select id="orderEngineFilter" class="filter-select" aria-label="エンジンフィルター">
+            <option value="">すべてのエンジン</option>
+            <option value="all">All 3</option>
+            <option value="paddle">PaddleOCR</option>
+            <option value="docling">Docling</option>
+            <option value="deepseek">DeepSeek-OCR</option>
+          </select>
+          <span class="order-row-count" id="orderRowCount">0 件</span>
+          <div class="order-toolbar-actions">
+            <button class="btn-sm" id="orderRefreshBtn" title="データを再読み込み">↻ 更新</button>
+            <button class="btn-sm" id="orderExportBtn" title="CSVエクスポート">↓ CSV</button>
+          </div>
+        </div>
+        <div id="orderBulkBar" class="bulk-bar hidden">
+          <span id="orderBulkCount">0</span> 件選択中
+          <button id="orderBulkDeleteBtn" class="btn-sm" style="color:#dc2626;border-color:#dc2626">🗑 一括削除</button>
+        </div>
+        <div class="order-sheet-outer">
+          <table class="order-sheet" id="orderSheet">
+            <thead>
+              <tr>
+                <th style="width:32px"><input type="checkbox" id="orderSelectAll" title="すべて選択"></th>
+                <th style="width:36px">No.</th>
+                <th class="sortable" data-col="client">取引先 <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="filename">ファイル名 <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="engine">エンジン <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="status">ステータス <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="confidence">精度 <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="time">処理時間 <span class="sort-icon">↕</span></th>
+                <th class="sortable" data-col="date">作成日時 <span class="sort-icon">↓</span></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="orderSheetBody">
+              <tr><td colspan="10" class="sheet-loading">読み込み中…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- TODAY ORDER VIEW -->
       <div class="view hidden" id="viewTodayOrder">
         <!-- Top bar -->
@@ -256,7 +317,7 @@
               <rect width="18" height="18" rx="3" fill="#217346"/>
               <path d="M4 4h4l1.5 3L11 4h3l-3 5 3 5h-3l-1.5-3L8 14H4l3-5L4 4z" fill="white"/>
             </svg>
-            本日の発注書
+            商品
           </div>
           <select class="filter-select today-format-select" id="todayOrderFormatSelect" aria-label="発注書フォーマット選択" title="表示する発注書フォーマットを選択">
             <!-- populated dynamically from TODAY_ORDER_FORMATS in app.js -->
@@ -285,17 +346,7 @@
             <label class="today-preset-label" for="todayOrderInlineDate">📅 対象週 (開始日):</label>
             <input type="date" class="xls-date-input" id="todayOrderInlineDate" title="開始日を変更すると対象期間と曜日見出し（月〜土）が自動更新されます" />
           </div>
-          <div class="today-preset-bar" id="todayOrderQuickPresets">
-            <span class="today-preset-label">クイック追加:</span>
-            <button type="button" class="today-preset-chip" data-preset="大根">+ 大根</button>
-            <button type="button" class="today-preset-chip" data-preset="赤からし水菜">+ 赤からし水菜</button>
-            <button type="button" class="today-preset-chip" data-preset="小江戸菜">+ 小江戸菜</button>
-            <button type="button" class="today-preset-chip" data-preset="スイスチャード">+ スイスチャード</button>
-            <button type="button" class="today-preset-chip" data-preset="ほうれん草">+ ほうれん草</button>
-            <button type="button" class="today-preset-chip" data-preset="キャベツ">+ キャベツ</button>
-            <button type="button" class="today-preset-chip" data-preset="ホテル風か様用">+ ホテル風か様用</button>
-            <button type="button" class="today-preset-chip today-preset-chip-all" id="todayOrderAddAllPresetsBtn" title="全7品目をまとめて登録モーダルに読み込み">+ 全品目を一括追加</button>
-          </div>
+
         </div>
 
         <!-- Formula bar -->
@@ -366,51 +417,6 @@
         </div>
       </div>
 
-      <!-- PRODUCT MASTER VIEW -->
-      <div class="view hidden" id="viewProductMaster">
-        <!-- Top bar -->
-        <div class="order-topbar">
-          <div class="order-topbar-title">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-            商品マスタ
-          </div>
-          <span class="order-row-count" id="productRowCount">0 件</span>
-          <div class="order-toolbar-actions">
-            <button class="btn-sm btn-add-client" id="addProductBtn">+ 商品を追加</button>
-            <button class="btn-sm" id="productExportBtn" title="CSVエクスポート">↓ CSV出力</button>
-            <button class="btn-sm" id="productRefreshBtn">↻ 更新</button>
-          </div>
-        </div>
-
-        <!-- Filter bar -->
-        <div class="order-filterbar">
-          <div class="filter-search-wrap">
-            <svg class="filter-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input class="filter-search" id="productSearch" type="search" placeholder="取引先コード、取引先名、見出し列名で検索…" />
-          </div>
-          <select class="filter-select" id="productClientFilter">
-            <option value="">すべての取引先</option>
-          </select>
-        </div>
-
-        <!-- All Clients Heading Formats Overview -->
-        <div class="pm-headings-section" id="productClientsHeadingSection">
-          <div class="pm-headings-header">
-            <div class="pm-headings-title">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent);flex-shrink:0"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-              <span>取引先別 注文書見出しフォーマット</span>
-              <span class="pm-headings-count" id="productClientsHeadingCount">0 件</span>
-            </div>
-            <div class="pm-headings-actions">
-              <button class="btn-sm hidden" id="pmViewAllClientsBtn" type="button">⊞ マトリクス表示</button>
-            </div>
-          </div>
-          <div class="pm-client-tabs" id="productClientsTabStrip"></div>
-          <div class="pm-headings-body" id="productClientsHeadingGrid">
-            <div class="sheet-loading" style="padding:16px">取引先見出しフォーマットを読み込み中…</div>
-          </div>
-        </div>
-      </div>
 
     </div><!-- /main-area -->
   </div><!-- /app-shell -->
@@ -569,47 +575,6 @@
     </div>
   </div>
 
-  <!-- Product add/edit modal -->
-  <div class="modal-backdrop hidden" id="productModalBackdrop">
-    <div class="modal-box">
-      <div class="modal-title" id="productModalTitle">商品を追加</div>
-      <div class="modal-body">
-        <div class="modal-field">
-          <label class="modal-label" for="productFormCode">商品コード <span class="required">*</span></label>
-          <input class="modal-input" id="productFormCode" placeholder="例: 1029510171" autocomplete="off" />
-        </div>
-        <div class="modal-field">
-          <label class="modal-label" for="productFormNameJa">商品名 (日本語) <span class="required">*</span></label>
-          <input class="modal-input" id="productFormNameJa" placeholder="例: 有機青じそ" />
-        </div>
-        <div class="modal-field">
-          <label class="modal-label" for="productFormNameEn">商品名 (英語)</label>
-          <input class="modal-input" id="productFormNameEn" placeholder="例: Organic Green Shiso" />
-        </div>
-        <div class="modal-row" style="display:flex;gap:12px">
-          <div class="modal-field" style="flex:1">
-            <label class="modal-label" for="productFormSpec">規格・入数</label>
-            <input class="modal-input" id="productFormSpec" placeholder="例: 10枚 P" />
-          </div>
-          <div class="modal-field" style="flex:1">
-            <label class="modal-label" for="productFormPrice">単価 (¥)</label>
-            <input class="modal-input" id="productFormPrice" type="number" step="0.01" placeholder="例: 100" />
-          </div>
-        </div>
-        <div class="modal-field">
-          <label class="modal-label" for="productFormClient">対象取引先</label>
-          <select class="modal-input" id="productFormClient">
-            <option value="">(指定なし / 共通商品)</option>
-          </select>
-          <div id="productFormClientHeadingPreview" class="pm-modal-heading-preview hidden"></div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-sm" id="productFormCancel">キャンセル</button>
-        <button class="btn-primary modal-save-btn" id="productFormSave">商品を保存</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Today Order Item Add/Edit Modal (Multi-Product + Date) -->
   <div class="modal-backdrop hidden" id="todayOrderItemModalBackdrop">
