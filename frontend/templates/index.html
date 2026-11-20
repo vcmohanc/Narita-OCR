@@ -549,6 +549,11 @@
           <textarea class="modal-input" id="clientHeadingColumns" rows="3" placeholder="カンマまたは改行区切りの列名 (例: 品目, 産地, 栽培区分, 規格・入数, 単価/p (税別), 単価/cs, JANコード, 備考・今週の産地状況, 9/21 月 要望...)"></textarea>
           <small style="color:var(--muted);font-size:11px">これらの見出し名を使用して注文書の列をマッピング・フォーマットします</small>
         </div>
+        <div class="modal-field">
+          <label class="modal-label" for="clientSkipPatterns">スキップパターン (行除外条件)</label>
+          <textarea class="modal-input" id="clientSkipPatterns" rows="3" placeholder="カンマまたは改行区切りのパターン&#10;例: 合計,小計,&#10;列名:パターン (例: 商品名:合計) で特定列のみ対象"></textarea>
+          <small style="color:var(--muted);font-size:11px">抽出時にこのパターンに一致する行をスキップします。「列名:パターン」形式で列を指定できます</small>
+        </div>
 
         <!-- Live Visual Header Preview (matches National Azabu order sheet header design) -->
         <div class="modal-field" style="margin-top:14px">

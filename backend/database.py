@@ -604,7 +604,7 @@ def list_clients(with_counts: bool = True) -> list:
             if with_counts:
                 cur.execute(
                     """
-                    SELECT c.id, c.code, c.name_ja, c.name_en, c.keywords, c.header_row, c.heading_columns, c.created_at,
+                    SELECT c.id, c.code, c.name_ja, c.name_en, c.keywords, c.header_row, c.heading_columns, c.skip_patterns, c.created_at,
                            COUNT(j.id) AS total_jobs,
                            SUM(j.status = 'done') AS done_jobs
                       FROM ocr_clients c
@@ -615,7 +615,7 @@ def list_clients(with_counts: bool = True) -> list:
                 )
             else:
                 cur.execute(
-                    "SELECT id, code, name_ja, name_en, keywords, header_row, heading_columns, created_at "
+                    "SELECT id, code, name_ja, name_en, keywords, header_row, heading_columns, skip_patterns, created_at "
                     "FROM ocr_clients ORDER BY id ASC"
                 )
             rows = cur.fetchall()
@@ -763,6 +763,7 @@ def _client_public_dict(client: Optional[dict]) -> Optional[dict]:
         "name_en":         client.get("name_en") or "",
         "header_row":      max(1, int(client.get("header_row") or 1)),
         "heading_columns": client.get("heading_columns") or "",
+        "skip_patterns":   client.get("skip_patterns") or "",
         "keywords":        client.get("keywords") or "",
     }
     if client.get("match_score") is not None:
@@ -1579,6 +1580,8 @@ def _migrate():
             cur.execute("ALTER TABLE ocr_clients ADD COLUMN header_row INT UNSIGNED NULL DEFAULT 1")
         if not _column_exists(cur, "ocr_clients", "heading_columns"):
             cur.execute("ALTER TABLE ocr_clients ADD COLUMN heading_columns TEXT NULL")
+        if not _column_exists(cur, "ocr_clients", "skip_patterns"):
+            cur.execute("ALTER TABLE ocr_clients ADD COLUMN skip_patterns TEXT NULL")
         cur.execute(
             """
             UPDATE ocr_clients
@@ -1662,13 +1665,13 @@ def get_client_by_id(client_id: int) -> Optional[dict]:
         return None
 
 
-def update_client_heading_format(client_id: int, header_row: int, heading_columns: str) -> bool:
-    """Update only header_row and heading_columns for a client."""
+def update_client_heading_format(client_id: int, header_row: int, heading_columns: str, skip_patterns: str = "") -> bool:
+    """Update header_row, heading_columns and skip_patterns for a client."""
     with _get_connection() as con:
         cur = con.cursor()
         cur.execute(
-            "UPDATE ocr_clients SET header_row = %s, heading_columns = %s WHERE id = %s",
-            (header_row or 1, (heading_columns or "").strip(), client_id),
+            "UPDATE ocr_clients SET header_row = %s, heading_columns = %s, skip_patterns = %s WHERE id = %s",
+            (header_row or 1, (heading_columns or "").strip(), (skip_patterns or "").strip(), client_id),
         )
         affected = cur.rowcount
         if affected == 0:

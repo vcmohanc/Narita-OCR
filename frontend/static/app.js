@@ -4284,16 +4284,19 @@ function openClientHeadingModal(client) {
   if (titleEl) {
     titleEl.textContent = `見出しフォーマット設定 — ${client.name_ja || client.code}`;
   }
-  const rowInput  = document.getElementById('clientHeadingRow');
-  const colsInput = document.getElementById('clientHeadingColumns');
-  const presetSel = document.getElementById('clientHeadingPreset');
+  const rowInput      = document.getElementById('clientHeadingRow');
+  const colsInput     = document.getElementById('clientHeadingColumns');
+  const skipInput     = document.getElementById('clientSkipPatterns');
+  const presetSel     = document.getElementById('clientHeadingPreset');
   const previewDateInput = document.getElementById('clientHeadingPreviewDate');
 
   const curRow  = client.header_row != null ? client.header_row : 1;
   const curCols = client.heading_columns || '';
+  const curSkip = client.skip_patterns  || '';
 
-  if (rowInput) rowInput.value = curRow;
+  if (rowInput)  rowInput.value  = curRow;
   if (colsInput) colsInput.value = curCols;
+  if (skipInput) skipInput.value = curSkip;
   if (previewDateInput) {
     const xlsModalEl = document.getElementById('xlsModal');
     const xlsOpen = xlsModalEl && !xlsModalEl.classList.contains('hidden');
@@ -4350,6 +4353,7 @@ document.getElementById('clientHeadingSave')?.addEventListener('click', async ()
   if (!_clientHeadingTarget) return;
   const rowVal  = parseInt(document.getElementById('clientHeadingRow')?.value || '1', 10) || 1;
   const colsVal = (document.getElementById('clientHeadingColumns')?.value || '').trim();
+  const skipVal = (document.getElementById('clientSkipPatterns')?.value || '').trim();
 
   const saveBtn = document.getElementById('clientHeadingSave');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '保存中…'; }
@@ -4360,7 +4364,8 @@ document.getElementById('clientHeadingSave')?.addEventListener('click', async ()
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         header_row: rowVal,
-        heading_columns: colsVal
+        heading_columns: colsVal,
+        skip_patterns: skipVal
       })
     });
     if (!r || !r.ok) {
@@ -4383,6 +4388,7 @@ document.getElementById('clientHeadingSave')?.addEventListener('click', async ()
       } else {
         currentResult.client.header_row = rowVal;
         currentResult.client.heading_columns = colsVal;
+        currentResult.client.skip_patterns = skipVal;
       }
       if (typeof renderResults === 'function') renderResults(currentResult);
     }
@@ -6214,10 +6220,39 @@ function _buildClientExtractedSheet(sheets, client) {
     return bestScore >= 0.3 ? bestCi : -1;
   });
 
+  // Parse skip patterns: "pattern" (any col) or "col_name:pattern" (specific col)
+  const skipRules = String(client.skip_patterns || '')
+    .split(/[,\n]+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(s => {
+      const ci = s.indexOf(':');
+      if (ci > 0) {
+        return { col: norm(s.slice(0, ci)), pattern: norm(s.slice(ci + 1)) };
+      }
+      return { col: null, pattern: norm(s) };
+    })
+    .filter(r => r.pattern);
+
+  const colNormsMap = cols.map(norm);
+
+  const shouldSkipRow = (outRow) => {
+    if (!skipRules.length) return false;
+    return skipRules.some(rule => {
+      if (rule.col) {
+        const ci = colNormsMap.indexOf(rule.col);
+        if (ci < 0) return false;
+        return norm(outRow[ci]).includes(rule.pattern);
+      }
+      return outRow.some(v => norm(v).includes(rule.pattern));
+    });
+  };
+
   const outRows = [cols.slice()];
   for (let ri = hdrIdx + 1; ri < rows.length; ri++) {
     const outRow = colIndices.map(ci => ci >= 0 ? String(rows[ri][ci] || '') : '');
     if (outRow.every(v => !v.trim())) continue;
+    if (shouldSkipRow(outRow)) continue;
     outRows.push(outRow);
   }
   if (outRows.length <= 1) return null;

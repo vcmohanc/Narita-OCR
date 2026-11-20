@@ -678,6 +678,7 @@ class ClientPayload(BaseModel):
 class ClientHeadingPayload(BaseModel):
     header_row:      int = Field(default=1, ge=1, le=100)
     heading_columns: str = Field(default="", max_length=2000)
+    skip_patterns:   str = Field(default="", max_length=2000)
 
 
 class ProductPayload(BaseModel):
@@ -1629,6 +1630,7 @@ async def update_client_heading_format_endpoint(request: Request, client_id: int
         client_id=client_id,
         header_row=payload.header_row,
         heading_columns=payload.heading_columns,
+        skip_patterns=payload.skip_patterns,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -1638,6 +1640,7 @@ async def update_client_heading_format_endpoint(request: Request, client_id: int
         "id": client_id,
         "header_row": payload.header_row,
         "heading_columns": payload.heading_columns,
+        "skip_patterns": payload.skip_patterns,
     }
 
 
