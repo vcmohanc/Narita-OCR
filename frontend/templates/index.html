@@ -200,15 +200,17 @@
             </div>
 
             <div class="tab-bar" role="tablist">
-              <button class="tab active" data-tab="fused"    role="tab" aria-selected="true">Fused Output</button>
-              <button class="tab"        data-tab="paddle"   role="tab" aria-selected="false">PaddleOCR</button>
-              <button class="tab"        data-tab="docling"  role="tab" aria-selected="false">Docling</button>
-              <button class="tab"        data-tab="deepseek" role="tab" aria-selected="false">DeepSeek-OCR</button>
-              <button class="tab"        data-tab="tables"   role="tab" aria-selected="false">Tables</button>
-              <button class="tab"        data-tab="csv"      role="tab" aria-selected="false">CSV</button>
-              <button class="tab"        data-tab="raw"      role="tab" aria-selected="false">Raw JSON</button>
+              <button class="tab hidden"  data-tab="client-ocr" role="tab" aria-selected="false">📋 取引先 OCR</button>
+              <button class="tab active"  data-tab="fused"    role="tab" aria-selected="true">Fused Output</button>
+              <button class="tab"         data-tab="paddle"   role="tab" aria-selected="false">PaddleOCR</button>
+              <button class="tab"         data-tab="docling"  role="tab" aria-selected="false">Docling</button>
+              <button class="tab"         data-tab="deepseek" role="tab" aria-selected="false">DeepSeek-OCR</button>
+              <button class="tab"         data-tab="tables"   role="tab" aria-selected="false">Tables</button>
+              <button class="tab"         data-tab="csv"      role="tab" aria-selected="false">CSV</button>
+              <button class="tab"         data-tab="raw"      role="tab" aria-selected="false">Raw JSON</button>
             </div>
 
+            <div class="tab-panel hidden" id="tab-client-ocr"></div>
             <div class="tab-panel" id="tab-fused"><pre class="text-out" id="fusedText"></pre></div>
             <div class="tab-panel hidden" id="tab-paddle"><div class="lines-list" id="paddleLines"></div></div>
             <div class="tab-panel hidden" id="tab-docling"><pre class="text-out" id="doclingText"></pre></div>

@@ -8171,15 +8171,81 @@ function renderResults(res, opts = {}) {
   })();
   document.getElementById("resultsCard").classList.remove("hidden");
 
+  // --- 取引先 OCR tab: extract only the client's configured columns --------
+  const _clientOcrTabBtn = document.querySelector('[data-tab="client-ocr"]');
+  const _clientOcrPanel  = document.getElementById('tab-client-ocr');
+  let _clientOcrActivate = false;
+
+  if (_clientOcrTabBtn && _clientOcrPanel && activeClient && activeClient.heading_columns) {
+    const _clientCols = _parseClientHeadingCols(activeClient);
+    let _ocrCols = null, _ocrDataRows = null;
+
+    // Priority 1: paddle_extracted_rows — bbox-based alignment (best for image/PDF)
+    if (Array.isArray(res.paddle_extracted_rows) && res.paddle_extracted_rows.length > 0) {
+      const allKeys = _clientCols.length ? [..._clientCols] : [];
+      res.paddle_extracted_rows.forEach(row => { Object.keys(row).forEach(k => { if (!allKeys.includes(k)) allKeys.push(k); }); });
+      if (allKeys.length) { _ocrCols = allKeys; _ocrDataRows = res.paddle_extracted_rows.map(row => allKeys.map(k => row[k] || '')); }
+    }
+
+    // Priority 2: client_extracted_rows from Docling tables
+    if (!_ocrDataRows) {
+      const exTbl = (res.tables || []).find(t => Array.isArray(t.client_extracted_rows) && t.client_extracted_rows.length > 0);
+      if (exTbl) {
+        _ocrCols = exTbl.client_headers || _clientCols;
+        _ocrDataRows = exTbl.client_extracted_rows.map(row => _ocrCols.map(k => row[k] || ''));
+      }
+    }
+
+    // Priority 3: build from custom_sheets (Excel files)
+    if (!_ocrDataRows && Array.isArray(res.custom_sheets) && res.custom_sheets.some(s => s.name !== 'Full Text' && Array.isArray(s.rows) && s.rows.length > 1)) {
+      const builtSheet = _buildClientExtractedSheet(_buildSheets(res), activeClient);
+      if (builtSheet && builtSheet.rows.length > 1) {
+        _ocrCols = builtSheet.rows[0];
+        _ocrDataRows = builtSheet.rows.slice(1);
+      }
+    }
+
+    if (_ocrCols && _ocrDataRows && _ocrDataRows.length > 0) {
+      const _thead = `<thead><tr>${_ocrCols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>`;
+      const _tbody = `<tbody>${_ocrDataRows.map((r, ri) =>
+        `<tr class="${ri % 2 === 1 ? 'tbl-alt' : ''}">${r.map(v => `<td>${esc(v || '')}</td>`).join('')}</tr>`
+      ).join('')}</tbody>`;
+      _clientOcrPanel.innerHTML = `
+        <div class="client-ocr-header">
+          <span class="client-ocr-name">${esc(activeClient.name_ja || activeClient.code || '')}</span>
+          <div class="client-ocr-cols">${_ocrCols.map(c => `<span class="client-col-chip">${esc(c)}</span>`).join('')}</div>
+          <span class="client-ocr-count">${_ocrDataRows.length} 行抽出</span>
+        </div>
+        <div class="tbl-scroll"><table class="tbl-grid">${_thead}${_tbody}</table></div>
+        <p class="client-ocr-note">設定された見出し列のみ表示しています。値が見つからない場合は空白で表示されます。</p>
+      `;
+      _clientOcrTabBtn.classList.remove('hidden');
+      _clientOcrActivate = !preserveTab;
+    } else {
+      _clientOcrTabBtn.classList.add('hidden');
+    }
+  } else if (_clientOcrTabBtn) {
+    _clientOcrTabBtn.classList.add('hidden');
+  }
+
   if (!preserveTab) {
-    // Reset to Fused tab
-    document.querySelectorAll(".tab").forEach(t => {
-      const isFused = t.dataset.tab === "fused";
-      t.classList.toggle("active", isFused);
-      t.setAttribute("aria-selected", String(isFused));
-    });
-    document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
-    document.getElementById("tab-fused").classList.remove("hidden");
+    if (_clientOcrActivate) {
+      // Activate 取引先 OCR tab
+      document.querySelectorAll(".tab").forEach(t => { t.classList.remove("active"); t.setAttribute("aria-selected", "false"); });
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
+      _clientOcrTabBtn.classList.add("active");
+      _clientOcrTabBtn.setAttribute("aria-selected", "true");
+      _clientOcrPanel.classList.remove("hidden");
+    } else {
+      // Reset to Fused tab (default when no client extraction)
+      document.querySelectorAll(".tab").forEach(t => {
+        const isFused = t.dataset.tab === "fused";
+        t.classList.toggle("active", isFused);
+        t.setAttribute("aria-selected", String(isFused));
+      });
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
+      document.getElementById("tab-fused").classList.remove("hidden");
+    }
   }
   if (res.job_id) currentJobId = res.job_id;
   const saveBtn = document.getElementById("saveDbBtn");
