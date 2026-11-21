@@ -9020,8 +9020,9 @@ let _savedJsonSelId    = null;
 let _savedJsonTab      = 'json'; // 'json' | 'table'
 
 function initSavedJsonView() {
-  const refreshBtn = document.getElementById('savedJsonRefreshBtn');
-  const searchEl   = document.getElementById('savedJsonSearch');
+  const refreshBtn    = document.getElementById('savedJsonRefreshBtn');
+  const searchEl      = document.getElementById('savedJsonSearch');
+  const allExcelBtn   = document.getElementById('savedJsonAllExcelBtn');
   if (refreshBtn && !refreshBtn._sjBound) {
     refreshBtn._sjBound = true;
     refreshBtn.addEventListener('click', () => {
@@ -9032,6 +9033,55 @@ function initSavedJsonView() {
   if (searchEl && !searchEl._sjBound) {
     searchEl._sjBound = true;
     searchEl.addEventListener('input', () => _renderSavedJsonList(searchEl.value || ''));
+  }
+  if (allExcelBtn && !allExcelBtn._sjBound) {
+    allExcelBtn._sjBound = true;
+    allExcelBtn.addEventListener('click', async () => {
+      const q = document.getElementById('savedJsonSearch')?.value?.toLowerCase() || '';
+      const targetJobs = q
+        ? _savedJsonJobs.filter(j =>
+            (j.filename || '').toLowerCase().includes(q) ||
+            (j.client_name_ja || j.client_name || '').toLowerCase().includes(q))
+        : _savedJsonJobs;
+      const ids = (targetJobs.length ? targetJobs : _savedJsonJobs).map(j => j.job_id).filter(Boolean);
+      if (!ids.length) { showToast('エクスポートするデータがありません', true); return; }
+      allExcelBtn.disabled = true;
+      allExcelBtn.textContent = `⏳ 変換中 (${ids.length}件)…`;
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 60000);
+        let r;
+        try {
+          r = await fetch(`${API_BASE}/api/ocr/export-batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ job_ids: ids }),
+            signal: ctrl.signal,
+          });
+        } finally { clearTimeout(tid); }
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          const msg = typeof err.detail === 'string' ? err.detail : `HTTP ${r.status}`;
+          throw new Error(msg);
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        a.href = url;
+        a.download = `ocr_batch_${today}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
+        showToast(`${ids.length}件をExcelにエクスポートしました`);
+      } catch (e) {
+        const msg = e.name === 'AbortError' ? 'タイムアウト' : e.message;
+        showToast('全件Excel変換に失敗しました: ' + msg, true);
+      } finally {
+        allExcelBtn.disabled = false;
+        allExcelBtn.textContent = '📊 全件 Excel';
+      }
+    });
   }
   if (!_savedJsonLoaded) _loadSavedJsonJobs();
 }

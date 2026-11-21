@@ -2176,6 +2176,107 @@ async def export_job_result(
         )
 
 
+class _BatchExportRequest(BaseModel):
+    job_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+@app.post("/api/ocr/export-batch", dependencies=[Depends(_require_api_key)])
+async def export_batch_jobs(
+    request: Request,
+    body: _BatchExportRequest,
+):
+    """Export multiple OCR results as a single multi-sheet Excel workbook (one sheet per job)."""
+    _check_rate_limit(request, "db_read", max_requests=10, window_s=60)
+
+    import openpyxl
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    sheet_names_used: set[str] = set()
+
+    id_pat = re.compile(r'^[a-zA-Z0-9_\-]{1,64}$')
+    for job_id in body.job_ids[:50]:
+        if not id_pat.match(job_id):
+            continue
+        res = None
+        if job_id in jobs and jobs[job_id].get("status") == "done":
+            res = jobs[job_id].get("result")
+        if res is None and db.is_connected():
+            res = db.get_job_result(job_id)
+        if not res:
+            continue
+
+        base_name = (res.get("filename") or f"job_{job_id}").rsplit(".", 1)[0]
+
+        def _unique_sheet(name: str, used: set) -> str:
+            n = name[:31]
+            if n not in used:
+                used.add(n)
+                return n
+            for i in range(2, 999):
+                candidate = f"{name[:28]}_{i}"[:31]
+                if candidate not in used:
+                    used.add(candidate)
+                    return candidate
+            return name[:31]
+
+        custom_sheets = res.get("custom_sheets") or []
+        tables = res.get("tables") or []
+        rows: list[dict] = []
+        if tables and isinstance(tables[0], dict) and tables[0].get("data"):
+            rows = tables[0]["data"]
+        elif custom_sheets:
+            cs0 = custom_sheets[0]
+            sheet_rows = cs0.get("rows", [])
+            hdr_idx = cs0.get("headerIdx", 0)
+            if len(sheet_rows) > hdr_idx:
+                headers = [str(c) for c in sheet_rows[hdr_idx]]
+                for r in sheet_rows[hdr_idx + 1:]:
+                    rows.append({headers[i] if i < len(headers) else f"col_{i}": str(v) for i, v in enumerate(r)})
+
+        if custom_sheets:
+            for cs in custom_sheets:
+                cs_label = str(cs.get("name") or "Sheet")
+                ws_name = _unique_sheet(f"{base_name[:20]}_{cs_label[:8]}", sheet_names_used)
+                ws = wb.create_sheet(title=ws_name)
+                hdr_i = cs.get("headerIdx", 0) if cs.get("hasHeader") else -1
+                for ri, row_data in enumerate(cs.get("rows", [])):
+                    for ci, cell_val in enumerate(row_data):
+                        cell = ws.cell(row=ri + 1, column=ci + 1, value=str(cell_val) if cell_val is not None else "")
+                        if ri == hdr_i:
+                            cell.font = Font(bold=True)
+                            cell.fill = PatternFill("solid", fgColor="DDEEFF")
+                        cell.alignment = Alignment(wrap_text=False)
+        elif rows:
+            ws = wb.create_sheet(title=_unique_sheet(base_name, sheet_names_used))
+            headers = list(rows[0].keys())
+            for ci, h in enumerate(headers):
+                cell = ws.cell(row=1, column=ci + 1, value=h)
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill("solid", fgColor="DDEEFF")
+            for ri, row_dict in enumerate(rows, start=2):
+                for ci, h in enumerate(headers):
+                    ws.cell(row=ri, column=ci + 1, value=str(row_dict.get(h, "")))
+        else:
+            ws = wb.create_sheet(title=_unique_sheet(base_name, sheet_names_used))
+            ws.cell(row=1, column=1, value=res.get("fused_text") or res.get("text") or "")
+
+    if not wb.sheetnames:
+        wb.create_sheet(title="Empty")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    from datetime import date as _date
+    today_str = _date.today().strftime("%Y%m%d")
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="ocr_batch_{today_str}.xlsx"'},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Background OCR task
 # ---------------------------------------------------------------------------
