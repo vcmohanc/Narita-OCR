@@ -978,7 +978,7 @@ def _extract_national_azabu_rows(output: dict) -> Optional[dict]:
     for i, row in enumerate(rows):
         texts = " ".join(item["text"] for item in row)
         texts_lower = texts.lower()
-        if "品目" in texts and ("jan" in texts_lower or "単価" in texts):
+        if "品目" in texts and ("jan" in texts_lower or "単価" in texts or "栽培" in texts):
             header_idx = i
             break
     if header_idx < 0:
@@ -1002,9 +1002,14 @@ def _extract_national_azabu_rows(output: dict) -> Optional[dict]:
                 return i
         return len(bounds) - 1
 
-    # Date/quantity columns: everything after the first 5 fixed columns
-    # (品目, 産地, 規格, 単価/p, 単価/cs) up to but excluding the last (備考).
-    qty_col_start = min(5, n_cols - 2)
+    # Date/quantity columns: everything after JANコード column up to but excluding
+    # the last column (備考).  Find JANコード column index dynamically from the
+    # header; fall back to column 7 (the 14-column layout default).
+    jan_col_idx = next(
+        (i for i, item in enumerate(header_items) if "jan" in item["text"].lower()),
+        -1,
+    )
+    qty_col_start = (jan_col_idx + 1) if jan_col_idx >= 0 else min(7, n_cols - 2)
     qty_col_end   = n_cols - 1
 
     sheet_rows = [[item["text"] for item in header_items]]

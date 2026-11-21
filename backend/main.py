@@ -731,7 +731,7 @@ _TODAY_ORDER_COLS = 8
 _TODAY_HAIBUKIYA_COLS = 20
 _TODAY_PROPS_COLS = 10
 _TODAY_TSUKIJI_COLS = 11
-_TODAY_NATIONAL_AZABU_COLS = 13
+_TODAY_NATIONAL_AZABU_COLS = 14
 _TODAY_FUSUI_COLS = 6
 _TODAY_NANOHANA_COLS = 6
 _TODAY_GREENWORLD_COLS = 7
@@ -860,18 +860,18 @@ def _default_today_order_rows(fmt: str = "chiba") -> list[dict]:
             {"type": "meta",     "cells": ["見積期間：2026年10月19日（月）〜10月24日（土）販売分　／　単価は税別　／　作成：2026年10月13日 内藤 渉"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
             {"type": "spacer",   "cells": [""] * _TODAY_NATIONAL_AZABU_COLS},
             {"type": "header",   "cells": [
-                "品目", "産地", "規格・入数", "単価/p", "単価/cs", "JANコード",
+                "品目", "産地", "栽培区分", "規格・入数", "単価/p（税別）", "単価/CS", "JANコード",
                 "10/19\n月", "10/20\n火", "10/21\n水", "10/22\n木", "10/23\n金", "10/24\n土",
-                "備考・産地状況",
+                "備考・今週の産地状況",
             ]},
             {"type": "category", "cells": ["果菜類"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
-            {"type": "item",     "cells": ["ズッキーニ", "長野", "1本/10p", "250", "2,500", "4514811010289", "", "1cs", "", "1cs", "", "1cs", ""]},
-            {"type": "item",     "cells": ["イエローズッキーニ", "長野", "1本/10p", "190", "1,900", "4514811011460", "", "1cs", "", "", "", "1cs", ""]},
+            {"type": "item",     "cells": ["ズッキーニ", "長野", "", "1本/10p", "250", "2,500", "4514811010289", "", "1cs", "", "1cs", "", "1cs", ""]},
+            {"type": "item",     "cells": ["イエローズッキーニ", "長野", "", "1本/10p", "190", "1,900", "4514811011460", "", "1cs", "", "", "", "1cs", ""]},
             {"type": "category", "cells": ["根菜類"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
-            {"type": "item",     "cells": ["人参", "青森・北海道・山梨", "400g/18p", "220", "3,960", "4514811010111", "", "1cs", "", "1cs", "1cs", "1cs", ""]},
-            {"type": "item",     "cells": ["にんにく", "栃木", "1コ/10p", "198", "1,980", "4514811011187", "1cs", "1cs", "", "1cs", "1cs", "1cs", ""]},
+            {"type": "item",     "cells": ["人参", "青森・北海道・山梨", "", "400g/18p", "220", "3,960", "4514811010111", "", "1cs", "", "1cs", "1cs", "1cs", ""]},
+            {"type": "item",     "cells": ["にんにく", "栃木", "", "1コ/10p", "198", "1,980", "4514811011187", "1cs", "1cs", "", "1cs", "1cs", "1cs", ""]},
             {"type": "category", "cells": ["果物類"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
-            {"type": "item",     "cells": ["レモン", "熊本", "2コ/10p", "245", "2,450", "4514811010678", "1cs", "", "", "", "", "", ""]},
+            {"type": "item",     "cells": ["レモン", "熊本", "", "2コ/10p", "245", "2,450", "4514811010678", "1cs", "", "", "", "", "", ""]},
             {"type": "spacer",   "cells": [""] * _TODAY_NATIONAL_AZABU_COLS},
             {"type": "note",     "cells": ["※ 発注数の単位はケース（cs）。10/21（水）は納品なし（グレー）。"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
             {"type": "note",     "cells": ["※ 発注数の入っている品目のみ表示（発注なし・休止の品目は省略）。"] + [""] * (_TODAY_NATIONAL_AZABU_COLS - 1)},
@@ -1135,9 +1135,9 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
             ws.column_dimensions[col_letter].width = width
     elif fmt == "national_azabu":
         col_widths = {
-            "A": 20.0, "B": 14.0, "C": 12.0, "D": 9.0, "E": 9.5, "F": 16.0,
-            "G": 8.0, "H": 8.0, "I": 8.0, "J": 8.0, "K": 8.0, "L": 8.0,
-            "M": 28.0,
+            "A": 20.0, "B": 14.0, "C": 10.0, "D": 12.0, "E": 9.0, "F": 9.5, "G": 16.0,
+            "H": 8.0, "I": 8.0, "J": 8.0, "K": 8.0, "L": 8.0, "M": 8.0,
+            "N": 28.0,
         }
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
@@ -1222,7 +1222,7 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
             elif fmt == "props_japan":
                 is_num_col = (c_idx >= 4)
             elif fmt == "national_azabu":
-                is_num_col = (c_idx in (4, 5) or (c_idx >= 7 and c_idx <= 12))
+                is_num_col = (c_idx in (5, 6) or (c_idx >= 8 and c_idx <= 13))
             elif fmt == "tsukiji":
                 is_num_col = (5 <= c_idx <= 10)
             elif fmt == "fusui":
@@ -1255,7 +1255,7 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                 elif fmt == "props_japan":
                     horiz = "left" if c_idx == 2 else ("right" if c_idx == 4 else "center")
                 elif fmt == "national_azabu":
-                    horiz = "left" if c_idx in (1, 2, 3, 13) else ("right" if c_idx in (4, 5) else "center")
+                    horiz = "left" if c_idx in (1, 2, 3, 4, 14) else ("right" if c_idx in (5, 6) else "center")
                 elif fmt == "tsukiji":
                     horiz = "center" if (1 <= c_idx <= 2 or c_idx == 4 or 5 <= c_idx <= 10) else ("left" if c_idx == 3 or c_idx == 11 else "center")
                 elif fmt == "fusui":
@@ -1290,11 +1290,11 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
                     elif c_idx == 7:
                         cell.alignment = Alignment(horizontal="center", vertical="center")
                 elif fmt == "national_azabu":
-                    if c_idx == 9:
+                    if c_idx == 10:
                         cell.fill = fill_wed_off
-                    if c_idx in (4, 5) or (c_idx >= 7 and c_idx <= 12):
+                    if c_idx in (5, 6) or (c_idx >= 8 and c_idx <= 13):
                         cell.alignment = Alignment(horizontal="right", vertical="center")
-                    elif c_idx == 6:
+                    elif c_idx == 7:
                         cell.alignment = Alignment(horizontal="center", vertical="center")
                 elif fmt == "tsukiji":
                     div_val = str(cells[0] if len(cells) > 0 else "").strip()
@@ -1426,7 +1426,7 @@ _PRODUCT_BASE_COLS: dict = {
     "haibukiya": 7,
     "props_japan": 4,
     "tsukiji": 4,
-    "national_azabu": 6,
+    "national_azabu": 7,
     "fusui": 6,
     "nanohana": 6,
     "greenworld": 7,

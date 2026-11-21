@@ -176,8 +176,8 @@ const TODAY_ORDER_FORMATS = {
     titleMatch: 'プロップスジャパン',
   },
   national_azabu: {
-    cols: 13,
-    dayStartCol: 6,
+    cols: 14,
+    dayStartCol: 7,
     dayStep: 1,
     storageKey: 'ocr_today_order_sheet_v1_national_azabu',
     legacyStorageKey: null,
@@ -369,11 +369,11 @@ const TODAY_PROPS_PRESETS = [
 const TODAY_HAIBUKIYA_CATEGORIES = ['葉物類', '葉菜類', '根菜類', '果物類', 'イタリア・レストラン野菜'];
 const TODAY_NATIONAL_AZABU_CATEGORIES = ['果菜類', '根菜類', '果物類'];
 const TODAY_NATIONAL_AZABU_PRESETS = [
-  { category: '果菜類', name: 'ズッキーニ', origin: '長野', spec: '1本/10p', priceP: '250', priceCs: '2,500', jan: '4514811010289', days: ['', '1cs', '', '1cs', '', '1cs', ''], note: '' },
-  { category: '果菜類', name: 'イエローズッキーニ', origin: '長野', spec: '1本/10p', priceP: '190', priceCs: '1,900', jan: '4514811011460', days: ['', '1cs', '', '', '', '1cs', ''], note: '' },
-  { category: '根菜類', name: '人参', origin: '青森・北海道・山梨', spec: '400g/18p', priceP: '220', priceCs: '3,960', jan: '4514811010111', days: ['', '1cs', '', '1cs', '1cs', '1cs', ''], note: '' },
-  { category: '根菜類', name: 'にんにく', origin: '栃木', spec: '1コ/10p', priceP: '198', priceCs: '1,980', jan: '4514811011187', days: ['1cs', '1cs', '', '1cs', '1cs', '1cs', ''], note: '' },
-  { category: '果物類', name: 'レモン', origin: '熊本', spec: '2コ/10p', priceP: '245', priceCs: '2,450', jan: '4514811010678', days: ['1cs', '', '', '', '', '', ''], note: '' },
+  { category: '果菜類', name: 'ズッキーニ', origin: '長野', cultivation: '', spec: '1本/10p', priceP: '250', priceCs: '2,500', jan: '4514811010289', days: ['', '1cs', '', '1cs', '', '1cs', ''], note: '' },
+  { category: '果菜類', name: 'イエローズッキーニ', origin: '長野', cultivation: '', spec: '1本/10p', priceP: '190', priceCs: '1,900', jan: '4514811011460', days: ['', '1cs', '', '', '', '1cs', ''], note: '' },
+  { category: '根菜類', name: '人参', origin: '青森・北海道・山梨', cultivation: '', spec: '400g/18p', priceP: '220', priceCs: '3,960', jan: '4514811010111', days: ['', '1cs', '', '1cs', '1cs', '1cs', ''], note: '' },
+  { category: '根菜類', name: 'にんにく', origin: '栃木', cultivation: '', spec: '1コ/10p', priceP: '198', priceCs: '1,980', jan: '4514811011187', days: ['1cs', '1cs', '', '1cs', '1cs', '1cs', ''], note: '' },
+  { category: '果物類', name: 'レモン', origin: '熊本', cultivation: '', spec: '2コ/10p', priceP: '245', priceCs: '2,450', jan: '4514811010678', days: ['1cs', '', '', '', '', '', ''], note: '' },
 ];
 const TODAY_HAIBUKIYA_PRESETS = [
   { category: '葉物類', name: '水菜', origin: '千葉', cultivation: '特別栽培', spec: '150g/5p', priceP: '165', priceCs: '825', jan: '4514811010524', days: ['1', '', '', '', '', '', '6', '1', '', '', '', ''], note: '生育不良により欠品の可能性あり' },
@@ -720,15 +720,15 @@ function _createTodayOrderInitialRows(fmt = _todayOrderCurrentFormat) {
       { type: 'meta',     cells: pad('青果部 沖津様　／　発注先：㈱ベジコープ（FAX 03-6808-0900）') },
       { type: 'meta',     cells: pad('見積期間：2026年10月19日（月）〜10月24日（土）販売分　／　単価は税別　／　作成：2026年10月13日 内藤 渉') },
       { type: 'spacer',   cells: Array(ncols).fill('') },
-      { type: 'header',   cells: ['品目', '産地', '規格・入数', '単価/p', '単価/cs', 'JANコード', '10/19\n月', '10/20\n火', '10/21\n水', '10/22\n木', '10/23\n金', '10/24\n土', '備考・産地状況'] },
+      { type: 'header',   cells: ['品目', '産地', '栽培区分', '規格・入数', '単価/p（税別）', '単価/CS', 'JANコード', '10/19\n月', '10/20\n火', '10/21\n水', '10/22\n木', '10/23\n金', '10/24\n土', '備考・今週の産地状況'] },
       { type: 'category', cells: pad('果菜類') },
-      { type: 'item',     cells: ['ズッキーニ', '長野', '1本/10p', '250', '2,500', '4514811010289', '', '1cs', '', '1cs', '', '1cs', ''] },
-      { type: 'item',     cells: ['イエローズッキーニ', '長野', '1本/10p', '190', '1,900', '4514811011460', '', '1cs', '', '', '', '1cs', ''] },
+      { type: 'item',     cells: ['ズッキーニ', '長野', '', '1本/10p', '250', '2,500', '4514811010289', '', '1cs', '', '1cs', '', '1cs', ''] },
+      { type: 'item',     cells: ['イエローズッキーニ', '長野', '', '1本/10p', '190', '1,900', '4514811011460', '', '1cs', '', '', '', '1cs', ''] },
       { type: 'category', cells: pad('根菜類') },
-      { type: 'item',     cells: ['人参', '青森・北海道・山梨', '400g/18p', '220', '3,960', '4514811010111', '', '1cs', '', '1cs', '1cs', '1cs', ''] },
-      { type: 'item',     cells: ['にんにく', '栃木', '1コ/10p', '198', '1,980', '4514811011187', '1cs', '1cs', '', '1cs', '1cs', '1cs', ''] },
+      { type: 'item',     cells: ['人参', '青森・北海道・山梨', '', '400g/18p', '220', '3,960', '4514811010111', '', '1cs', '', '1cs', '1cs', '1cs', ''] },
+      { type: 'item',     cells: ['にんにく', '栃木', '', '1コ/10p', '198', '1,980', '4514811011187', '1cs', '1cs', '', '1cs', '1cs', '1cs', ''] },
       { type: 'category', cells: pad('果物類') },
-      { type: 'item',     cells: ['レモン', '熊本', '2コ/10p', '245', '2,450', '4514811010678', '1cs', '', '', '', '', '', ''] },
+      { type: 'item',     cells: ['レモン', '熊本', '', '2コ/10p', '245', '2,450', '4514811010678', '1cs', '', '', '', '', '', ''] },
       { type: 'spacer',   cells: Array(ncols).fill('') },
       { type: 'note',     cells: pad('※ 発注数の単位はケース（cs）。10/21（水）は納品なし（グレー）。') },
       { type: 'note',     cells: pad('※ 発注数の入っている品目のみ表示（発注なし・休止の品目は省略）。') },
@@ -1083,7 +1083,7 @@ async function switchTodayOrderFormat(fmt) {
     : (nextFmt === 'props_japan'
         ? '発注書フォーマットを「株式会社プロップスジャパン（10列・1週間）」に切り替えました'
         : (nextFmt === 'national_azabu'
-            ? '発注書フォーマットを「ナショナル麻布株式会社 御中（13列）」に切り替えました'
+            ? '発注書フォーマットを「ナショナル麻布株式会社 御中（14列）」に切り替えました'
             : (nextFmt === 'tsukiji'
                 ? '発注書フォーマットを「築地産直ファーム（11列）」に切り替えました'
                 : (nextFmt === 'nanohana'
@@ -1717,6 +1717,7 @@ function _appendTodayModalItemRow(itemData = null) {
     const { td: catTd }  = makeInput('today-m-cat', '果菜類', data.category || '', 'todayNationalAzabuCatList');
     const { td: nameTd } = makeInput('today-m-name', '品目名', data.name || '');
     const { td: origTd } = makeInput('today-m-origin', '産地', data.origin || '');
+    const { td: cultivTd } = makeInput('today-m-cultivation', '栽培区分', data.cultivation || '');
     const { td: specTd } = makeInput('today-m-spec', '1本/10p', data.spec || '');
     const { td: ppTd }   = makeInput('today-m-pricep today-m-num', '250', data.priceP || '');
     const { td: pcsTd }  = makeInput('today-m-pricecs today-m-num', '2,500', data.priceCs || '');
@@ -1724,6 +1725,7 @@ function _appendTodayModalItemRow(itemData = null) {
     tr.appendChild(catTd);
     tr.appendChild(nameTd);
     tr.appendChild(origTd);
+    tr.appendChild(cultivTd);
     tr.appendChild(specTd);
     tr.appendChild(ppTd);
     tr.appendChild(pcsTd);
@@ -3553,6 +3555,7 @@ async function initTodayOrderView() {
           } else if (isNationalAzabu) {
             const cat = (tr.querySelector('.today-m-cat')?.value || '').trim();
             const origin = (tr.querySelector('.today-m-origin')?.value || '').trim();
+            const cultiv = (tr.querySelector('.today-m-cultivation')?.value || '').trim();
             const spec = (tr.querySelector('.today-m-spec')?.value || '').trim();
             const priceP = (tr.querySelector('.today-m-pricep')?.value || '').trim();
             const priceCs = (tr.querySelector('.today-m-pricecs')?.value || '').trim();
@@ -3560,7 +3563,7 @@ async function initTodayOrderView() {
             const noteVal = (tr.querySelector('.today-m-note')?.value || '').trim();
             const dayInps = Array.from(tr.querySelectorAll('.today-m-day'));
             const daysRaw = dayInps.map(inp => (inp.value || '').trim());
-            const hasAny = Boolean(cat || name || origin || spec || priceP || priceCs || jan || noteVal || daysRaw.some(Boolean));
+            const hasAny = Boolean(cat || name || origin || cultiv || spec || priceP || priceCs || jan || noteVal || daysRaw.some(Boolean));
             if (!hasAny) continue;
 
             if (!name) {
@@ -3579,7 +3582,7 @@ async function initTodayOrderView() {
 
             collected.push({
               category: cat,
-              cells: [name, origin, spec, priceP, priceCs, jan, ...normalizedDays, noteVal],
+              cells: [name, origin, cultiv, spec, priceP, priceCs, jan, ...normalizedDays, noteVal],
             });
           } else if (isProps) {
             const code = (tr.querySelector('.today-m-code')?.value || '').trim();
