@@ -548,7 +548,7 @@ def _pdf_to_images(file_path: str, dpi: int = 200, out_dir: Optional[str] = None
         return []
 
 
-def process_pdf(file_path: str, engines: str = "all") -> dict:
+def process_pdf(file_path: str, engines: str = "all", client_data: Optional[dict] = None) -> dict:
     """
     Process a PDF through the requested engines.
     Docling and PDF rasterization run in parallel for speed.
@@ -661,6 +661,19 @@ def process_pdf(file_path: str, engines: str = "all") -> dict:
     output["primary_engine"]    = best_engine
     output["confidence_avg"]    = _avg_confidence(output["paddle"].get("lines", []))
     output["processing_time_s"] = round(time.time() - t0, 2)
+
+    # --- Client-aware structured extraction (same logic as process_image) ---
+    full_ocr_text = output.get("fused_text", "") + output.get("paddle", {}).get("full_text", "")
+    if _is_joso_client(client_data) or _is_joso_text(full_ocr_text):
+        joso_sheet = _extract_joso_columns(output)
+        if joso_sheet:
+            output.setdefault("custom_sheets", []).insert(0, joso_sheet)
+
+    if _is_national_client(client_data):
+        national_sheet = _extract_national_azabu_rows(output)
+        if national_sheet:
+            output.setdefault("custom_sheets", []).insert(0, national_sheet)
+
     return output
 
 
@@ -1026,10 +1039,12 @@ def _extract_national_azabu_rows(output: dict) -> Optional[dict]:
         if not any(c.strip() for c in cells):
             continue
 
-        # Rows where a quantity/date slot contains Japanese text indicate that
-        # an adjacent product name from the right-side column was merged in → skip
-        if any(_JP_CHAR.search(cells[ci]) for ci in range(qty_col_start, qty_col_end) if cells[ci]):
-            continue
+        # Date/qty cells that contain Japanese text are contamination from an
+        # adjacent product name in the 2-column layout → blank that cell only,
+        # preserving the left-side product detail columns (品目, 産地, etc.)
+        for ci in range(qty_col_start, qty_col_end):
+            if cells[ci] and _JP_CHAR.search(cells[ci]):
+                cells[ci] = ""
 
         sheet_rows.append(cells)
 
@@ -1053,6 +1068,6 @@ def process_file(file_path: str, engines: str = "all", client_data: Optional[dic
     elif ext in SUPPORTED_EXCEL_EXTS:
         return _excel_process(file_path, client_data=client_data)
     elif ext in SUPPORTED_DOC_EXTS:
-        return process_pdf(file_path, engines=engines)
+        return process_pdf(file_path, engines=engines, client_data=client_data)
     else:
         return {"error": f"Unsupported file type: {ext}", "fused_text": ""}
