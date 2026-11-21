@@ -9182,12 +9182,25 @@ async function _loadSavedJsonDetail(jobId) {
 }
 
 // Extract displayable OCR data from a saved job result.
+// The API returns a DB row where `result_json` is a raw string containing
+// the full OCR output. This helper parses that string first, then walks the
+// priority chain: paddle_extracted_rows > client_extracted_rows > tables[].data
+// > db tables[].data_json > custom_sheets > fused_text.
 // Returns { type, cols, rows, tables, text, source } or null.
 function _extractSavedJobDisplayData(data) {
   if (!data || typeof data !== 'object') return null;
 
+  // Parse result_json string into the full OCR result object
+  let parsed = data;
+  if (typeof data.result_json === 'string' && data.result_json.trim()) {
+    try {
+      const full = JSON.parse(data.result_json);
+      if (full && typeof full === 'object') parsed = full;
+    } catch (_) {}
+  }
+
   // Priority 1: paddle_extracted_rows — bbox-aligned, best for image/PDF
-  const paddleRows = data.paddle_extracted_rows;
+  const paddleRows = parsed.paddle_extracted_rows;
   if (Array.isArray(paddleRows) && paddleRows.length > 0 && typeof paddleRows[0] === 'object') {
     const cols = [];
     paddleRows.forEach(row => { Object.keys(row).forEach(k => { if (!cols.includes(k)) cols.push(k); }); });
@@ -9196,21 +9209,20 @@ function _extractSavedJobDisplayData(data) {
     }
   }
 
-  // Priority 2: client_extracted_rows from Docling tables
-  const tables = Array.isArray(data.tables) ? data.tables : [];
-  for (const tbl of tables) {
+  // Priority 2: client_extracted_rows from Docling tables (inside result_json)
+  const rjTables = Array.isArray(parsed.tables) ? parsed.tables : [];
+  for (const tbl of rjTables) {
     const exRows = tbl.client_extracted_rows;
     if (Array.isArray(exRows) && exRows.length > 0 && typeof exRows[0] === 'object') {
       const cols = Array.isArray(tbl.client_headers) && tbl.client_headers.length
-        ? [...tbl.client_headers]
-        : Object.keys(exRows[0]);
+        ? [...tbl.client_headers] : Object.keys(exRows[0]);
       return { type: 'table', cols, rows: exRows.map(r => cols.map(k => String(r[k] ?? ''))), source: 'Docling' };
     }
   }
 
-  // Priority 3: raw Docling tables
+  // Priority 3: raw tables[].data inside result_json
   const docTables = [];
-  for (const tbl of tables) {
+  for (const tbl of rjTables) {
     const tData = tbl.data;
     if (Array.isArray(tData) && tData.length > 0 && typeof tData[0] === 'object' && !Array.isArray(tData[0])) {
       const cols = Object.keys(tData[0]);
@@ -9219,8 +9231,20 @@ function _extractSavedJobDisplayData(data) {
   }
   if (docTables.length) return { type: 'multi_table', tables: docTables, source: 'Docling' };
 
-  // Priority 4: custom_sheets (Excel input)
-  const customSheets = Array.isArray(data.custom_sheets) ? data.custom_sheets : [];
+  // Priority 4: DB tables (data.tables from /api/db/jobs/{id}) — each row has data_json
+  const dbTables = [];
+  for (const tbl of (Array.isArray(data.tables) ? data.tables : [])) {
+    let tData = tbl.data_json;
+    if (typeof tData === 'string') { try { tData = JSON.parse(tData); } catch (_) { tData = null; } }
+    if (Array.isArray(tData) && tData.length > 0 && typeof tData[0] === 'object' && !Array.isArray(tData[0])) {
+      const cols = Object.keys(tData[0]);
+      if (cols.length) dbTables.push({ cols, rows: tData.map(r => cols.map(k => String(r[k] ?? ''))), title: tbl.caption || '' });
+    }
+  }
+  if (dbTables.length) return { type: 'multi_table', tables: dbTables, source: 'Docling' };
+
+  // Priority 5: custom_sheets (Excel input, inside result_json)
+  const customSheets = Array.isArray(parsed.custom_sheets) ? parsed.custom_sheets : [];
   const dataSheets = customSheets.filter(s => s.name !== 'Full Text' && Array.isArray(s.rows) && s.rows.length > 1);
   if (dataSheets.length) {
     const sheetTables = dataSheets.map(s => {
@@ -9232,9 +9256,9 @@ function _extractSavedJobDisplayData(data) {
     return { type: 'multi_table', tables: sheetTables, source: 'Excel' };
   }
 
-  // Priority 5: fused_text
-  const text = data.fused_text || data.text;
-  if (text && String(text).trim()) return { type: 'text', text: String(text), source: 'fused' };
+  // Priority 6: fused_text — top-level DB column or inside result_json
+  const text = data.fused_text || parsed.fused_text || data.text || parsed.text;
+  if (text && String(text).trim()) return { type: 'text', text: String(text), source: 'OCR テキスト' };
 
   return null;
 }
