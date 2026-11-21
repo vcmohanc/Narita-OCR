@@ -510,6 +510,13 @@ def process_image(file_path: str, engines: str = "all", client_data: Optional[di
         if joso_sheet:
             output.setdefault("custom_sheets", []).insert(0, joso_sheet)
 
+    # ナショナル麻布 column extraction — skips rows where adjacent product names
+    # from the 2-column page layout bleed into date/quantity columns
+    if _is_national_client(client_data):
+        national_sheet = _extract_national_azabu_rows(output)
+        if national_sheet:
+            output.setdefault("custom_sheets", []).insert(0, national_sheet)
+
     return output
 
 
@@ -920,6 +927,113 @@ def _extract_joso_columns(output: dict) -> Optional[dict]:
     logger.info("常総生協 OCR: extracted %d data rows with %d columns", len(sheet_rows) - 1, n_cols)
     return {
         "name":      "常総生協 OCR",
+        "rows":      sheet_rows,
+        "hasHeader": True,
+        "headerIdx": 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# ナショナル麻布 13-column extraction from PaddleOCR lines
+# ---------------------------------------------------------------------------
+
+# Matches any hiragana, katakana, or CJK kanji character
+_JP_CHAR = re.compile(r"[぀-ゟ゠-ヿ一-鿿]")
+
+
+def _is_national_client(client_data: Optional[dict]) -> bool:
+    if not isinstance(client_data, dict):
+        return False
+    code = str(client_data.get("code") or "").lower()
+    name = str(client_data.get("name") or client_data.get("name_ja") or "").lower()
+    return any(k in code or k in name for k in ("national", "ナショナル", "national_azabu"))
+
+
+def _extract_national_azabu_rows(output: dict) -> Optional[dict]:
+    """Extract ナショナル麻布 order rows from PaddleOCR lines.
+
+    The ナショナル order sheet is printed in a 2-column layout: two sets of
+    products appear side by side on the page.  _bboxToTable merges both columns
+    into one wide row (same y-level), causing a right-side product name to land
+    in what should be a date/quantity column.
+
+    This extractor:
+      1. Groups PaddleOCR lines into rows using y-band clustering.
+      2. Locates the header row (must contain 品目 or JANコード).
+      3. Assigns each OCR item to its column index via x-position boundaries.
+      4. Skips rows where any date/quantity column (cols 6 … n-2) contains a
+         Japanese character — the reliable signal that a right-side product name
+         bled into that cell.
+    """
+    lines = output.get("paddle", {}).get("lines", [])
+    if not lines:
+        return None
+
+    rows = _group_paddle_lines_by_row(lines, y_tolerance=15)
+    if not rows:
+        return None
+
+    # Find header row: must contain 品目 and/or JANコード
+    header_idx = -1
+    for i, row in enumerate(rows):
+        texts = " ".join(item["text"] for item in row)
+        texts_lower = texts.lower()
+        if "品目" in texts and ("jan" in texts_lower or "単価" in texts):
+            header_idx = i
+            break
+    if header_idx < 0:
+        return None
+
+    header_items = rows[header_idx]
+    n_cols = len(header_items)
+    if n_cols < 6:
+        return None
+
+    # Build column boundaries from header x-positions
+    col_xs = [item["x"] for item in header_items]
+    bounds: list = []
+    for i in range(len(col_xs) - 1):
+        bounds.append((col_xs[i] + col_xs[i + 1]) / 2)
+    bounds.append(float("inf"))
+
+    def _col(x: float) -> int:
+        for i, b in enumerate(bounds):
+            if x < b:
+                return i
+        return len(bounds) - 1
+
+    # Date/quantity columns: everything after the first 5 fixed columns
+    # (品目, 産地, 規格, 単価/p, 単価/cs) up to but excluding the last (備考).
+    qty_col_start = min(5, n_cols - 2)
+    qty_col_end   = n_cols - 1
+
+    sheet_rows = [[item["text"] for item in header_items]]
+
+    for row in rows[header_idx + 1:]:
+        cells = [""] * n_cols
+        for item in row:
+            ci = _col(item["x"])
+            if ci < n_cols:
+                t = item["text"].strip()
+                cells[ci] = (cells[ci] + " " + t).strip() if cells[ci] else t
+
+        # Completely empty rows → skip
+        if not any(c.strip() for c in cells):
+            continue
+
+        # Rows where a quantity/date slot contains Japanese text indicate that
+        # an adjacent product name from the right-side column was merged in → skip
+        if any(_JP_CHAR.search(cells[ci]) for ci in range(qty_col_start, qty_col_end) if cells[ci]):
+            continue
+
+        sheet_rows.append(cells)
+
+    if len(sheet_rows) <= 1:
+        return None
+
+    logger.info("ナショナル麻布 OCR: extracted %d data rows with %d columns", len(sheet_rows) - 1, n_cols)
+    return {
+        "name":      "ナショナル麻布 OCR",
         "rows":      sheet_rows,
         "hasHeader": True,
         "headerIdx": 0,
