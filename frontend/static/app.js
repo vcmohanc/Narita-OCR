@@ -8756,19 +8756,31 @@ function initSavedJsonView() {
 }
 
 async function _loadSavedJsonJobs() {
-  const listEl = document.getElementById('savedJsonList');
+  const listEl  = document.getElementById('savedJsonList');
   const countEl = document.getElementById('savedJsonCount');
   if (!listEl) return;
   listEl.innerHTML = '<div class="saved-json-placeholder">読み込み中…</div>';
   try {
-    const r = await dbFetch('/api/db/jobs?limit=500');
-    if (!r || !r.ok) throw new Error(r ? (await r.text()) : 'DB not connected');
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 10000);
+    let r;
+    try {
+      r = await fetch(`${API_BASE}/api/db/jobs?limit=500`, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(tid);
+    }
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${r.status}`);
+    }
     _savedJsonJobs   = await r.json();
     _savedJsonLoaded = true;
     if (countEl) countEl.textContent = `${_savedJsonJobs.length} 件`;
     _renderSavedJsonList(document.getElementById('savedJsonSearch')?.value || '');
   } catch (err) {
-    listEl.innerHTML = `<div class="saved-json-placeholder" style="color:#dc2626">エラー: ${esc(err.message)}</div>`;
+    if (countEl) countEl.textContent = '— 件';
+    const msg = err.name === 'AbortError' ? 'タイムアウト（MySQL未接続の可能性があります）' : esc(err.message);
+    listEl.innerHTML = `<div class="saved-json-placeholder" style="color:#dc2626">エラー: ${msg}</div>`;
   }
 }
 
@@ -8818,12 +8830,23 @@ async function _loadSavedJsonDetail(jobId) {
   if (!viewerEl) return;
   viewerEl.innerHTML = '<div class="saved-json-placeholder">読み込み中…</div>';
   try {
-    const r = await dbFetch(`/api/db/jobs/${encodeURIComponent(jobId)}`);
-    if (!r || !r.ok) throw new Error(r ? (await r.text()) : 'Not found');
-    const data  = await r.json();
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 10000);
+    let r;
+    try {
+      r = await fetch(`${API_BASE}/api/db/jobs/${encodeURIComponent(jobId)}`, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(tid);
+    }
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${r.status}`);
+    }
+    const data = await r.json();
     _renderSavedJsonDetail(viewerEl, data);
   } catch (err) {
-    viewerEl.innerHTML = `<div class="saved-json-placeholder" style="color:#dc2626">エラー: ${esc(err.message)}</div>`;
+    const msg = err.name === 'AbortError' ? 'タイムアウト' : esc(err.message);
+    viewerEl.innerHTML = `<div class="saved-json-placeholder" style="color:#dc2626">エラー: ${msg}</div>`;
   }
 }
 
