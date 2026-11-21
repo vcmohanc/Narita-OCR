@@ -8936,7 +8936,11 @@ function _renderSavedJsonDetail(viewerEl, data) {
         }
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
-          throw new Error(err.detail || `HTTP ${r.status}`);
+          const detail = err.detail;
+          const msg = typeof detail === 'string' ? detail
+            : Array.isArray(detail) ? detail.map(d => d.msg || JSON.stringify(d)).join(', ')
+            : detail ? JSON.stringify(detail) : `HTTP ${r.status}`;
+          throw new Error(msg);
         }
         const blob = await r.blob();
         const url = URL.createObjectURL(blob);
