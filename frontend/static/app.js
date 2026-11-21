@@ -5046,23 +5046,56 @@ function _detectHeaderRow(rows) {
 
 function _bboxToTable(lines) {
   if (!lines || !lines.length || !lines[0] || !lines[0].bbox) return null;
-  const annotated = lines.map(ln => ({
-    text: ln.text,
-    y: Math.min(...ln.bbox.map(pt => pt[1])),
-    x: Math.min(...ln.bbox.map(pt => pt[0]))
-  })).sort((a, b) => a.y - b.y);
+  const annotated = lines.map(ln => {
+    const xs = ln.bbox.map(pt => pt[0]);
+    const ys = ln.bbox.map(pt => pt[1]);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    return { text: ln.text, y: Math.min(...ys), x: xMin, cx: (xMin + xMax) / 2 };
+  }).sort((a, b) => a.y - b.y);
+
   const groups = [];
   for (const item of annotated) {
     const match = groups.find(g => Math.abs(item.y - g.refY) <= 40);
     if (match) match.items.push(item);
     else groups.push({ refY: item.y, items: [item] });
   }
-  const rows = groups.map(g => ({ cells: g.items.sort((a, b) => a.x - b.x).map(i => i.text) }));
-  if (rows.length < 1) return null;
-  const maxCols = Math.max(...rows.map(r => r.cells.length));
-  const detected = _detectHeaderRow(rows.map(r => r.cells));
-  const headerIdx = detected >= 0 ? detected : rows.findIndex(r => r.cells.length === maxCols);
-  return { rows, maxCols, headerIdx };
+  if (groups.length < 1) return null;
+
+  // Detect header row from raw text groupings first
+  const rawRows = groups.map(g => ({ cells: g.items.sort((a, b) => a.x - b.x).map(i => i.text) }));
+  const maxCols = Math.max(...rawRows.map(r => r.cells.length));
+  const detected = _detectHeaderRow(rawRows.map(r => r.cells));
+  const headerIdx = detected >= 0 ? detected : groups.findIndex(g => g.items.length === maxCols);
+
+  // Build column boundaries from the header row using center-x of each header item.
+  // This ensures data rows snap every OCR hit to the correct column index, filling
+  // empty cells with '' so no column is silently dropped (e.g. '0' in date columns).
+  const headerItems = groups[headerIdx].items.sort((a, b) => a.x - b.x);
+  const nCols = headerItems.length;
+  if (nCols < 2) return { rows: rawRows, maxCols, headerIdx };
+
+  const colCxs = headerItems.map(it => it.cx);
+  const bounds = [];
+  for (let i = 0; i < colCxs.length - 1; i++) {
+    bounds.push((colCxs[i] + colCxs[i + 1]) / 2);
+  }
+  bounds.push(Infinity);
+
+  function assignCol(cx) {
+    for (let i = 0; i < bounds.length; i++) { if (cx < bounds[i]) return i; }
+    return bounds.length - 1;
+  }
+
+  const rows = groups.map(g => {
+    const cells = Array(nCols).fill('');
+    for (const item of g.items) {
+      const ci = assignCol(item.cx);
+      if (ci < nCols) cells[ci] = cells[ci] ? cells[ci] + ' ' + item.text : item.text;
+    }
+    return { cells };
+  });
+
+  return { rows, maxCols: nCols, headerIdx };
 }
 
 function _normaliseDataRows(data) {

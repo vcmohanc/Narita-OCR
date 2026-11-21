@@ -490,6 +490,17 @@ def process_image(file_path: str, engines: str = "all", client_data: Optional[di
     # Confidence from PaddleOCR lines
     output["confidence_avg"] = _avg_confidence(output["paddle"].get("lines", []))
     output["tables"]         = output["docling"].get("tables", [])
+
+    # PPStructure fallback for images: when Docling returned no structured table data,
+    # run PPStructure directly on the image to recover table structure (same logic as PDF path).
+    if not output["tables"] or all(not t.get("data") for t in output["tables"]):
+        ppstruct_tables = _paddle_tables_from_image(file_path)
+        if ppstruct_tables:
+            output["tables"] = ppstruct_tables
+            output["docling"].setdefault("tables", [])
+            output["docling"]["tables"] = ppstruct_tables
+            logger.info("PPStructure image fallback: %d table(s) recovered", len(ppstruct_tables))
+
     output["processing_time_s"] = round(time.time() - t0, 2)
 
     # 常総生協 column extraction — triggered by client config or auto-detected from text
