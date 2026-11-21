@@ -1853,7 +1853,7 @@ async def db_statistics(request: Request):
 async def export_job_result(
     request: Request,
     job_id: str = FPath(..., pattern=JOB_ID_REGEX, max_length=64),
-    format: str = Query(default="csv", pattern=r"^(csv|tsv|json|txt|md)$"),
+    format: str = Query(default="csv", pattern=r"^(csv|tsv|json|txt|md|xlsx)$"),
     encoding: str = Query(default="utf-8", pattern=r"^(utf-8|shift_jis|cp932)$"),
 ):
     """
@@ -1920,6 +1920,51 @@ async def export_job_result(
             content=json_str.encode(enc, errors="replace"),
             media_type=f"application/json; charset={enc}",
             headers={"Content-Disposition": _build_content_disposition("json")},
+        )
+    elif format == "xlsx":
+        import openpyxl
+        from openpyxl.styles import Alignment, Font, PatternFill
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+
+        custom_sheets = res.get("custom_sheets") or []
+        if custom_sheets:
+            for cs in custom_sheets:
+                sheet_name = str(cs.get("name") or "Sheet")[:31]
+                ws = wb.create_sheet(title=sheet_name)
+                hdr_idx = cs.get("headerIdx", 0) if cs.get("hasHeader") else -1
+                for ri, row_data in enumerate(cs.get("rows", [])):
+                    for ci, cell_val in enumerate(row_data):
+                        cell = ws.cell(row=ri + 1, column=ci + 1, value=str(cell_val) if cell_val is not None else "")
+                        if ri == hdr_idx:
+                            cell.font = Font(bold=True)
+                            cell.fill = PatternFill("solid", fgColor="DDEEFF")
+                        cell.alignment = Alignment(wrap_text=False)
+        elif rows:
+            ws = wb.create_sheet(title="OCR Data")
+            if rows:
+                headers = list(rows[0].keys())
+                for ci, h in enumerate(headers):
+                    cell = ws.cell(row=1, column=ci + 1, value=h)
+                    cell.font = Font(bold=True)
+                    cell.fill = PatternFill("solid", fgColor="DDEEFF")
+                for ri, row_dict in enumerate(rows, start=2):
+                    for ci, h in enumerate(headers):
+                        ws.cell(row=ri, column=ci + 1, value=str(row_dict.get(h, "")))
+        else:
+            ws = wb.create_sheet(title="OCR Text")
+            ws.cell(row=1, column=1, value=res.get("fused_text") or res.get("text") or "")
+
+        if not wb.sheetnames:
+            wb.create_sheet(title="Empty")
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return Response(
+            content=buf.read(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": _build_content_disposition("xlsx")},
         )
     else:
         text = (res.get("markdown") if format == "md" else (res.get("fused_text") or res.get("text") or "")) or ""

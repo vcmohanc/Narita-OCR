@@ -4160,6 +4160,37 @@ document.getElementById('orderBulkDeleteBtn')?.addEventListener('click', async (
   }
 });
 
+document.getElementById('orderDeleteAllBtn')?.addEventListener('click', async () => {
+  const total = _orderAllJobs.length;
+  if (!total) { showToast('削除するデータがありません'); return; }
+  if (!(await showConfirmToast(`発注一覧のすべての ${total} 件を削除しますか？\nこの操作は元に戻せません。`))) return;
+  const btn = document.getElementById('orderDeleteAllBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const ids = _orderAllJobs.map(j => j.job_id);
+    const r = await fetch(`${API_BASE}/api/db/jobs/bulk-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_ids: ids }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || r.statusText);
+    }
+    const { deleted } = await r.json();
+    _orderAllJobs = [];
+    _orderSelectedIds.clear();
+    renderOrderSheet();
+    document.getElementById('orderPreview')?.classList.add('hidden');
+    syncHomeHistoryRemoved(ids);
+    showToast(`${deleted ?? ids.length} 件のデータをすべて削除しました`);
+  } catch (e) {
+    showToast('削除に失敗しました: ' + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
+
 // ── Sorting ───────────────────────────────────────────────────
 document.querySelectorAll('#orderSheet .sortable').forEach(th => {
   th.addEventListener('click', () => {
@@ -8860,11 +8891,14 @@ function _renderSavedJsonDetail(viewerEl, data) {
     .map(([k, v]) => `<tr><td style="color:var(--text-muted);white-space:nowrap">${esc(k)}</td><td>${esc(String(v))}</td></tr>`)
     .join('');
 
+  const jobId = data.job_id || '';
+  const baseName = filename.replace(/\.[^.]+$/, '') || jobId;
   viewerEl.innerHTML = `
     <div class="saved-json-viewer-header">
       <span class="saved-json-viewer-title" title="${filename}">${filename}</span>
+      <button class="btn-sm" id="savedJsonExcelBtn" title="Excelファイルとしてダウンロード" style="color:#1a7641;border-color:#1a7641">📊 Excel</button>
       <button class="btn-sm" id="savedJsonCopyBtn" title="JSONをコピー">📋 コピー</button>
-      <a class="btn-sm" id="savedJsonDlBtn" title="JSONをダウンロード" download="${filename.replace(/\.[^.]+$/, '')}_result.json">⬇ DL</a>
+      <a class="btn-sm" id="savedJsonDlBtn" title="JSONをダウンロード" download="${baseName}_result.json">⬇ DL</a>
     </div>
     <div class="saved-json-viewer-tabs">
       <button class="saved-json-tab${_savedJsonTab === 'json' ? ' active' : ''}" data-tab="json">Raw JSON</button>
@@ -8884,6 +8918,46 @@ function _renderSavedJsonDetail(viewerEl, data) {
   if (dlBtn) {
     const blob = new Blob([json], { type: 'application/json' });
     dlBtn.href = URL.createObjectURL(blob);
+  }
+
+  const excelBtn = viewerEl.querySelector('#savedJsonExcelBtn');
+  if (excelBtn && jobId) {
+    excelBtn.addEventListener('click', async () => {
+      excelBtn.disabled = true;
+      excelBtn.textContent = '⏳ 変換中…';
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 30000);
+        let r;
+        try {
+          r = await fetch(`${API_BASE}/api/ocr/export/${encodeURIComponent(jobId)}?format=xlsx`, { signal: ctrl.signal });
+        } finally {
+          clearTimeout(tid);
+        }
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${r.status}`);
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${baseName}_result.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
+        showToast('Excelファイルをダウンロードしました');
+      } catch (e) {
+        const msg = e.name === 'AbortError' ? 'タイムアウト' : e.message;
+        showToast('Excel変換に失敗しました: ' + msg, true);
+      } finally {
+        excelBtn.disabled = false;
+        excelBtn.textContent = '📊 Excel';
+      }
+    });
+  } else if (excelBtn) {
+    excelBtn.disabled = true;
+    excelBtn.title = 'ジョブIDが不明';
   }
 
   viewerEl.querySelectorAll('.saved-json-tab').forEach(tab => {
