@@ -225,6 +225,7 @@ def _create_tables():
             fused_text       LONGTEXT      NULL,
             confidence_avg   FLOAT         NULL,
             processing_time_s FLOAT        NULL,
+            page_count       INT UNSIGNED  NULL,
             result_json      LONGTEXT      NULL,
             error_message    TEXT          NULL,
             created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1587,6 +1588,8 @@ def _migrate():
                     REFERENCES ocr_clients (id) ON DELETE SET NULL
                 """
             )
+        if not _column_exists(cur, "ocr_jobs", "page_count"):
+            cur.execute("ALTER TABLE ocr_jobs ADD COLUMN page_count INT UNSIGNED NULL")
         if not _column_exists(cur, "ocr_clients", "header_row"):
             cur.execute("ALTER TABLE ocr_clients ADD COLUMN header_row INT UNSIGNED NULL DEFAULT 1")
         if not _column_exists(cur, "ocr_clients", "heading_columns"):
