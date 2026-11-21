@@ -44,6 +44,7 @@ const API_BASE = location.protocol === "file:" ? "http://localhost:8080" : "";
       if (target === 'todayOrder') initTodayOrderView();
       if (target === 'order') initOrderView();
       if (target === 'clients') initClientsView();
+      if (target === 'savedJson') initSavedJsonView();
     });
   });
 })();
@@ -8728,4 +8729,161 @@ async function dbFetch(path, opts) {
     setupAuthControls();
   }
 })();
+
+// ============================================================
+// Saved JSON Viewer
+// ============================================================
+let _savedJsonJobs     = [];
+let _savedJsonLoaded   = false;
+let _savedJsonSelId    = null;
+let _savedJsonTab      = 'json'; // 'json' | 'table'
+
+function initSavedJsonView() {
+  const refreshBtn = document.getElementById('savedJsonRefreshBtn');
+  const searchEl   = document.getElementById('savedJsonSearch');
+  if (refreshBtn && !refreshBtn._sjBound) {
+    refreshBtn._sjBound = true;
+    refreshBtn.addEventListener('click', () => {
+      _savedJsonLoaded = false;
+      _loadSavedJsonJobs();
+    });
+  }
+  if (searchEl && !searchEl._sjBound) {
+    searchEl._sjBound = true;
+    searchEl.addEventListener('input', () => _renderSavedJsonList(searchEl.value || ''));
+  }
+  if (!_savedJsonLoaded) _loadSavedJsonJobs();
+}
+
+async function _loadSavedJsonJobs() {
+  const listEl = document.getElementById('savedJsonList');
+  const countEl = document.getElementById('savedJsonCount');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="saved-json-placeholder">読み込み中…</div>';
+  try {
+    const r = await dbFetch('/api/db/jobs?limit=500');
+    if (!r || !r.ok) throw new Error(r ? (await r.text()) : 'DB not connected');
+    _savedJsonJobs   = await r.json();
+    _savedJsonLoaded = true;
+    if (countEl) countEl.textContent = `${_savedJsonJobs.length} 件`;
+    _renderSavedJsonList(document.getElementById('savedJsonSearch')?.value || '');
+  } catch (err) {
+    listEl.innerHTML = `<div class="saved-json-placeholder" style="color:#dc2626">エラー: ${esc(err.message)}</div>`;
+  }
+}
+
+function _renderSavedJsonList(query) {
+  const listEl = document.getElementById('savedJsonList');
+  if (!listEl) return;
+  const q = query.toLowerCase();
+  const rows = q
+    ? _savedJsonJobs.filter(j =>
+        (j.filename || '').toLowerCase().includes(q) ||
+        (j.client_name_ja || j.client_name || '').toLowerCase().includes(q))
+    : _savedJsonJobs;
+
+  if (!rows.length) {
+    listEl.innerHTML = '<div class="saved-json-placeholder">データがありません</div>';
+    return;
+  }
+
+  listEl.innerHTML = rows.map(j => {
+    const name   = esc(j.filename || j.job_id || '—');
+    const client = esc(j.client_name_ja || j.client_name || '—');
+    const dt     = esc((j.created_at || '').replace('T', ' ').substring(0, 16));
+    const isActive = j.job_id === _savedJsonSelId ? ' active' : '';
+    const statusColor = j.status === 'done' ? 'var(--success)' : j.status === 'error' ? '#dc2626' : 'var(--accent)';
+    return `<div class="saved-json-item${isActive}" data-job-id="${esc(j.job_id)}">
+      <div class="saved-json-item-name" title="${name}">${name}</div>
+      <div class="saved-json-item-meta">
+        <span class="saved-json-badge">${client}</span>
+        <span class="saved-json-date">${dt}</span>
+        <span style="margin-left:auto;font-size:11px;color:${statusColor}">${esc(j.status || '')}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.saved-json-item').forEach(el => {
+    el.addEventListener('click', () => {
+      _savedJsonSelId = el.dataset.jobId;
+      listEl.querySelectorAll('.saved-json-item').forEach(i => i.classList.remove('active'));
+      el.classList.add('active');
+      _loadSavedJsonDetail(el.dataset.jobId);
+    });
+  });
+}
+
+async function _loadSavedJsonDetail(jobId) {
+  const viewerEl = document.getElementById('savedJsonViewer');
+  if (!viewerEl) return;
+  viewerEl.innerHTML = '<div class="saved-json-placeholder">読み込み中…</div>';
+  try {
+    const r = await dbFetch(`/api/db/jobs/${encodeURIComponent(jobId)}`);
+    if (!r || !r.ok) throw new Error(r ? (await r.text()) : 'Not found');
+    const data  = await r.json();
+    _renderSavedJsonDetail(viewerEl, data);
+  } catch (err) {
+    viewerEl.innerHTML = `<div class="saved-json-placeholder" style="color:#dc2626">エラー: ${esc(err.message)}</div>`;
+  }
+}
+
+function _renderSavedJsonDetail(viewerEl, data) {
+  const filename = esc(data.filename || data.job_id || '');
+  const json     = JSON.stringify(data, null, 2);
+
+  // Build a simple key→value summary table (top-level scalar fields)
+  const summaryRows = Object.entries(data)
+    .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
+    .map(([k, v]) => `<tr><td style="color:var(--text-muted);white-space:nowrap">${esc(k)}</td><td>${esc(String(v))}</td></tr>`)
+    .join('');
+
+  viewerEl.innerHTML = `
+    <div class="saved-json-viewer-header">
+      <span class="saved-json-viewer-title" title="${filename}">${filename}</span>
+      <button class="btn-sm" id="savedJsonCopyBtn" title="JSONをコピー">📋 コピー</button>
+      <a class="btn-sm" id="savedJsonDlBtn" title="JSONをダウンロード" download="${filename.replace(/\.[^.]+$/, '')}_result.json">⬇ DL</a>
+    </div>
+    <div class="saved-json-viewer-tabs">
+      <button class="saved-json-tab${_savedJsonTab === 'json' ? ' active' : ''}" data-tab="json">Raw JSON</button>
+      <button class="saved-json-tab${_savedJsonTab === 'table' ? ' active' : ''}" data-tab="table">サマリー</button>
+    </div>
+    <div id="savedJsonTabContent" style="flex:1;overflow:auto;display:flex;flex-direction:column"></div>
+  `;
+
+  const copyBtn = viewerEl.querySelector('#savedJsonCopyBtn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(json).then(() => showToast('JSONをコピーしました')).catch(() => {});
+    });
+  }
+
+  const dlBtn = viewerEl.querySelector('#savedJsonDlBtn');
+  if (dlBtn) {
+    const blob = new Blob([json], { type: 'application/json' });
+    dlBtn.href = URL.createObjectURL(blob);
+  }
+
+  viewerEl.querySelectorAll('.saved-json-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      _savedJsonTab = tab.dataset.tab;
+      viewerEl.querySelectorAll('.saved-json-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === _savedJsonTab));
+      _renderSavedJsonTabContent(viewerEl, json, summaryRows);
+    });
+  });
+
+  _renderSavedJsonTabContent(viewerEl, json, summaryRows);
+}
+
+function _renderSavedJsonTabContent(viewerEl, json, summaryRows) {
+  const content = viewerEl.querySelector('#savedJsonTabContent');
+  if (!content) return;
+  if (_savedJsonTab === 'json') {
+    content.innerHTML = `<div class="saved-json-code-wrap"><pre class="saved-json-code">${esc(json)}</pre></div>`;
+  } else {
+    content.innerHTML = `<div class="saved-json-table-wrap"><table class="saved-json-table">
+      <thead><tr><th>フィールド</th><th>値</th></tr></thead>
+      <tbody>${summaryRows || '<tr><td colspan="2" style="text-align:center;color:var(--text-muted)">スカラー値なし</td></tr>'}</tbody>
+    </table></div>`;
+  }
+}
 

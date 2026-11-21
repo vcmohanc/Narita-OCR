@@ -437,12 +437,13 @@ def _avg_confidence(lines: list) -> float:
 # Public API
 # ---------------------------------------------------------------------------
 
-def process_image(file_path: str, engines: str = "all") -> dict:
+def process_image(file_path: str, engines: str = "all", client_data: Optional[dict] = None) -> dict:
     """
     Process an image through the requested engines and fuse the results.
 
     engines: "all" | "paddle" | "docling" | "deepseek" |
              comma-separated subset, e.g. "paddle,deepseek"
+    client_data: optional client config dict; triggers joso extraction when client is 常総生協.
     """
     t0 = time.time()
     use_paddle   = engines in ("all", "paddle")   or "paddle"   in engines
@@ -490,6 +491,14 @@ def process_image(file_path: str, engines: str = "all") -> dict:
     output["confidence_avg"] = _avg_confidence(output["paddle"].get("lines", []))
     output["tables"]         = output["docling"].get("tables", [])
     output["processing_time_s"] = round(time.time() - t0, 2)
+
+    # 常総生協 column extraction — triggered by client config or auto-detected from text
+    full_ocr_text = output.get("fused_text", "") + output.get("paddle", {}).get("full_text", "")
+    if _is_joso_client(client_data) or _is_joso_text(full_ocr_text):
+        joso_sheet = _extract_joso_columns(output)
+        if joso_sheet:
+            output.setdefault("custom_sheets", []).insert(0, joso_sheet)
+
     return output
 
 
@@ -788,11 +797,129 @@ def _excel_process(file_path: str, client_data: Optional[dict] = None) -> dict:
         }
 
 
+# ---------------------------------------------------------------------------
+# 常総生協 (Joso Seikyo) 7-column extraction from PaddleOCR lines
+# ---------------------------------------------------------------------------
+
+_JOSO_COL_KEYWORDS = ["ocr", "商品名", "規格", "納品数", "単価", "入数", "発注数"]
+_JOSO_TARGET_HEADERS = ["OCR No.", "商品名", "規格", "納品数", "単価", "入数", "発注数"]
+
+
+def _is_joso_client(client_data: Optional[dict]) -> bool:
+    if not isinstance(client_data, dict):
+        return False
+    code = str(client_data.get("code") or "").lower()
+    name = str(client_data.get("name") or client_data.get("name_ja") or "").lower()
+    return any(k in code or k in name for k in ("joso", "常総", "joseoseikyo"))
+
+
+def _is_joso_text(text: str) -> bool:
+    """Return True when text contains enough 常総 order-sheet column keywords."""
+    t = text.lower()
+    return sum(1 for kw in _JOSO_COL_KEYWORDS if kw in t) >= 4
+
+
+def _group_paddle_lines_by_row(lines: list, y_tolerance: int = 15) -> list:
+    """Return PaddleOCR lines grouped into horizontal rows, sorted by x within each row."""
+    if not lines:
+        return []
+    items = []
+    for line in lines:
+        bbox = line.get("bbox", [])
+        if len(bbox) >= 2:
+            ys = [p[1] for p in bbox]
+            xs = [p[0] for p in bbox]
+            yc = sum(ys) / len(ys)
+            xc = sum(xs) / len(xs)
+        else:
+            yc = xc = 0.0
+        items.append({"text": line.get("text", ""), "y": yc, "x": xc})
+    items.sort(key=lambda i: (i["y"], i["x"]))
+    rows: list = []
+    cur: list = [items[0]]
+    for item in items[1:]:
+        if abs(item["y"] - cur[0]["y"]) <= y_tolerance:
+            cur.append(item)
+        else:
+            rows.append(sorted(cur, key=lambda i: i["x"]))
+            cur = [item]
+    if cur:
+        rows.append(sorted(cur, key=lambda i: i["x"]))
+    return rows
+
+
+def _extract_joso_columns(output: dict) -> Optional[dict]:
+    """Extract the 7 target columns from a 常総生協 order image via PaddleOCR lines.
+    Returns a custom_sheet dict ready for the frontend, or None if pattern not found.
+    """
+    lines = output.get("paddle", {}).get("lines", [])
+    if not lines:
+        return None
+
+    rows = _group_paddle_lines_by_row(lines)
+    if not rows:
+        return None
+
+    # Find header row: must match at least 4 of the 7 column keywords
+    header_idx = -1
+    for i, row in enumerate(rows):
+        texts_low = [item["text"].lower() for item in row]
+        if sum(1 for kw in _JOSO_COL_KEYWORDS if any(kw in t for t in texts_low)) >= 4:
+            header_idx = i
+            break
+    if header_idx < 0:
+        return None
+
+    header_row = rows[header_idx]
+    n_cols = min(7, len(header_row))  # cap at 7, skipping 金額 column if present
+    if n_cols < 4:
+        return None
+
+    target_headers = _JOSO_TARGET_HEADERS[:n_cols]
+
+    # Build boundaries from ALL header columns so cells in the 8th+ columns
+    # get a correct index (≥ n_cols) and are safely skipped below.
+    all_col_xs = [item["x"] for item in header_row]
+    bounds: list = []
+    for i in range(len(all_col_xs) - 1):
+        bounds.append((all_col_xs[i] + all_col_xs[i + 1]) / 2)
+    bounds.append(float("inf"))
+
+    def _col(x: float) -> int:
+        for i, b in enumerate(bounds):
+            if x < b:
+                return i
+        return len(bounds) - 1
+
+    sheet_rows = [target_headers]
+    for row in rows[header_idx + 1:]:
+        cells = [""] * n_cols
+        for item in row:
+            ci = _col(item["x"])
+            if ci < n_cols:
+                t = item["text"].strip()
+                cells[ci] = (cells[ci] + " " + t).strip() if cells[ci] else t
+        # Only keep rows where the first cell looks like an OCR number (integer)
+        if cells[0].strip() and re.match(r"^\d+$", cells[0].strip().replace(" ", "")):
+            sheet_rows.append(cells)
+
+    if len(sheet_rows) <= 1:
+        return None
+
+    logger.info("常総生協 OCR: extracted %d data rows with %d columns", len(sheet_rows) - 1, n_cols)
+    return {
+        "name":      "常総生協 OCR",
+        "rows":      sheet_rows,
+        "hasHeader": True,
+        "headerIdx": 0,
+    }
+
+
 def process_file(file_path: str, engines: str = "all", client_data: Optional[dict] = None) -> dict:
     """Auto-dispatch based on file extension. client_data is used for client-aware extraction."""
     ext = Path(file_path).suffix.lower()
     if ext in SUPPORTED_IMAGE_EXTS:
-        return process_image(file_path, engines=engines)
+        return process_image(file_path, engines=engines, client_data=client_data)
     elif ext in SUPPORTED_EXCEL_EXTS:
         return _excel_process(file_path, client_data=client_data)
     elif ext in SUPPORTED_DOC_EXTS:
