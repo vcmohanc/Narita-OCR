@@ -212,7 +212,15 @@
 
             <div class="tab-panel hidden" id="tab-client-ocr"></div>
             <div class="tab-panel" id="tab-fused"><pre class="text-out" id="fusedText"></pre></div>
-            <div class="tab-panel hidden" id="tab-paddle"><div class="lines-list" id="paddleLines"></div></div>
+            <div class="tab-panel hidden" id="tab-paddle">
+              <div id="paddleToolbar" class="paddle-toolbar hidden">
+                <label class="paddle-filter-label">
+                  <input type="checkbox" id="paddleProductFilter">
+                  <span>商品行のみ表示 (Product rows only)</span>
+                </label>
+              </div>
+              <div class="lines-list" id="paddleLines"></div>
+            </div>
             <div class="tab-panel hidden" id="tab-docling"><pre class="text-out" id="doclingText"></pre></div>
             <div class="tab-panel hidden" id="tab-deepseek"><pre class="text-out" id="deepseekText"></pre></div>
             <div class="tab-panel hidden" id="tab-tables"><div id="tablesOutput"></div></div>
@@ -779,6 +787,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=74"></script>
+  <script src="/static/app.js?v=77"></script>
 </body>
 </html>

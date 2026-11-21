@@ -7782,18 +7782,53 @@ function renderResults(res, opts = {}) {
     (dsErr ? dsErr : "(DeepSeek-OCR produced no output)")) + dsNotice;
 
   const lines = res.paddle?.lines || [];
-  document.getElementById("paddleLines").innerHTML = lines.length
-    ? lines.map(ln => {
-        const p   = (ln.confidence * 100).toFixed(1);
-        const cls = ln.confidence >= 0.9 ? "conf-high" : ln.confidence >= 0.7 ? "conf-mid" : "conf-low";
-        const barColor = ln.confidence >= 0.9 ? "#16a34a" : ln.confidence >= 0.7 ? "#d97706" : "#dc2626";
-        return `<div class="line-item">
-          <span class="line-text">${esc(ln.text)}</span>
-          <div class="conf-bar-wrap"><div class="conf-bar" style="width:${p}%;background:${barColor}"></div></div>
-          <span class="conf-label ${cls}">${p}%</span>
-        </div>`;
-      }).join("")
-    : `<p class="empty-msg">No PaddleOCR lines returned.</p>`;
+  const paddleToolbar = document.getElementById("paddleToolbar");
+  const paddleFilterChk = document.getElementById("paddleProductFilter");
+  if (paddleToolbar) paddleToolbar.classList.toggle("hidden", lines.length === 0);
+
+  // Filter: group lines into y-bands (same approach as _bboxToTable, 40px tolerance).
+  // A band is "primary" if any line in it has a digit or |.
+  // Keep ALL lines in primary bands; skip lines in non-primary bands (page headers/footers).
+  // Falls back to text-only test when bbox is absent.
+  function _paddleProductFilter(allLines) {
+    const hasBbox = allLines.length && allLines[0] && allLines[0].bbox;
+    const isPrimary = ln => ln.text && (ln.text.includes('|') || /\d/.test(ln.text));
+    if (!hasBbox) return allLines.filter(isPrimary);
+    // Build row bands by y-coordinate
+    const withY = allLines.map((ln, i) => ({ i, ln, y: Math.min(...ln.bbox.map(pt => pt[1])) }))
+                          .sort((a, b) => a.y - b.y);
+    const bands = [];
+    for (const item of withY) {
+      const band = bands.find(b => Math.abs(item.y - b.refY) <= 40);
+      if (band) band.items.push(item);
+      else bands.push({ refY: item.y, items: [item] });
+    }
+    // Mark keep set: all indices in bands that have at least one primary line
+    const keep = new Set();
+    for (const band of bands) {
+      if (band.items.some(it => isPrimary(it.ln))) band.items.forEach(it => keep.add(it.i));
+    }
+    return allLines.filter((_, i) => keep.has(i));
+  }
+
+  function _renderPaddleLines() {
+    const filterOn = paddleFilterChk && paddleFilterChk.checked;
+    const visible = filterOn ? _paddleProductFilter(lines) : lines;
+    document.getElementById("paddleLines").innerHTML = visible.length
+      ? visible.map(ln => {
+          const p   = (ln.confidence * 100).toFixed(1);
+          const cls = ln.confidence >= 0.9 ? "conf-high" : ln.confidence >= 0.7 ? "conf-mid" : "conf-low";
+          const barColor = ln.confidence >= 0.9 ? "#16a34a" : ln.confidence >= 0.7 ? "#d97706" : "#dc2626";
+          return `<div class="line-item">
+            <span class="line-text">${esc(ln.text)}</span>
+            <div class="conf-bar-wrap"><div class="conf-bar" style="width:${p}%;background:${barColor}"></div></div>
+            <span class="conf-label ${cls}">${p}%</span>
+          </div>`;
+        }).join("")
+      : (lines.length ? `<p class="empty-msg">フィルター適用後、表示できる行がありません。</p>` : `<p class="empty-msg">No PaddleOCR lines returned.</p>`);
+  }
+  if (paddleFilterChk) paddleFilterChk.onchange = _renderPaddleLines;
+  _renderPaddleLines();
 
   // ── Table/CSV shared helpers ─────────────────────────────────────────────
   // A separator row contains only |, -, :, and whitespace AND must have a dash
