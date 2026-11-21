@@ -3901,6 +3901,76 @@ async function initTodayOrderView() {
       showToast('Excelファイルをダウンロードしました');
     });
 
+    // ── Product master load ────────────────────────────────────
+    document.getElementById('todayOrderMasterLoadBtn')?.addEventListener('click', async () => {
+      const fmt = _todayOrderCurrentFormat;
+      const btn = document.getElementById('todayOrderMasterLoadBtn');
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ 読込中…'; }
+      try {
+        const r = await fetch(`${API_BASE}/api/today-order/products?format=${encodeURIComponent(fmt)}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const { rows: productRows, ncols, base_cols } = await r.json();
+
+        // Find last 'header' row in current sheet
+        let lastHdrIdx = -1;
+        for (let i = 0; i < _todayOrderRows.length; i++) {
+          if (_todayOrderRows[i].type === 'header') lastHdrIdx = i;
+        }
+        if (lastHdrIdx < 0) { showToast('ヘッダー行が見つかりません', true); return; }
+
+        const newRows = productRows.map(row => {
+          if (row.type === 'item') {
+            const base = (row.cells || []).slice(0, base_cols);
+            while (base.length < base_cols) base.push('');
+            return { type: 'item', cells: [...base, ...Array(ncols - base_cols).fill('')] };
+          }
+          if (row.type === 'category') {
+            const cells = (row.cells || []).slice();
+            while (cells.length < ncols) cells.push('');
+            return { type: 'category', cells };
+          }
+          return row;
+        });
+        newRows.push({ type: 'spacer', cells: Array(ncols).fill('') });
+        for (let i = 0; i < 4; i++) newRows.push({ type: 'data', cells: Array(ncols).fill('') });
+
+        _todayOrderRows = [..._todayOrderRows.slice(0, lastHdrIdx + 1), ...newRows];
+        _markTodayOrderDirty(true);
+        _renderTodayOrderGrid();
+        const itemCount = productRows.filter(r => r.type === 'item').length;
+        showToast(`商品マスタから ${itemCount} 品目を読み込みました`);
+      } catch (e) {
+        showToast('マスタ読込に失敗しました: ' + e.message, true);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '📋 マスタ読込'; }
+      }
+    });
+
+    // ── Product master save ────────────────────────────────────
+    document.getElementById('todayOrderMasterSaveBtn')?.addEventListener('click', async () => {
+      const fmt = _todayOrderCurrentFormat;
+      const btn = document.getElementById('todayOrderMasterSaveBtn');
+      const productRows = _todayOrderRows.filter(r => ['category', 'item', 'note'].includes(r.type));
+      if (!productRows.some(r => r.type === 'item')) {
+        showToast('保存する品目がありません', true); return;
+      }
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ 保存中…'; }
+      try {
+        const r = await fetch(`${API_BASE}/api/today-order/products?format=${encodeURIComponent(fmt)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: productRows }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const itemCount = productRows.filter(r => r.type === 'item').length;
+        showToast(`商品マスタを保存しました（${itemCount} 品目）`);
+      } catch (e) {
+        showToast('マスタ保存に失敗しました: ' + e.message, true);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '💾 マスタ保存'; }
+      }
+    });
+
     _todayOrderInitialized = true;
   }
   _renderTodayOrderGrid();

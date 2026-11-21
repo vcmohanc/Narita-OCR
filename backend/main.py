@@ -1389,6 +1389,93 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
     wb.save(str(target_path))
 
 
+# Number of base (non-date/non-quantity) product columns per format
+_PRODUCT_BASE_COLS: dict = {
+    "chiba": 2,
+    "haibukiya": 7,
+    "props_japan": 4,
+    "tsukiji": 4,
+    "national_azabu": 6,
+    "fusui": 6,
+    "nanohana": 6,
+    "greenworld": 7,
+    "rosen": 4,
+    "worlddelica": 5,
+    "santoku": 3,
+    "josoSeikyo": 7,
+}
+
+
+def _products_path(fmt: str) -> Path:
+    return RESULT_DIR / f"{fmt}_products.json"
+
+
+class ProductsRequest(BaseModel):
+    rows: list[dict]
+
+
+@app.get("/api/today-order/products", dependencies=[Depends(_require_api_key)])
+async def get_today_order_products(format: str = Query(default="national_azabu")):
+    """Return product master rows (categories + items without quantity columns) for a format."""
+    fmt, ncols, _, _ = _get_today_format_cfg(format)
+    base_cols = _PRODUCT_BASE_COLS.get(fmt, ncols)
+    path = _products_path(fmt)
+
+    if path.exists():
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))
+            return {"rows": rows, "format": fmt, "ncols": ncols, "base_cols": base_cols}
+        except Exception:
+            pass
+
+    # Auto-generate from hardcoded defaults, extract category/item/note rows
+    all_rows = _default_today_order_rows(fmt)
+    last_header_idx = -1
+    for i, r in enumerate(all_rows):
+        if r.get("type") == "header":
+            last_header_idx = i
+
+    product_rows: list[dict] = []
+    for r in all_rows[last_header_idx + 1:]:
+        rtype = r.get("type", "")
+        if rtype == "item":
+            cells = r.get("cells", [])
+            stripped = (cells[:base_cols] + [""] * base_cols)[:base_cols]
+            product_rows.append({"type": "item", "cells": stripped})
+        elif rtype in ("category", "note"):
+            product_rows.append(r)
+
+    path.write_text(json.dumps(product_rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"rows": product_rows, "format": fmt, "ncols": ncols, "base_cols": base_cols}
+
+
+@app.put("/api/today-order/products", dependencies=[Depends(_require_api_key)])
+async def save_today_order_products(
+    request: Request,
+    payload: ProductsRequest,
+    format: str = Query(default="national_azabu"),
+):
+    """Save product master rows for a format, stripping quantity columns from items."""
+    _check_rate_limit(request, "today_order_write", max_requests=30, window_s=60)
+    fmt, ncols, _, _ = _get_today_format_cfg(format)
+    base_cols = _PRODUCT_BASE_COLS.get(fmt, ncols)
+    path = _products_path(fmt)
+
+    rows: list[dict] = []
+    for r in payload.rows:
+        rtype = r.get("type", "")
+        if rtype == "item":
+            cells = r.get("cells", [])
+            stripped = (cells[:base_cols] + [""] * base_cols)[:base_cols]
+            rows.append({"type": "item", "cells": stripped})
+        elif rtype in ("category", "note"):
+            rows.append(r)
+
+    path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    _audit(request, "products_save", f"format={fmt} count={len(rows)}")
+    return {"saved": True, "format": fmt, "count": len(rows), "base_cols": base_cols}
+
+
 @app.get("/api/today-order", dependencies=[Depends(_require_api_key)])
 async def get_today_order(format: str = Query(default="chiba")):
     """Return the persisted Today Order spreadsheet rows for the selected format."""
