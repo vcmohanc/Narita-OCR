@@ -6000,11 +6000,15 @@ function _renderXlsGrid(sheet) {
     });
   };
 
+  // If the date-column filter would hide every data row, disable it so we always show something
+  const _nonHdrRows = rows.filter((_, ri) => !(hasHeader && ri === headerIdx));
+  const _applyRowFilter = _nonHdrRows.length > 0 && _nonHdrRows.some(r => !_shouldHideRow(r));
+
   let visibleRowNum = 0;
   rows.forEach((rowCells, ri) => {
     const isHdr = hasHeader && ri === headerIdx;
     if (hideHeaderRowInBody && isHdr) return;
-    if (!isHdr && _shouldHideRow(rowCells)) return;
+    if (!isHdr && _applyRowFilter && _shouldHideRow(rowCells)) return;
 
     visibleRowNum += 1;
     const tr = document.createElement('tr');
