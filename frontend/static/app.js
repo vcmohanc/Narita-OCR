@@ -860,6 +860,43 @@ async function loadTodayOrderSheet(fmt = _todayOrderCurrentFormat) {
           return;
         }
       }
+      // Server has no saved data — try product master JSON
+      if (data && data.is_default) {
+        try {
+          const pr = await fetch(`${API_BASE}/api/today-order/products?format=${encodeURIComponent(fmt)}`);
+          if (pr.ok) {
+            const { rows: productRows, ncols, base_cols } = await pr.json();
+            if (Array.isArray(productRows) && productRows.some(r => r.type === 'item')) {
+              const baseRows = _createTodayOrderInitialRows(fmt);
+              let lastHdrIdx = -1;
+              for (let i = 0; i < baseRows.length; i++) {
+                if (baseRows[i].type === 'header') lastHdrIdx = i;
+              }
+              if (lastHdrIdx >= 0) {
+                const masterRows = productRows.map(row => {
+                  if (row.type === 'item') {
+                    const base = (row.cells || []).slice(0, base_cols);
+                    while (base.length < base_cols) base.push('');
+                    return { type: 'item', cells: [...base, ...Array(ncols - base_cols).fill('')] };
+                  }
+                  if (row.type === 'category') {
+                    const cells = (row.cells || []).slice();
+                    while (cells.length < ncols) cells.push('');
+                    return { type: 'category', cells };
+                  }
+                  return row;
+                });
+                masterRows.push({ type: 'spacer', cells: Array(ncols).fill('') });
+                for (let i = 0; i < 4; i++) masterRows.push({ type: 'data', cells: Array(ncols).fill('') });
+                _todayOrderRows = [...baseRows.slice(0, lastHdrIdx + 1), ...masterRows];
+                if (fmt === 'nanohana') _ensureNanohanaHeaders();
+                _persistTodayOrderLocal(fmt);
+                return;
+              }
+            }
+          }
+        } catch {}
+      }
     }
   } catch {}
   try {
@@ -3287,19 +3324,37 @@ async function initTodayOrderView() {
   // Render saved OCR data if available
   if (_todayOcrData) _renderTodayOcrList(_todayOcrData);
   if (!_todayOrderInitialized) {
-    // Build tabs and format-select dynamically from TODAY_ORDER_FORMATS
+    // Fetch format list from server (falls back to hardcoded if unavailable)
+    let _serverFormatList = null;
+    try {
+      const fr = await fetch(`${API_BASE}/api/today-order/formats`);
+      if (fr.ok) _serverFormatList = await fr.json();
+    } catch {}
+    // Build tabs and format-select from server list or hardcoded fallback
     const tabsContainer = document.getElementById('todayOrderSheetTabs');
     if (tabsContainer) {
-      tabsContainer.innerHTML = Object.entries(TODAY_FMT_LABELS).map(([key, label]) =>
-        `<div class="xls-sheet-tab${key === _todayOrderCurrentFormat ? ' active' : ''}" data-format="${esc(key)}">${esc(label)}</div>`
-      ).join('');
+      const tabEntries = _serverFormatList
+        ? _serverFormatList.map(f => [f.key, f.tab || f.label])
+        : Object.entries(TODAY_FMT_LABELS);
+      tabsContainer.innerHTML = tabEntries
+        .filter(([key]) => TODAY_ORDER_FORMATS[key])
+        .map(([key, label]) =>
+          `<div class="xls-sheet-tab${key === _todayOrderCurrentFormat ? ' active' : ''}" data-format="${esc(key)}">${esc(label)}</div>`
+        ).join('');
     }
     const fmtSelect = document.getElementById('todayOrderFormatSelect');
     if (fmtSelect) {
-      fmtSelect.innerHTML = Object.entries(TODAY_ORDER_FORMATS).map(([key, cfg]) => {
-        const label = cfg.downloadName.replace(/\.xlsx?$/i, '').replace(/_/g, ' ').replace(/^(発注書|発注明細書|注文書|週間発注リスト)\s*/u, '');
-        return `<option value="${esc(key)}">${esc(label)}</option>`;
-      }).join('');
+      if (_serverFormatList) {
+        fmtSelect.innerHTML = _serverFormatList
+          .filter(f => TODAY_ORDER_FORMATS[f.key])
+          .map(f => `<option value="${esc(f.key)}">${esc(f.label)}</option>`)
+          .join('');
+      } else {
+        fmtSelect.innerHTML = Object.entries(TODAY_ORDER_FORMATS).map(([key, cfg]) => {
+          const label = cfg.downloadName.replace(/\.xlsx?$/i, '').replace(/_/g, ' ').replace(/^(発注書|発注明細書|注文書|週間発注リスト)\s*/u, '');
+          return `<option value="${esc(key)}">${esc(label)}</option>`;
+        }).join('');
+      }
       fmtSelect.value = _todayOrderCurrentFormat;
     }
 

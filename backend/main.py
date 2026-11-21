@@ -1390,6 +1390,37 @@ def _write_today_order_xlsx(rows: list[dict], fmt: str = "chiba", xlsx_path: Opt
 
 
 # Number of base (non-date/non-quantity) product columns per format
+_DEFAULT_FORMAT_LIST: list[dict] = [
+    {"key": "chiba",          "label": "千葉自動発注書（発注分のみ）",     "tab": "千葉自動発注書"},
+    {"key": "haibukiya",      "label": "株式会社灰吹屋 御中 全列",         "tab": "灰吹屋 発注書"},
+    {"key": "props_japan",    "label": "株式会社プロップスジャパン",        "tab": "プロップスジャパン 注文書"},
+    {"key": "national_azabu", "label": "ナショナル麻布株式会社御中",        "tab": "ナショナル麻布 発注書"},
+    {"key": "tsukiji",        "label": "築地産直ファーム（千葉分）",        "tab": "築地産直ファーム"},
+    {"key": "fusui",          "label": "株式会社風水プロジェクト",          "tab": "風水プロジェクト 発注書"},
+    {"key": "nanohana",       "label": "なのはな生活協同組合",              "tab": "なのはな生協 発注書"},
+    {"key": "greenworld",     "label": "グリーンワールド株式会社",          "tab": "グリーンワールド 発注書"},
+    {"key": "rosen",          "label": "株式会社相鉄ローゼン",              "tab": "ローゼン 発注リスト"},
+    {"key": "worlddelica",    "label": "株式会社ワールドデリカ",            "tab": "ワールドデリカ 発注書"},
+    {"key": "santoku",        "label": "株式会社三徳",                      "tab": "三徳 発注書"},
+    {"key": "josoSeikyo",     "label": "常総生協",                          "tab": "常総生協"},
+]
+_FORMATS_CFG_PATH: Path = RESULT_DIR / "formats_config.json"
+
+
+@app.get("/api/today-order/formats", dependencies=[Depends(_require_api_key)])
+async def get_today_order_formats():
+    """Return the ordered list of today-order formats and display labels (editable via formats_config.json)."""
+    if _FORMATS_CFG_PATH.exists():
+        try:
+            return json.loads(_FORMATS_CFG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    _FORMATS_CFG_PATH.write_text(
+        json.dumps(_DEFAULT_FORMAT_LIST, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return _DEFAULT_FORMAT_LIST
+
+
 _PRODUCT_BASE_COLS: dict = {
     "chiba": 2,
     "haibukiya": 7,
