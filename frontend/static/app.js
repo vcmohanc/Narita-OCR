@@ -9017,7 +9017,7 @@ async function dbFetch(path, opts) {
 let _savedJsonJobs     = [];
 let _savedJsonLoaded   = false;
 let _savedJsonSelId    = null;
-let _savedJsonTab      = 'json'; // 'json' | 'table'
+let _savedJsonTab      = 'data'; // 'data' | 'json' | 'summary'
 
 function initSavedJsonView() {
   const refreshBtn    = document.getElementById('savedJsonRefreshBtn');
@@ -9181,28 +9181,109 @@ async function _loadSavedJsonDetail(jobId) {
   }
 }
 
+// Extract displayable OCR data from a saved job result.
+// Returns { type, cols, rows, tables, text, source } or null.
+function _extractSavedJobDisplayData(data) {
+  if (!data || typeof data !== 'object') return null;
+
+  // Priority 1: paddle_extracted_rows — bbox-aligned, best for image/PDF
+  const paddleRows = data.paddle_extracted_rows;
+  if (Array.isArray(paddleRows) && paddleRows.length > 0 && typeof paddleRows[0] === 'object') {
+    const cols = [];
+    paddleRows.forEach(row => { Object.keys(row).forEach(k => { if (!cols.includes(k)) cols.push(k); }); });
+    if (cols.length) {
+      return { type: 'table', cols, rows: paddleRows.map(r => cols.map(k => String(r[k] ?? ''))), source: 'PaddleOCR' };
+    }
+  }
+
+  // Priority 2: client_extracted_rows from Docling tables
+  const tables = Array.isArray(data.tables) ? data.tables : [];
+  for (const tbl of tables) {
+    const exRows = tbl.client_extracted_rows;
+    if (Array.isArray(exRows) && exRows.length > 0 && typeof exRows[0] === 'object') {
+      const cols = Array.isArray(tbl.client_headers) && tbl.client_headers.length
+        ? [...tbl.client_headers]
+        : Object.keys(exRows[0]);
+      return { type: 'table', cols, rows: exRows.map(r => cols.map(k => String(r[k] ?? ''))), source: 'Docling' };
+    }
+  }
+
+  // Priority 3: raw Docling tables
+  const docTables = [];
+  for (const tbl of tables) {
+    const tData = tbl.data;
+    if (Array.isArray(tData) && tData.length > 0 && typeof tData[0] === 'object' && !Array.isArray(tData[0])) {
+      const cols = Object.keys(tData[0]);
+      if (cols.length) docTables.push({ cols, rows: tData.map(r => cols.map(k => String(r[k] ?? ''))), title: tbl.name || '' });
+    }
+  }
+  if (docTables.length) return { type: 'multi_table', tables: docTables, source: 'Docling' };
+
+  // Priority 4: custom_sheets (Excel input)
+  const customSheets = Array.isArray(data.custom_sheets) ? data.custom_sheets : [];
+  const dataSheets = customSheets.filter(s => s.name !== 'Full Text' && Array.isArray(s.rows) && s.rows.length > 1);
+  if (dataSheets.length) {
+    const sheetTables = dataSheets.map(s => {
+      const hdrIdx = typeof s.headerIdx === 'number' ? s.headerIdx : 0;
+      const cols = (s.rows[hdrIdx] || []).map(c => String(c ?? ''));
+      const bodyRows = s.rows.slice(hdrIdx + 1).map(r => r.map(v => String(v ?? '')));
+      return { cols, rows: bodyRows, title: s.name || '' };
+    });
+    return { type: 'multi_table', tables: sheetTables, source: 'Excel' };
+  }
+
+  // Priority 5: fused_text
+  const text = data.fused_text || data.text;
+  if (text && String(text).trim()) return { type: 'text', text: String(text), source: 'fused' };
+
+  return null;
+}
+
+// Build TSV string from extracted display data (for clipboard copy).
+function _extractedDataToTsv(extracted) {
+  if (!extracted) return null;
+  if (extracted.type === 'text') return extracted.text;
+  const src = extracted.type === 'table' ? [extracted] : (extracted.tables || []);
+  return src.map(t => [
+    t.cols.join('\t'),
+    ...t.rows.map(r => r.join('\t'))
+  ].join('\n')).join('\n\n');
+}
+
 function _renderSavedJsonDetail(viewerEl, data) {
   const filename = esc(data.filename || data.job_id || '');
   const json     = JSON.stringify(data, null, 2);
 
-  // Build a simple key→value summary table (top-level scalar fields)
+  // Metadata summary (scalar top-level fields only, excluding technical internals)
+  const SKIP_META = new Set(['job_id','engine_requested','client_id','status','primary_engine',
+    'confidence_avg','processing_time_s','error_message','raw_json','result_json','fused_text',
+    'text','markdown','paddle_extracted_rows','tables','custom_sheets','engines','client','client_ocr','paddle']);
   const summaryRows = Object.entries(data)
-    .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
+    .filter(([k, v]) => !SKIP_META.has(k) && v !== null && v !== undefined && typeof v !== 'object')
     .map(([k, v]) => `<tr><td style="color:var(--text-muted);white-space:nowrap">${esc(k)}</td><td>${esc(String(v))}</td></tr>`)
     .join('');
 
+  // Extract displayable OCR data once; reused by tab renderer and copy button
+  const extractedData = _extractSavedJobDisplayData(data);
+
   const jobId = data.job_id || '';
   const baseName = filename.replace(/\.[^.]+$/, '') || jobId;
+
+  // Ensure default tab is valid; if previously on 'table' (old name) fall back to 'data'
+  if (_savedJsonTab === 'table') _savedJsonTab = 'data';
+
+  const _srcLabel = extractedData ? `<span class="saved-json-src-label">${esc(extractedData.source)}</span>` : '';
   viewerEl.innerHTML = `
     <div class="saved-json-viewer-header">
       <span class="saved-json-viewer-title" title="${filename}">${filename}</span>
       <button class="btn-sm" id="savedJsonExcelBtn" title="Excelファイルとしてダウンロード" style="color:#1a7641;border-color:#1a7641">📊 Excel</button>
-      <button class="btn-sm" id="savedJsonCopyBtn" title="JSONをコピー">📋 コピー</button>
+      <button class="btn-sm" id="savedJsonCopyBtn" title="表データをTSVでコピー（Excelに貼り付け可能）">📋 コピー</button>
       <a class="btn-sm" id="savedJsonDlBtn" title="JSONをダウンロード" download="${baseName}_result.json">⬇ DL</a>
     </div>
     <div class="saved-json-viewer-tabs">
-      <button class="saved-json-tab${_savedJsonTab === 'json' ? ' active' : ''}" data-tab="json">Raw JSON</button>
-      <button class="saved-json-tab${_savedJsonTab === 'table' ? ' active' : ''}" data-tab="table">サマリー</button>
+      <button class="saved-json-tab${_savedJsonTab === 'data' ? ' active' : ''}" data-tab="data">📊 データ</button>
+      <button class="saved-json-tab${_savedJsonTab === 'json' ? ' active' : ''}" data-tab="json">📄 JSON</button>
+      <button class="saved-json-tab${_savedJsonTab === 'summary' ? ' active' : ''}" data-tab="summary">📋 サマリー</button>
     </div>
     <div id="savedJsonTabContent" style="flex:1;overflow:auto;display:flex;flex-direction:column"></div>
   `;
@@ -9210,7 +9291,10 @@ function _renderSavedJsonDetail(viewerEl, data) {
   const copyBtn = viewerEl.querySelector('#savedJsonCopyBtn');
   if (copyBtn) {
     copyBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(json).then(() => showToast('JSONをコピーしました')).catch(() => {});
+      const tsv = _extractedDataToTsv(extractedData);
+      const textToCopy = tsv || json;
+      const msg = tsv && extractedData.type !== 'text' ? '表データをコピーしました (TSV)' : 'JSONをコピーしました';
+      navigator.clipboard.writeText(textToCopy).then(() => showToast(msg)).catch(() => {});
     });
   }
 
@@ -9268,23 +9352,65 @@ function _renderSavedJsonDetail(viewerEl, data) {
     tab.addEventListener('click', () => {
       _savedJsonTab = tab.dataset.tab;
       viewerEl.querySelectorAll('.saved-json-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === _savedJsonTab));
-      _renderSavedJsonTabContent(viewerEl, json, summaryRows);
+      _renderSavedJsonTabContent(viewerEl, json, summaryRows, extractedData);
     });
   });
 
-  _renderSavedJsonTabContent(viewerEl, json, summaryRows);
+  _renderSavedJsonTabContent(viewerEl, json, summaryRows, extractedData);
 }
 
-function _renderSavedJsonTabContent(viewerEl, json, summaryRows) {
+function _renderSavedJsonTabContent(viewerEl, json, summaryRows, extractedData) {
   const content = viewerEl.querySelector('#savedJsonTabContent');
   if (!content) return;
+
   if (_savedJsonTab === 'json') {
     content.innerHTML = `<div class="saved-json-code-wrap"><pre class="saved-json-code">${esc(json)}</pre></div>`;
-  } else {
+    return;
+  }
+
+  if (_savedJsonTab === 'summary') {
     content.innerHTML = `<div class="saved-json-table-wrap"><table class="saved-json-table">
       <thead><tr><th>フィールド</th><th>値</th></tr></thead>
-      <tbody>${summaryRows || '<tr><td colspan="2" style="text-align:center;color:var(--text-muted)">スカラー値なし</td></tr>'}</tbody>
+      <tbody>${summaryRows || '<tr><td colspan="2" style="text-align:center;color:var(--text-muted)">表示できるメタデータがありません</td></tr>'}</tbody>
     </table></div>`;
+    return;
   }
+
+  // ── 📊 データ tab: show extracted OCR rows ──────────────────────
+  if (!extractedData) {
+    content.innerHTML = `<div class="saved-json-empty-data">
+      <div class="saved-json-empty-icon">📄</div>
+      <div>抽出されたデータがありません</div>
+      <div class="saved-json-empty-hint">📄 JSON タブで生データを確認できます</div>
+    </div>`;
+    return;
+  }
+
+  if (extractedData.type === 'text') {
+    content.innerHTML = `<div class="saved-json-data-wrap">
+      <div class="saved-json-src-row"><span class="saved-json-src-label">ソース: ${esc(extractedData.source)}</span></div>
+      <pre class="saved-json-code" style="margin:0;border-radius:0;border-left:none;border-right:none">${esc(extractedData.text)}</pre>
+    </div>`;
+    return;
+  }
+
+  const renderOneTable = (t, index) => {
+    if (!t.cols.length && !t.rows.length) return '';
+    const titleBar = t.title ? `<div class="saved-json-sheet-label">${esc(t.title)}</div>` : '';
+    const thead = `<thead><tr>${t.cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>`;
+    const tbody = `<tbody>${t.rows.map((r, ri) =>
+      `<tr class="${ri % 2 === 1 ? 'tbl-alt' : ''}">${r.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`
+    ).join('')}</tbody>`;
+    const info = `<div class="saved-json-data-info">${t.rows.length} 行 × ${t.cols.length} 列</div>`;
+    return `${titleBar}<div class="tbl-scroll"><table class="tbl-grid">${thead}${tbody}</table></div>${info}`;
+  };
+
+  const sources = extractedData.type === 'table' ? [extractedData] : (extractedData.tables || []);
+  const srcLabel = `<div class="saved-json-src-row"><span class="saved-json-src-label">ソース: ${esc(extractedData.source)}</span></div>`;
+  const tableHtml = sources.map((t, i) =>
+    (i > 0 ? '<hr class="saved-json-sheet-sep">' : '') + renderOneTable(t, i)
+  ).join('');
+
+  content.innerHTML = `<div class="saved-json-data-wrap">${srcLabel}${tableHtml}</div>`;
 }
 

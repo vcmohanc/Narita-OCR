@@ -3352,3 +3352,14 @@ td{color:var(--muted)}
 }
 .saved-json-table tr:hover td{background:var(--hover-bg)}
 
+/* ── Saved JSON: data tab ── */
+.saved-json-data-wrap{flex:1;overflow:auto;padding:0}
+.saved-json-src-row{padding:6px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
+.saved-json-src-label{font-size:11px;color:var(--text-muted);background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:2px 7px}
+.saved-json-sheet-label{padding:8px 14px 4px;font-size:12px;font-weight:700;color:var(--text2);background:var(--surface)}
+.saved-json-sheet-sep{border:none;border-top:2px solid var(--border);margin:4px 0}
+.saved-json-data-info{padding:4px 14px 8px;font-size:11px;color:var(--text-muted)}
+.saved-json-empty-data{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 20px;gap:8px;color:var(--text-muted);font-size:13px}
+.saved-json-empty-icon{font-size:32px;opacity:.4}
+.saved-json-empty-hint{font-size:11px;color:var(--text-muted);opacity:.7}
+

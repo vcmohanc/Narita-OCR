@@ -2073,17 +2073,31 @@ async def export_job_result(
 
     rows: list[dict] = []
     tables = res.get("tables") or []
-    if tables and isinstance(tables[0], dict) and tables[0].get("data"):
-        rows = tables[0].get("data", [])
-    elif res.get("custom_sheets"):
-        cs = res["custom_sheets"][0]
-        sheet_rows = cs.get("rows", [])
-        hdr_idx = cs.get("headerIdx", 0)
-        if len(sheet_rows) > hdr_idx:
-            headers = [str(c) for c in sheet_rows[hdr_idx]]
-            for r in sheet_rows[hdr_idx + 1:]:
-                row_dict = {headers[i] if i < len(headers) else f"col_{i}": str(v) for i, v in enumerate(r)}
-                rows.append(row_dict)
+
+    # Priority 1: paddle_extracted_rows — best for image/PDF with client heading config
+    if isinstance(res.get("paddle_extracted_rows"), list) and res["paddle_extracted_rows"]:
+        rows = [r for r in res["paddle_extracted_rows"] if isinstance(r, dict)]
+    else:
+        # Priority 2: client_extracted_rows from Docling tables
+        for tbl in tables:
+            if isinstance(tbl, dict):
+                ex = tbl.get("client_extracted_rows")
+                if isinstance(ex, list) and ex and isinstance(ex[0], dict):
+                    rows = ex
+                    break
+        # Priority 3: raw table data
+        if not rows:
+            if tables and isinstance(tables[0], dict) and tables[0].get("data"):
+                rows = tables[0].get("data", [])
+            elif res.get("custom_sheets"):
+                cs = res["custom_sheets"][0]
+                sheet_rows = cs.get("rows", [])
+                hdr_idx = cs.get("headerIdx", 0)
+                if len(sheet_rows) > hdr_idx:
+                    headers = [str(c) for c in sheet_rows[hdr_idx]]
+                    for r in sheet_rows[hdr_idx + 1:]:
+                        row_dict = {headers[i] if i < len(headers) else f"col_{i}": str(v) for i, v in enumerate(r)}
+                        rows.append(row_dict)
 
     enc = "cp932" if encoding.lower() in ("shift_jis", "cp932") else "utf-8"
 
@@ -2224,9 +2238,18 @@ async def export_batch_jobs(
         custom_sheets = res.get("custom_sheets") or []
         tables = res.get("tables") or []
         rows: list[dict] = []
-        if tables and isinstance(tables[0], dict) and tables[0].get("data"):
-            rows = tables[0]["data"]
-        elif custom_sheets:
+        if isinstance(res.get("paddle_extracted_rows"), list) and res["paddle_extracted_rows"]:
+            rows = [r for r in res["paddle_extracted_rows"] if isinstance(r, dict)]
+        else:
+            for tbl in tables:
+                if isinstance(tbl, dict):
+                    ex = tbl.get("client_extracted_rows")
+                    if isinstance(ex, list) and ex and isinstance(ex[0], dict):
+                        rows = ex
+                        break
+            if not rows and tables and isinstance(tables[0], dict) and tables[0].get("data"):
+                rows = tables[0]["data"]
+        if not rows and custom_sheets:
             cs0 = custom_sheets[0]
             sheet_rows = cs0.get("rows", [])
             hdr_idx = cs0.get("headerIdx", 0)
