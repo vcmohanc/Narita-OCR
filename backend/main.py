@@ -1399,7 +1399,7 @@ _PRODUCT_BASE_COLS: dict = {
     "fusui": 6,
     "nanohana": 6,
     "greenworld": 7,
-    "rosen": 4,
+    "rosen": 5,
     "worlddelica": 5,
     "santoku": 3,
     "josoSeikyo": 7,
@@ -1410,8 +1410,90 @@ def _products_path(fmt: str) -> Path:
     return RESULT_DIR / f"{fmt}_products.json"
 
 
+_JP_WDAYS: list[str] = ['月', '火', '水', '木', '金', '土', '日']  # 0=Mon…6=Sun
+
+# How many header cells are date-related per format
+_DATE_COL_COUNT: dict[str, int] = {
+    "chiba": 6, "haibukiya": 12, "tsukiji": 6, "national_azabu": 6,
+    "props_japan": 6, "rosen": 7, "santoku": 6,
+}
+
+
+def _week_config_path(fmt: str) -> Path:
+    return RESULT_DIR / f"{fmt}_week.json"
+
+
+def _generate_date_cols(fmt: str, start: _date) -> list[str]:
+    """Return header date cells for the week starting on `start`."""
+    if fmt == "haibukiya":
+        cols: list[str] = []
+        for i in range(6):
+            d = start + _timedelta(days=i)
+            cols.append(f"{d.month}/{d.day}\n{_JP_WDAYS[d.weekday()]}")
+            cols.append("変更")
+        return cols
+    n = _DATE_COL_COUNT.get(fmt, 6)
+    return [
+        f"{(start + _timedelta(days=i)).month}/{(start + _timedelta(days=i)).day}"
+        f"\n{_JP_WDAYS[(start + _timedelta(days=i)).weekday()]}"
+        for i in range(n)
+    ]
+
+
+class WeekRequest(BaseModel):
+    week_start: str  # "YYYY-MM-DD"
+
+
 class ProductsRequest(BaseModel):
     rows: list[dict]
+
+
+@app.get("/api/today-order/week", dependencies=[Depends(_require_api_key)])
+async def get_today_order_week(format: str = Query(default="national_azabu")):
+    """Return the saved week-start date and generated header date cells for a format."""
+    fmt, _, _, _ = _get_today_format_cfg(format)
+    base_cols = _PRODUCT_BASE_COLS.get(fmt, 2)
+    date_count = _DATE_COL_COUNT.get(fmt, 0)
+    path = _week_config_path(fmt)
+    if path.exists():
+        try:
+            cfg = json.loads(path.read_text(encoding="utf-8"))
+            start = _date.fromisoformat(cfg["week_start"])
+            return {
+                "week_start": cfg["week_start"],
+                "date_cols": _generate_date_cols(fmt, start),
+                "date_start_col": base_cols,
+                "date_count": date_count,
+                "fmt": fmt,
+            }
+        except Exception:
+            pass
+    return {"week_start": None, "date_cols": [], "date_start_col": base_cols, "date_count": date_count, "fmt": fmt}
+
+
+@app.put("/api/today-order/week", dependencies=[Depends(_require_api_key)])
+async def save_today_order_week(request: Request, payload: WeekRequest, format: str = Query(default="national_azabu")):
+    """Save a week-start date and return the generated header date cells."""
+    _check_rate_limit(request, "today_order_write", max_requests=30, window_s=60)
+    fmt, _, _, _ = _get_today_format_cfg(format)
+    base_cols = _PRODUCT_BASE_COLS.get(fmt, 2)
+    date_count = _DATE_COL_COUNT.get(fmt, 0)
+    if not date_count:
+        raise HTTPException(status_code=400, detail=f"Format '{fmt}' has no date columns")
+    try:
+        start = _date.fromisoformat(payload.week_start)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="week_start は YYYY-MM-DD 形式で入力してください")
+    path = _week_config_path(fmt)
+    path.write_text(json.dumps({"week_start": payload.week_start, "fmt": fmt}, ensure_ascii=False), encoding="utf-8")
+    _audit(request, "week_config_save", f"format={fmt} week_start={payload.week_start}")
+    return {
+        "week_start": payload.week_start,
+        "date_cols": _generate_date_cols(fmt, start),
+        "date_start_col": base_cols,
+        "date_count": date_count,
+        "fmt": fmt,
+    }
 
 
 @app.get("/api/today-order/products", dependencies=[Depends(_require_api_key)])

@@ -3372,6 +3372,22 @@ async function initTodayOrderView() {
       deleteTodayOrderRow(ri);
     });
 
+    document.getElementById('todayOrderClearDataBtn')?.addEventListener('click', () => {
+      if (!confirm('ヘッダー以下のデータ行をすべて削除しますか？')) return;
+      let lastHdrIdx = -1;
+      for (let i = 0; i < _todayOrderRows.length; i++) {
+        if (_todayOrderRows[i].type === 'header') lastHdrIdx = i;
+      }
+      if (lastHdrIdx < 0) { showToast('ヘッダー行が見つかりません', true); return; }
+      const ncols = (_todayOrderRows[lastHdrIdx].cells || []).length || 8;
+      const emptyRows = [];
+      for (let i = 0; i < 6; i++) emptyRows.push({ type: 'data', cells: Array(ncols).fill('') });
+      _todayOrderRows = [..._todayOrderRows.slice(0, lastHdrIdx + 1), ...emptyRows];
+      _markTodayOrderDirty(true);
+      _renderTodayOrderGrid();
+      showToast('データ行を削除しました');
+    });
+
     document.getElementById('todayOrderMetaBtn')?.addEventListener('click', () => {
       openTodayOrderMetaModal();
     });
@@ -3899,6 +3915,49 @@ async function initTodayOrderView() {
       a.click();
       a.remove();
       showToast('Excelファイルをダウンロードしました');
+    });
+
+    // ── Week date config ───────────────────────────────────────
+    document.getElementById('todayOrderWeekBtn')?.addEventListener('click', () => {
+      const fmt = _todayOrderCurrentFormat;
+      // Use a hidden date input to show the native date picker
+      const inp = document.createElement('input');
+      inp.type = 'date';
+      inp.style.cssText = 'position:fixed;opacity:0;pointer-events:none;top:0;left:0;width:0;height:0';
+      document.body.appendChild(inp);
+      inp.addEventListener('change', async () => {
+        const dateStr = inp.value;
+        document.body.removeChild(inp);
+        if (!dateStr) return;
+        const btn = document.getElementById('todayOrderWeekBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ 設定中…'; }
+        try {
+          const r = await fetch(`${API_BASE}/api/today-order/week?format=${encodeURIComponent(fmt)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ week_start: dateStr }),
+          });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const { date_cols, date_start_col, date_count } = await r.json();
+          // Find the last header row and update its date cells
+          let hdrRow = null;
+          for (const row of _todayOrderRows) {
+            if (row.type === 'header') hdrRow = row;
+          }
+          if (!hdrRow) { showToast('ヘッダー行が見つかりません', true); return; }
+          hdrRow.cells.splice(date_start_col, date_count, ...date_cols);
+          _markTodayOrderDirty(true);
+          _renderTodayOrderGrid();
+          showToast(`週を ${dateStr} 開始に設定しました`);
+        } catch (e) {
+          showToast('週設定に失敗しました: ' + e.message, true);
+        } finally {
+          const btn2 = document.getElementById('todayOrderWeekBtn');
+          if (btn2) { btn2.disabled = false; btn2.textContent = '📅 週設定'; }
+        }
+      });
+      inp.addEventListener('cancel', () => { document.body.removeChild(inp); });
+      inp.click();
     });
 
     // ── Product master load ────────────────────────────────────
