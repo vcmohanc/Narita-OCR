@@ -8614,7 +8614,7 @@ async function dbFetch(path, opts) {
           <td title="${clientLabel}">${clientLabel}</td>
           <td>${esc(j.engine_requested)}</td>
           <td><span class="status-${esc(j.status)}">${stLabel}</span></td>
-          <td>${j.confidence_avg != null ? (j.confidence_avg * 100).toFixed(1) + '%' : '—'}</td>
+          <td>${(j.confidence_avg != null && j.confidence_avg > 0.001) ? (j.confidence_avg * 100).toFixed(1) + '%' : '—'}</td>
           <td>${j.processing_time_s != null ? j.processing_time_s : '—'}</td>
           <td>${j.created_at ? esc(j.created_at.replace('T',' ').slice(0,19)) : '—'}</td>
           <td><button class="del-job-btn" data-job-id="${esc(j.job_id)}" title="この履歴を削除">🗑</button></td>

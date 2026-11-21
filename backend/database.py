@@ -1416,7 +1416,11 @@ def list_jobs(limit: int = 50, offset: int = 0, client_id: Optional[int] = None)
                        c.code    AS client_code,
                        c.name_ja AS client_name_ja,
                        c.name_en AS client_name_en,
-                       j.status, j.primary_engine, j.confidence_avg,
+                       j.status, j.primary_engine,
+                       COALESCE(
+                         CASE WHEN j.confidence_avg > 0 THEN j.confidence_avg ELSE NULL END,
+                         CAST(JSON_UNQUOTE(JSON_EXTRACT(j.result_json, '$.confidence_avg')) AS DECIMAL(8,4))
+                       ) AS confidence_avg,
                        j.processing_time_s, j.created_at, j.updated_at,
                        j.page_count,
                        COALESCE(JSON_LENGTH(j.result_json, '$.paddle_extracted_rows'), 0) AS paddle_row_count,
