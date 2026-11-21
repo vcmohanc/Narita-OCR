@@ -6432,13 +6432,99 @@ function _buildDocTable(sheet) {
   return html;
 }
 
+function _isWaldClient(client) {
+  const blob = `${client?.code || ''} ${client?.name_ja || ''} ${client?.name_en || ''}`.toLowerCase();
+  return /wald|ワルド|ワールドデリカ|worlddelica/.test(blob);
+}
+
+function _waldCompact(s) {
+  return String(s || '').normalize('NFKC').replace(/[\s\u3000]/g, '');
+}
+
+function _waldHeaderRole(cell) {
+  const c = _waldCompact(cell);
+  if (!c) return '';
+  if (c.includes('納品日') || c.includes('日付')) return 'date';
+  if (c.includes('商品名') || c.includes('品名') || c === '商品') return 'name';
+  if (c.includes('数量')) return 'qty';
+  if (c.includes('単位')) return 'unit';
+  if (c.includes('備考')) return 'note';
+  return '';
+}
+
+// Map a scanned grid onto 納品日 / 商品名 / 数量 / 単位 / 備考 by header name.
+// Client heading columns are not pasted on by index — that shifts 数量 into 単位.
+function _alignRowsToWaldColumns(headers, bodyRows) {
+  const hdrs = Array.isArray(headers) ? headers : [];
+  const roles = hdrs.map(_waldHeaderRole);
+  if (!roles.includes('name') || !(roles.includes('qty') || roles.includes('unit') || roles.includes('note'))) {
+    return null;
+  }
+  if (!roles.includes('date')) {
+    const blankIdx = roles.findIndex((role, i) => !role && !_waldCompact(hdrs[i]));
+    if (blankIdx >= 0) {
+      const sample = bodyRows.map(r => _waldCompact((r || [])[blankIdx])).filter(Boolean).slice(0, 8);
+      const dateLike = sample.filter(s => /\d{1,2}[\/月]\d{1,2}/.test(s) || /曜日/.test(s)).length;
+      if (sample.length && dateLike >= Math.max(1, Math.ceil(sample.length / 2))) roles[blankIdx] = 'date';
+    }
+  }
+  const order = ['date', 'name', 'qty', 'unit', 'note'];
+  const indexes = {};
+  roles.forEach((role, i) => {
+    if (!role) return;
+    if (!indexes[role]) indexes[role] = [];
+    indexes[role].push(i);
+  });
+  let carried = '';
+  const rows = [];
+  for (const src of bodyRows) {
+    const cells = Array.isArray(src) ? src : [];
+    const out = order.map(role => (indexes[role] || [])
+      .map(i => String(cells[i] || '').trim())
+      .filter(Boolean)
+      .join(' '));
+    if (out[0]) carried = out[0];
+    else if (carried && (out[1] || out[2] || out[4])) out[0] = carried;
+    if (!out[1] && !out[2] && !out[4]) continue;
+    rows.push(out);
+  }
+  if (!rows.length) return null;
+  return { headers: ['納品日', '商品名', '数量', '単位', '備考'], rows };
+}
+
 function _buildClientExtractedSheet(sheets, client) {
   if (!client) return null;
   const cols = _parseClientHeadingCols(client);
-  if (!cols.length) return null;
+  if (!cols.length && !_isWaldClient(client)) return null;
 
   const mainSheet = sheets.find(s => s.name !== 'Full Text') || sheets[0];
   if (!mainSheet || !mainSheet.rows || mainSheet.rows.length < 2) return null;
+
+  if (_isWaldClient(client)) {
+    const rows0 = mainSheet.rows;
+    let hdrIdx0 = -1;
+    for (let i = 0; i < rows0.length; i++) {
+      const joined = (rows0[i] || []).map(_waldCompact).join('');
+      if ((joined.includes('商品名') || joined.includes('品名')) && (joined.includes('数量') || joined.includes('単位') || joined.includes('備考'))) {
+        hdrIdx0 = i;
+        break;
+      }
+    }
+    if (hdrIdx0 >= 0) {
+      const aligned = _alignRowsToWaldColumns(rows0[hdrIdx0], rows0.slice(hdrIdx0 + 1));
+      if (aligned) {
+        return {
+          name: (client.name_ja || client.code || '') + ' 発注書',
+          rows: [aligned.headers, ...aligned.rows],
+          hasHeader: true,
+          headerIdx: 0,
+          customHeaders: [],
+          clientHeaders: aligned.headers.slice(),
+          clientHeadingId: client.id != null ? client.id : null,
+        };
+      }
+    }
+  }
 
   const rows = mainSheet.rows;
   const headerRowHint = Math.max(0, (parseInt(client.header_row, 10) || 1) - 1);
@@ -6519,10 +6605,34 @@ function _buildClientExtractedSheet(sheets, client) {
   };
 
   const outRows = [cols.slice()];
+  const clientBlob = `${client.code || ''} ${client.name_ja || ''} ${client.name_en || ''}`.toLowerCase();
+  const isWald = /wald|ワルド|ワールドデリカ|worlddelica/.test(clientBlob);
+  const dateCol = isWald ? colNormsMap.findIndex(c => c.includes('納品日') || c.includes('日付')) : -1;
+  let carriedDate = '';
+
   for (let ri = hdrIdx + 1; ri < rows.length; ri++) {
     const outRow = colIndices.map(ci => ci >= 0 ? String(rows[ri][ci] || '') : '');
     if (outRow.every(v => !v.trim())) continue;
-    if (shouldSkipRow(outRow)) continue;
+
+    if (isWald && dateCol >= 0) {
+      const dateCell = String(outRow[dateCol] || '').trim();
+      if (dateCell) carriedDate = dateCell;
+      else if (carriedDate) outRow[dateCol] = carriedDate;
+    }
+
+    // ワルドデリカ: a product, quantity, or note is order data. A blank 数量
+    // or a skip pattern must not drop it. Merged date bands with no product stay out.
+    if (isWald) {
+      const nameIdx = colNormsMap.findIndex(c => c.includes('商品名') || c.includes('品名'));
+      const qtyIdx = colNormsMap.findIndex(c => c.includes('数量'));
+      const noteIdx = colNormsMap.findIndex(c => c.includes('備考'));
+      const name = nameIdx >= 0 ? String(outRow[nameIdx] || '').trim() : '';
+      const qty = qtyIdx >= 0 ? String(outRow[qtyIdx] || '').trim() : '';
+      const note = noteIdx >= 0 ? String(outRow[noteIdx] || '').trim() : '';
+      if (!name && !qty && !note) continue;
+    } else if (shouldSkipRow(outRow)) {
+      continue;
+    }
     outRows.push(outRow);
   }
   if (outRows.length <= 1) return null;
@@ -7641,6 +7751,26 @@ function _applyClientFormattingToTable(origHeaders, bodyRows2D, activeClient, re
 
   if (!activeClient) {
     return { headerCols: safeHeaders, bodyRows: safeRows, isClientFormatted: false };
+  }
+  if (_isWaldClient(activeClient)) {
+    let srcHeaders = safeHeaders;
+    let srcBody = safeRows;
+    if (headerIncludedInRows) {
+      const idx = (() => {
+        const found = safeRows.findIndex(r => {
+          const joined = (r || []).map(_waldCompact).join('');
+          return (joined.includes('商品名') || joined.includes('品名')) && (joined.includes('数量') || joined.includes('単位') || joined.includes('備考'));
+        });
+        if (found >= 0) return found;
+        return fallbackHeaderIdx >= 0 ? fallbackHeaderIdx : 0;
+      })();
+      srcHeaders = safeRows[idx] || [];
+      srcBody = safeRows.slice(idx + 1);
+    }
+    const aligned = _alignRowsToWaldColumns(srcHeaders, srcBody);
+    if (aligned) {
+      return { headerCols: aligned.headers, bodyRows: aligned.rows, isClientFormatted: true, maxCols: aligned.headers.length };
+    }
   }
   const allSampleRows = safeHeaders.length ? [safeHeaders, ...safeRows] : safeRows;
   const enrichedCols = _getClientEnrichedHeaders(activeClient, allSampleRows, res);

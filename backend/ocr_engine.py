@@ -13,6 +13,7 @@ import re
 import sys
 import os
 import time
+import unicodedata
 import logging
 import tempfile
 import threading
@@ -517,6 +518,8 @@ def process_image(file_path: str, engines: str = "all", client_data: Optional[di
         if national_sheet:
             output.setdefault("custom_sheets", []).insert(0, national_sheet)
 
+    _attach_wald_delica_sheet(output, client_data)
+
     return output
 
 
@@ -673,6 +676,8 @@ def process_pdf(file_path: str, engines: str = "all", client_data: Optional[dict
         national_sheet = _extract_national_azabu_rows(output)
         if national_sheet:
             output.setdefault("custom_sheets", []).insert(0, national_sheet)
+
+    _attach_wald_delica_sheet(output, client_data)
 
     return output
 
@@ -862,9 +867,10 @@ def _group_paddle_lines_by_row(lines: list, y_tolerance: int = 15) -> list:
             xs = [p[0] for p in bbox]
             yc = sum(ys) / len(ys)
             xc = sum(xs) / len(xs)
+            xl = min(xs)
         else:
-            yc = xc = 0.0
-        items.append({"text": line.get("text", ""), "y": yc, "x": xc})
+            yc = xc = xl = 0.0
+        items.append({"text": line.get("text", ""), "y": yc, "x": xc, "xl": xl})
     items.sort(key=lambda i: (i["y"], i["x"]))
     rows: list = []
     cur: list = [items[0]]
@@ -1002,16 +1008,18 @@ def _extract_national_azabu_rows(output: dict) -> Optional[dict]:
     if n_cols < 6:
         return None
 
-    # Build column boundaries from header x-positions
-    col_xs = [item["x"] for item in header_items]
+    # Build column boundaries from header LEFT-edge x-positions.
+    # Using left edges (not centers) gives tighter, more accurate boundaries
+    # for narrow adjacent columns such as 単価/p and 単価/CS.
+    col_xls = [item.get("xl", item["x"]) for item in header_items]
     bounds: list = []
-    for i in range(len(col_xs) - 1):
-        bounds.append((col_xs[i] + col_xs[i + 1]) / 2)
+    for i in range(len(col_xls) - 1):
+        bounds.append((col_xls[i] + col_xls[i + 1]) / 2)
     bounds.append(float("inf"))
 
-    def _col(x: float) -> int:
+    def _col(xl: float) -> int:
         for i, b in enumerate(bounds):
-            if x < b:
+            if xl < b:
                 return i
         return len(bounds) - 1
 
@@ -1030,7 +1038,7 @@ def _extract_national_azabu_rows(output: dict) -> Optional[dict]:
     for row in rows[header_idx + 1:]:
         cells = [""] * n_cols
         for item in row:
-            ci = _col(item["x"])
+            ci = _col(item.get("xl", item["x"]))
             if ci < n_cols:
                 t = item["text"].strip()
                 cells[ci] = (cells[ci] + " " + t).strip() if cells[ci] else t
@@ -1055,6 +1063,246 @@ def _extract_national_azabu_rows(output: dict) -> Optional[dict]:
     return {
         "name":      "ナショナル麻布 OCR",
         "rows":      sheet_rows,
+        "hasHeader": True,
+        "headerIdx": 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# ワルドデリカ weekly order sheet
+# Date cells are merged down the left column. Quantity is often blank.
+# Neither case may drop the product row or its 備考.
+# ---------------------------------------------------------------------------
+
+_WALD_HEADERS = ["納品日", "商品名", "数量", "単位", "備考"]
+_WALD_DATE_RE = re.compile(r"(\d{1,2})\s*[/／月]\s*(\d{1,2})")
+_WALD_WDAY_RE = re.compile(r"[日月火水木金土]曜日")
+_WALD_UNITS = {"箱", "パック", "袋", "pc", "cs", "ケース", "個", "本", "束"}
+
+
+def _is_wald_client(client_data: Optional[dict]) -> bool:
+    if not isinstance(client_data, dict):
+        return False
+    blob = " ".join(
+        str(client_data.get(k) or "")
+        for k in ("code", "name", "name_ja", "name_en")
+    ).lower()
+    return any(k in blob for k in ("wald", "ワルド", "ワールドデリカ", "worlddelica"))
+
+
+def _should_extract_wald(client_data: Optional[dict], text: str) -> bool:
+    """Run only for this client, or for an unassigned scan of this form."""
+    if isinstance(client_data, dict) and client_data:
+        return _is_wald_client(client_data)
+    t = text or ""
+    if any(k in t.lower() for k in ("ワルドデリカ", "ワールドデリカ", "wald delica", "walddelica", "worlddelica")):
+        return True
+    return "デリカフーズ" in t and "商品名" in t and _WALD_WDAY_RE.search(t) is not None
+
+
+def _wald_date_label(text: str) -> str:
+    """Normalize a cell to '10/18 日曜日'. Empty when the cell is not a date."""
+    raw = unicodedata.normalize("NFKC", str(text or ""))
+    raw = raw.replace("／", "/")
+    date_m = _WALD_DATE_RE.search(raw)
+    wday_m = _WALD_WDAY_RE.search(raw)
+    parts = []
+    if date_m:
+        parts.append(f"{int(date_m.group(1))}/{int(date_m.group(2))}")
+    if wday_m:
+        parts.append(wday_m.group(0))
+    return " ".join(parts)
+
+
+def _merge_wald_date(current: str, new: str) -> str:
+    """Carry a merged date cell forward. A new month/day replaces the previous day."""
+    new = (new or "").strip()
+    if not new:
+        return current
+    if _WALD_DATE_RE.search(unicodedata.normalize("NFKC", new)):
+        return new
+    if new in (current or ""):
+        return current
+    return f"{current} {new}".strip()
+
+
+def _attach_wald_delica_sheet(output: dict, client_data: Optional[dict]) -> None:
+    text = (output.get("fused_text") or "") + (output.get("paddle") or {}).get("full_text", "")
+    if not _should_extract_wald(client_data, text):
+        return
+    sheet = _extract_wald_delica_rows(output)
+    if not sheet:
+        return
+    output.setdefault("custom_sheets", []).insert(0, sheet)
+    headers = sheet["rows"][0]
+    output["wald_extracted_rows"] = [
+        {headers[i]: (row[i] if i < len(row) else "") for i in range(len(headers))}
+        for row in sheet["rows"][1:]
+    ]
+
+
+def _wald_compact(text: str) -> str:
+    raw = unicodedata.normalize("NFKC", str(text or ""))
+    return re.sub(r"[\s\u3000]+", "", raw)
+
+
+def _wald_is_date_only(text: str) -> bool:
+    """True when the token is only a month/day and/or a weekday."""
+    if not _wald_date_label(text):
+        return False
+    raw = unicodedata.normalize("NFKC", str(text or "")).replace("／", "/")
+    raw = _WALD_DATE_RE.sub("", raw)
+    raw = _WALD_WDAY_RE.sub("", raw)
+    raw = re.sub(r"[\s()（）・.]+", "", raw)
+    return raw == ""
+
+
+def _wald_is_qty(text: str) -> bool:
+    return re.fullmatch(r"\d{1,4}(?:\.\d+)?", _wald_compact(text)) is not None
+
+
+def _wald_is_unit(text: str) -> bool:
+    return _wald_compact(text).lower() in _WALD_UNITS
+
+
+def _wald_group_rows(lines: list) -> list:
+    """Cluster OCR boxes into rows. Tolerance follows text height so adjacent grid rows stay apart."""
+    items = []
+    heights = []
+    for line in lines:
+        bbox = line.get("bbox") or []
+        text = str(line.get("text") or "").strip()
+        if not text or len(bbox) < 2:
+            continue
+        xs = [p[0] for p in bbox]
+        ys = [p[1] for p in bbox]
+        xl, xr = min(xs), max(xs)
+        yt, yb = min(ys), max(ys)
+        items.append({
+            "text": text,
+            "xl": xl,
+            "xr": xr,
+            "xc": (xl + xr) / 2.0,
+            "y": (yt + yb) / 2.0,
+        })
+        heights.append(max(1.0, yb - yt))
+    if not items:
+        return []
+    heights.sort()
+    tol = max(6.0, heights[len(heights) // 2] * 0.45)
+    items.sort(key=lambda it: (it["y"], it["xc"]))
+    rows: list = []
+    cur = [items[0]]
+    for item in items[1:]:
+        if abs(item["y"] - cur[0]["y"]) <= tol:
+            cur.append(item)
+        else:
+            rows.append(sorted(cur, key=lambda it: it["xc"]))
+            cur = [item]
+    if cur:
+        rows.append(sorted(cur, key=lambda it: it["xc"]))
+    return rows
+
+
+def _extract_wald_delica_rows(output: dict) -> Optional[dict]:
+    """Extract 納品日 / 商品名 / 数量 / 単位 / 備考 in the printed column order.
+
+    Header labels sit in the middle of each column while product names are
+    left-aligned, so column edges are the header centers — not the left edge
+    of the 商品名 label. A date token is 納品日 only when it sits in the left
+    column; a date written in 備考 stays in 備考.
+    """
+    lines = (output.get("paddle") or {}).get("lines") or []
+    rows = _wald_group_rows(lines)
+    if not rows:
+        return None
+
+    header_idx = -1
+    for i, row in enumerate(rows):
+        joined = _wald_compact("".join(item["text"] for item in row))
+        if ("商品名" in joined or "品名" in joined) and any(k in joined for k in ("数量", "単位", "備考")):
+            header_idx = i
+            break
+    if header_idx < 0:
+        return None
+
+    header = rows[header_idx]
+    qty_item = next((it for it in header if "数量" in _wald_compact(it["text"])), None)
+    unit_item = next((it for it in header if "単位" in _wald_compact(it["text"])), None)
+    note_item = next((it for it in header if "備考" in _wald_compact(it["text"])), None)
+    qty_xc = qty_item["xc"] if qty_item else float("inf")
+    name_parts = [
+        it for it in header
+        if it["xc"] < qty_xc and _wald_compact(it["text"]) and _wald_compact(it["text"]) in "商品名品目"
+    ]
+    if not name_parts:
+        name_parts = [it for it in header if "商品" in _wald_compact(it["text"]) or "品名" in _wald_compact(it["text"])]
+    if not name_parts:
+        return None
+    name_cx = sum(it["xc"] for it in name_parts) / len(name_parts)
+    unit_xc = unit_item["xc"] if unit_item else name_cx + 220.0
+    note_xc = note_item["xc"] if note_item else unit_xc + 140.0
+    if qty_item is None:
+        qty_xc = (name_cx + unit_xc) / 2.0
+
+    anchors = (("name", name_cx), ("qty", qty_xc), ("unit", unit_xc), ("note", note_xc))
+
+    def _nearest(xc: float) -> str:
+        return min(anchors, key=lambda a: abs(xc - a[1]))[0]
+
+    def _classify(text: str, xc: float) -> str:
+        # 10/18 and 日曜日 live in the unlabeled left column. 10月19日 in 備考 does not.
+        if xc < name_cx and _wald_is_date_only(text):
+            return "date"
+        role = _nearest(xc)
+        if role == "qty" and not _wald_is_qty(text):
+            role = "name" if xc < unit_xc else "note"
+        elif role == "unit" and not _wald_is_unit(text):
+            role = "name" if xc < qty_xc else "note"
+        elif role == "name" and _wald_is_unit(text) and xc >= (name_cx + qty_xc) / 2.0:
+            role = "unit"
+        elif role == "name" and _wald_is_qty(text) and xc >= (name_cx + qty_xc) / 2.0:
+            role = "qty"
+        return role
+
+    sheet_rows = [_WALD_HEADERS]
+    current_date = ""
+
+    for row in rows[header_idx + 1:]:
+        bucket = {"date": [], "name": [], "qty": [], "unit": [], "note": []}
+        for item in row:
+            role = _classify(item["text"], item["xc"])
+            if role in bucket:
+                bucket[role].append(item["text"].strip())
+
+        def _join(parts: list) -> str:
+            return re.sub(r"\s+", " ", " ".join(p for p in parts if p)).strip()
+
+        date_label = _wald_date_label(_join(bucket["date"]))
+        name = _join(bucket["name"])
+        qty = _join(bucket["qty"])
+        unit = _join(bucket["unit"])
+        note = _join(bucket["note"])
+
+        if date_label and not name and not qty and not note:
+            current_date = _merge_wald_date(current_date, date_label)
+            continue
+        if date_label:
+            current_date = _merge_wald_date(current_date, date_label)
+
+        unit_only = unit and not name and not qty and not note and unit.lower() in _WALD_UNITS
+        if unit_only or not (name or qty or note):
+            continue
+
+        sheet_rows.append([current_date, name, qty, unit, note])
+
+    if len(sheet_rows) <= 1:
+        return None
+
+    logger.info("ワルドデリカ OCR: extracted %d data rows", len(sheet_rows) - 1)
+    return {
+        "name": "ワルドデリカ OCR",
+        "rows": sheet_rows,
         "hasHeader": True,
         "headerIdx": 0,
     }

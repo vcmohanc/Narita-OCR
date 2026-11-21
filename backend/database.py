@@ -58,7 +58,7 @@ CLIENTS_SEED = [
         "code": "wald_delica",
         "name_ja": "ワルドデリカ",
         "name_en": "Wald Delica",
-        "keywords": "ワルドデリカ,ワルドデリ力,wald delica,walddelica,wald_delica",
+        "keywords": "ワルドデリカ,ワルドデリ力,ワールドデリカ,wald delica,walddelica,wald_delica,worlddelica",
     },
     {
         "code": "haibukiya",
@@ -916,7 +916,32 @@ def apply_client_ocr_formatting(
             if paddle_extracted:
                 result["paddle_extracted_rows"] = paddle_extracted
 
+    # ワルドデリカ sheet already forward-fills merged dates and keeps rows
+    # whose 数量 is blank. Prefer it over the generic column aligner.
+    wald_rows = result.get("wald_extracted_rows")
+    if isinstance(wald_rows, list) and wald_rows and _client_is_wald(client_pub):
+        result["paddle_extracted_rows"] = wald_rows
+        if client_cols:
+            client_pub_cols = client_cols
+        else:
+            client_pub_cols = ["納品日", "商品名", "数量", "単位", "備考"]
+        for tbl in result.get("tables") or []:
+            if isinstance(tbl, dict):
+                tbl["client_extracted_rows"] = wald_rows
+                tbl["client_headers"] = list(client_pub_cols)
+                tbl["client_header_found_at"] = 0
+
     return result
+
+
+def _client_is_wald(client: Optional[dict]) -> bool:
+    if not isinstance(client, dict):
+        return False
+    blob = " ".join(
+        str(client.get(k) or "")
+        for k in ("code", "name", "name_ja", "name_en")
+    ).lower()
+    return any(k in blob for k in ("wald", "ワルド", "ワールドデリカ", "worlddelica"))
 
 
 # ---------------------------------------------------------------------------
@@ -1617,7 +1642,28 @@ def _migrate():
             UPDATE ocr_clients
                SET header_row = 1,
                    heading_columns = '商品コード, 商品名, 規格, 数量, 単価, 金額'
-             WHERE code NOT IN ('fusui_project', 'nanohana') AND (heading_columns IS NULL OR heading_columns = '')
+             WHERE code NOT IN ('fusui_project', 'nanohana', 'wald_delica')
+               AND (heading_columns IS NULL OR heading_columns = '')
+            """
+        )
+        cur.execute(
+            """
+            UPDATE ocr_clients
+               SET header_row = 1,
+                   heading_columns = '納品日, 商品名, 数量, 単位, 備考'
+             WHERE code = 'wald_delica'
+               AND (
+                    heading_columns IS NULL OR heading_columns = ''
+                    OR heading_columns = '商品コード, 商品名, 規格, 数量, 単価, 金額'
+               )
+            """
+        )
+        cur.execute(
+            """
+            UPDATE ocr_clients
+               SET keywords = CONCAT(keywords, ',ワールドデリカ,worlddelica')
+             WHERE code = 'wald_delica'
+               AND keywords NOT LIKE '%ワールドデリカ%'
             """
         )
         _seed_clients(cur)
