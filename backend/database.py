@@ -1414,7 +1414,9 @@ def list_jobs(limit: int = 50, offset: int = 0, client_id: Optional[int] = None)
                        c.name_ja AS client_name_ja,
                        c.name_en AS client_name_en,
                        j.status, j.primary_engine, j.confidence_avg,
-                       j.processing_time_s, j.created_at, j.updated_at
+                       j.processing_time_s, j.created_at, j.updated_at,
+                       j.page_count,
+                       (SELECT COUNT(*) FROM ocr_tables t WHERE t.job_id = j.job_id) AS table_count
                   FROM ocr_jobs j
                   LEFT JOIN ocr_clients c ON c.id = j.client_id
                  {where_sql}

@@ -4093,7 +4093,7 @@ async function initTodayOrderView() {
 async function reloadOrderSheet() {
   const tbody = document.getElementById('orderSheetBody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="10" class="sheet-loading">読み込み中…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="11" class="sheet-loading">読み込み中…</td></tr>';
 
   try {
     // Fetch all jobs + client list in parallel (dbFetch falls back to :8081 if primary has no DB)
@@ -4217,6 +4217,7 @@ function getFilteredSorted() {
     else if (col === 'engine'){ av = (a.primary_engine||a.engine_requested||'').toLowerCase(); bv = (b.primary_engine||b.engine_requested||'').toLowerCase(); }
     else if (col === 'status'){ av = a.status||''; bv = b.status||''; }
     else if (col === 'confidence'){ av = a.confidence_avg ?? -1; bv = b.confidence_avg ?? -1; }
+    else if (col === 'data')   { av = (a.page_count ?? 0) + (a.table_count ?? 0); bv = (b.page_count ?? 0) + (b.table_count ?? 0); }
     else if (col === 'time')  { av = a.processing_time_s ?? -1; bv = b.processing_time_s ?? -1; }
     else                      { av = a.created_at||''; bv = b.created_at||''; }
     if (av < bv) return -dir; if (av > bv) return dir; return 0;
@@ -4233,7 +4234,7 @@ function renderOrderSheet() {
   if (countEl) countEl.textContent = `${rows.length} 件`;
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="sheet-empty">条件に一致する発注書データが見つかりませんでした。</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="sheet-empty">条件に一致する発注書データが見つかりませんでした。</td></tr>';
     updateOrderBulkUI();
     return;
   }
@@ -4247,7 +4248,8 @@ function renderOrderSheet() {
     const statusCls  = `badge badge-${esc(j.status)}`;
     const statusLabels = { done: '完了', error: 'エラー', processing: '処理中', queued: '待機中' };
     const statusText = statusLabels[j.status] || esc(j.status);
-    const confVal    = j.confidence_avg != null ? j.confidence_avg * 100 : null;
+    // Confidence: treat 0.0 as unavailable (PaddleOCR doesn't report confidence)
+    const confVal    = (j.confidence_avg != null && j.confidence_avg > 0.001) ? j.confidence_avg * 100 : null;
     const confStr    = confVal != null ? confVal.toFixed(1) + '%' : '—';
     const confClass  = confVal == null ? '' : confVal >= 85 ? '' : confVal >= 65 ? 'conf-warn' : 'conf-low';
     const confBar    = confVal != null
@@ -4255,6 +4257,13 @@ function renderOrderSheet() {
       : '';
     const date       = j.created_at ? j.created_at.replace('T',' ').slice(0,16) : '—';
     const timeStr    = j.processing_time_s != null ? j.processing_time_s + 's' : '—';
+    // Data summary: page count + extracted tables
+    const pages      = j.page_count != null && j.page_count > 0 ? j.page_count : null;
+    const tables     = j.table_count != null ? Number(j.table_count) : 0;
+    const dataParts  = [];
+    if (pages) dataParts.push(`${pages}P`);
+    if (tables > 0) dataParts.push(`${tables}テーブル`);
+    const dataStr    = dataParts.length ? dataParts.join(' / ') : '—';
     return `<tr class="${idx % 2 === 1 ? 'row-alt' : ''}${isChecked ? ' row-selected' : ''}"
                data-job-id="${esc(j.job_id)}" data-filename="${esc(j.filename)}">
       <td class="col-check"><input type="checkbox" class="order-row-chk" data-job-id="${esc(j.job_id)}" ${isChecked ? 'checked' : ''} /></td>
@@ -4263,6 +4272,7 @@ function renderOrderSheet() {
       <td class="col-file" title="${esc(j.filename)}">${esc(j.filename)}</td>
       <td class="col-engine"><span class="badge badge-engine">${engine}</span></td>
       <td class="col-status"><span class="${statusCls}"><span class="badge-dot"></span>${statusText}</span></td>
+      <td class="col-data"><span class="data-summary">${esc(dataStr)}</span></td>
       <td class="col-conf"><span class="conf-cell ${confClass}">${confBar}<span>${confStr}</span></span></td>
       <td class="col-time">${esc(timeStr)}</td>
       <td class="col-date">${esc(date)}</td>

@@ -721,6 +721,8 @@ td{color:var(--muted)}
 .col-file{min-width:200px;max-width:300px}
 .col-engine{width:110px;white-space:nowrap}
 .col-status{width:100px;white-space:nowrap}
+.col-data{width:110px;white-space:nowrap;font-size:12px;color:var(--text2)}
+.data-summary{display:inline-block;padding:2px 7px;border-radius:4px;background:var(--bg);border:1px solid var(--border);font-size:11px;color:var(--text2)}
 .col-conf{width:120px;white-space:nowrap}
 .col-time{width:80px;white-space:nowrap;text-align:right;color:var(--muted)}
 .col-date{width:130px;white-space:nowrap;color:var(--muted);font-size:12px}
