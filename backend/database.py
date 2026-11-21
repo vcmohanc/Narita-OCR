@@ -1176,9 +1176,9 @@ def save_extracted_job(
             """
             INSERT INTO ocr_jobs
                 (job_id, client_id, filename, status, engine_requested, primary_engine,
-                 fused_text, confidence_avg, processing_time_s, result_json,
+                 fused_text, confidence_avg, processing_time_s, page_count, result_json,
                  created_at, updated_at)
-            VALUES (%s, %s, %s, 'done', %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, 'done', %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 save_id,
@@ -1189,6 +1189,7 @@ def save_extracted_job(
                 result_to_store.get("fused_text") or result_to_store.get("full_text") or result_to_store.get("text") or result_to_store.get("markdown", ""),
                 result_to_store.get("confidence_avg"),
                 result_to_store.get("processing_time_s"),
+                result_to_store.get("page_count"),
                 json.dumps(result_to_store, ensure_ascii=False, default=str),
                 now,
                 now,
@@ -1250,6 +1251,7 @@ def save_job_done(
                        fused_text        = %s,
                        confidence_avg    = %s,
                        processing_time_s = %s,
+                       page_count        = COALESCE(%s, page_count),
                        result_json       = %s,
                        updated_at        = %s
                  WHERE job_id = %s
@@ -1260,6 +1262,7 @@ def save_job_done(
                     result.get("fused_text") or result.get("full_text") or result.get("text") or result.get("markdown", ""),
                     result.get("confidence_avg"),
                     result.get("processing_time_s"),
+                    result.get("page_count"),
                     json.dumps(result, ensure_ascii=False, default=str),
                     datetime.utcnow(),
                     job_id,
@@ -1416,7 +1419,9 @@ def list_jobs(limit: int = 50, offset: int = 0, client_id: Optional[int] = None)
                        j.status, j.primary_engine, j.confidence_avg,
                        j.processing_time_s, j.created_at, j.updated_at,
                        j.page_count,
-                       (SELECT COUNT(*) FROM ocr_tables t WHERE t.job_id = j.job_id) AS table_count
+                       COALESCE(JSON_LENGTH(j.result_json, '$.paddle_extracted_rows'), 0) AS paddle_row_count,
+                       COALESCE(JSON_LENGTH(j.result_json, '$.paddle.lines'), 0)           AS paddle_line_count,
+                       (SELECT COUNT(*) FROM ocr_tables t WHERE t.job_id = j.job_id)       AS table_count
                   FROM ocr_jobs j
                   LEFT JOIN ocr_clients c ON c.id = j.client_id
                  {where_sql}

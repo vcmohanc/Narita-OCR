@@ -4217,7 +4217,7 @@ function getFilteredSorted() {
     else if (col === 'engine'){ av = (a.primary_engine||a.engine_requested||'').toLowerCase(); bv = (b.primary_engine||b.engine_requested||'').toLowerCase(); }
     else if (col === 'status'){ av = a.status||''; bv = b.status||''; }
     else if (col === 'confidence'){ av = a.confidence_avg ?? -1; bv = b.confidence_avg ?? -1; }
-    else if (col === 'data')   { av = (a.page_count ?? 0) + (a.table_count ?? 0); bv = (b.page_count ?? 0) + (b.table_count ?? 0); }
+    else if (col === 'data')   { av = (a.paddle_row_count ?? 0) + (a.paddle_line_count ?? 0) + (a.table_count ?? 0); bv = (b.paddle_row_count ?? 0) + (b.paddle_line_count ?? 0) + (b.table_count ?? 0); }
     else if (col === 'time')  { av = a.processing_time_s ?? -1; bv = b.processing_time_s ?? -1; }
     else                      { av = a.created_at||''; bv = b.created_at||''; }
     if (av < bv) return -dir; if (av > bv) return dir; return 0;
@@ -4257,12 +4257,16 @@ function renderOrderSheet() {
       : '';
     const date       = j.created_at ? j.created_at.replace('T',' ').slice(0,16) : '—';
     const timeStr    = j.processing_time_s != null ? j.processing_time_s + 's' : '—';
-    // Data summary: page count + extracted tables
+    // Data summary: pages, extracted rows (PaddleOCR), tables (Docling), raw lines
     const pages      = j.page_count != null && j.page_count > 0 ? j.page_count : null;
+    const paddleRows = j.paddle_row_count != null ? Number(j.paddle_row_count) : 0;
+    const lines      = j.paddle_line_count != null ? Number(j.paddle_line_count) : 0;
     const tables     = j.table_count != null ? Number(j.table_count) : 0;
     const dataParts  = [];
     if (pages) dataParts.push(`${pages}P`);
-    if (tables > 0) dataParts.push(`${tables}テーブル`);
+    if (paddleRows > 0) dataParts.push(`${paddleRows}行`);
+    else if (tables > 0) dataParts.push(`${tables}テーブル`);
+    else if (lines > 0) dataParts.push(`${lines}行`);
     const dataStr    = dataParts.length ? dataParts.join(' / ') : '—';
     return `<tr class="${idx % 2 === 1 ? 'row-alt' : ''}${isChecked ? ' row-selected' : ''}"
                data-job-id="${esc(j.job_id)}" data-filename="${esc(j.filename)}">
@@ -9266,7 +9270,15 @@ function _extractSavedJobDisplayData(data) {
     return { type: 'multi_table', tables: sheetTables, source: 'Excel' };
   }
 
-  // Priority 6: fused_text — top-level DB column or inside result_json
+  // Priority 6: raw PaddleOCR lines — {text, confidence} per detected text region
+  const paddleLines = parsed.paddle && Array.isArray(parsed.paddle.lines) ? parsed.paddle.lines : [];
+  if (paddleLines.length > 0) {
+    const cols = ['テキスト', '信頼度'];
+    const rows = paddleLines.map(l => [String(l.text ?? ''), l.confidence != null ? (l.confidence * 100).toFixed(1) + '%' : '—']);
+    return { type: 'table', cols, rows, source: 'PaddleOCR (生テキスト)' };
+  }
+
+  // Priority 7: fused_text — top-level DB column or inside result_json
   const text = data.fused_text || parsed.fused_text || data.text || parsed.text;
   if (text && String(text).trim()) return { type: 'text', text: String(text), source: 'OCR テキスト' };
 
